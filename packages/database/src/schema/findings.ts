@@ -73,6 +73,10 @@ export const findings = pgTable(
     // Recurrence lookup (latest resolved finding with a fingerprint).
     index('findings_fingerprint_idx').on(t.fingerprint),
     index('findings_assignee_idx').on(t.assignedTo),
+    // Accepted-risk expiry sweep (cron).
+    index('findings_accepted_risk_review_idx')
+      .on(t.acceptedRiskReviewAt)
+      .where(sql`${t.status} = 'accepted_risk'`),
     check(
       'findings_category_valid',
       sql`${t.category} IN ('dns', 'email', 'tls', 'http', 'exposure', 'registration', 'asset')`,
@@ -107,6 +111,24 @@ export const findingStatusHistory = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('finding_status_history_finding_idx').on(t.findingId, t.createdAt)],
+);
+
+/** Remediation notes and discussion on a finding (append-only; asset owners add notes here). */
+export const findingComments = pgTable(
+  'finding_comments',
+  {
+    id: id(),
+    findingId: uuid('finding_id')
+      .notNull()
+      .references(() => findings.id, { onDelete: 'cascade' }),
+    authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text('body').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('finding_comments_finding_idx').on(t.findingId, t.createdAt),
+    check('finding_comments_body_length', sql`char_length(${t.body}) BETWEEN 1 AND 4000`),
+  ],
 );
 
 /** Remediation advisories derived from a finding and its evidence. */

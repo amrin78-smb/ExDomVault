@@ -178,7 +178,7 @@ References:
 
 **Detection.** The apex NS set, or the SOA primary name server (MNAME), differs from the previous successful observation. There is no change-approval workflow yet, so every change is treated as unexpected until reviewed.
 
-**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it (a repeated identical observation does not undo the change).
+**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it (a repeated identical observation does not undo the change). A user with `findings:triage` can also resolve it after review (change-detection rule).
 
 **Sample advisory** (for `example.com`): _Review the authoritative DNS change for example.com_
 
@@ -414,7 +414,7 @@ References:
 
 **Detection.** A port is open now on an address that has a baseline (a successful earlier port observation of that address), and the same address+port was absent, closed or filtered in the baseline. The first scan of an address establishes the baseline and raises nothing. Low; informational when the port is also an administrative service (EXP-002 carries the severity).
 
-**Resolution.** A successful observation shows the address+port closed or filtered. While the port stays open the finding stays active (it records the change until reviewed).
+**Resolution.** A successful observation shows the address+port closed or filtered. While the port stays open the finding stays active (it records the change until reviewed). A user with `findings:triage` can also resolve it after review (change-detection rule).
 
 **Sample advisory** (for `example.com`): _Confirm the newly exposed port is intended_
 
@@ -678,7 +678,7 @@ References:
 
 **Detection.** The registrar name (compared case- and whitespace-insensitively) or the registration nameserver set differs from the previous observation. Components: registrar, nameservers. There is no change-approval workflow yet, so every change is reported for review.
 
-**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it.
+**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it. A user with `findings:triage` can also resolve it after review (change-detection rule).
 
 **Sample advisory** (for `example.com`): _Review the registrar change for example.com_
 

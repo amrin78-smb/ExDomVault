@@ -98,7 +98,7 @@ function renderRule(rule: Rule): string {
     '',
     `**Detection.** ${rule.detection}`,
     '',
-    `**Resolution.** ${rule.resolution}`,
+    `**Resolution.** ${rule.resolution}${rule.manualResolution ? ' A user with `findings:triage` can also resolve it after review (change-detection rule).' : ''}`,
     '',
   ];
   const advisory = sampleAdvisory(rule);

@@ -153,6 +153,7 @@ export const dns001: Rule = {
   resolution:
     'Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst ' +
     'resolves or accepts it (a repeated identical observation does not undo the change).',
+  manualResolution: true,
   evaluate(input) {
     const apex = apexOf(input);
     const curNs = successfulRecord(input.current.dns, apex, 'NS');

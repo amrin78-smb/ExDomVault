@@ -96,6 +96,7 @@ export const exp001: Rule = {
     'A port is open now on an address that has a baseline (a successful earlier port observation of that address), and the same address+port was absent, closed or filtered in the baseline. The first scan of an address establishes the baseline and raises nothing. Low; informational when the port is also an administrative service (EXP-002 carries the severity).',
   resolution:
     'A successful observation shows the address+port closed or filtered. While the port stays open the finding stays active (it records the change until reviewed).',
+  manualResolution: true,
   evaluate(input) {
     const { context } = input;
     const hostname = context.domain.fqdn;

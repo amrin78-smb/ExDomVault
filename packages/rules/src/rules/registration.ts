@@ -145,6 +145,7 @@ export const reg002: Rule = {
   resolution:
     'Not auto-resolved: a change is an event that needs review, so the finding stays open until an ' +
     'analyst resolves or accepts it.',
+  manualResolution: true,
   evaluate(input) {
     const cur = usable(input.current.registration);
     const prev = usable(input.previous.registration);

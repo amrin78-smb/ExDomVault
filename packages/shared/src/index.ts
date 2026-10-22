@@ -11,3 +11,4 @@ export * from './api/workers.ts';
 export * from './domain/permissions.ts';
 export * from './domain/roles.ts';
 export * from './domain/severity.ts';
+export * from './domain/finding-lifecycle.ts';

@@ -211,6 +211,12 @@ export interface Rule {
   detection: string;
   /** Human description of the resolution condition. */
   resolution: string;
+  /**
+   * True for change-detection rules whose condition never becomes "absent" in a later scan (the
+   * baseline moves with every scan). Their findings can be resolved by a user with
+   * `findings:triage` after review; every other rule resolves only through a successful scan.
+   */
+  manualResolution?: boolean;
   evaluate(input: EvaluationInput): RuleOutcome;
   advisory(finding: FindingCandidate, context: EvaluationContext): Advisory;
 }
