@@ -198,13 +198,19 @@ async function evaluateInTx(
     ...result.upserts.map((u) => u.fingerprint),
     ...result.resolutions.map((r) => r.fingerprint),
   ];
+  // Locked (in id order, like user bulk changes) so a concurrent user status change either
+  // commits first, and is seen here, or waits for this evaluation: history `from_status` is never
+  // stale and an acceptance cannot be written onto a finding this job is resolving.
   const existing =
     fingerprints.length > 0
-      ? await tx
-          .select()
-          .from(findings)
-          .where(inArray(findings.fingerprint, fingerprints))
-          .orderBy(desc(findings.resolvedAt), desc(findings.updatedAt))
+      ? (
+          await tx
+            .select()
+            .from(findings)
+            .where(inArray(findings.fingerprint, [...new Set(fingerprints)]))
+            .orderBy(asc(findings.id))
+            .for('update')
+        ).sort(latestFirst)
       : [];
   const activeByFp = new Map<string, (typeof existing)[number]>();
   const resolvedByFp = new Map<string, (typeof existing)[number]>();
@@ -253,6 +259,10 @@ async function evaluateInTx(
           resolvedAt: null,
           lastSeenAt: seenAt,
           recurrenceCount: resolved.recurrenceCount + 1,
+          // A recurrence needs a fresh decision: no acceptance carries over.
+          acceptedRiskReason: null,
+          acceptedRiskApprovedBy: null,
+          acceptedRiskReviewAt: null,
           assetId: assetId ?? resolved.assetId,
         })
         .where(eq(findings.id, resolved.id));
@@ -305,7 +315,14 @@ async function evaluateInTx(
     // recur, it reopens as `open` and needs a fresh decision.
     await tx
       .update(findings)
-      .set({ status: 'resolved', resolvedAt: seenAt, updatedAt: now })
+      .set({
+        status: 'resolved',
+        resolvedAt: seenAt,
+        acceptedRiskReason: null,
+        acceptedRiskApprovedBy: null,
+        acceptedRiskReviewAt: null,
+        updatedAt: now,
+      })
       .where(and(eq(findings.id, active.id), ne(findings.status, 'resolved')));
     await tx.insert(findingStatusHistory).values({
       findingId: active.id,
@@ -318,6 +335,18 @@ async function evaluateInTx(
     out.resolved++;
   }
   return out;
+}
+
+/** Latest resolution first, then most recently updated (picks the finding a recurrence reopens). */
+function latestFirst(
+  a: { resolvedAt: Date | null; updatedAt: Date },
+  b: { resolvedAt: Date | null; updatedAt: Date },
+): number {
+  // ORDER BY resolved_at DESC puts NULLs first in PostgreSQL; keep that order.
+  const ra = a.resolvedAt?.getTime() ?? Infinity;
+  const rb = b.resolvedAt?.getTime() ?? Infinity;
+  if (ra !== rb) return rb - ra;
+  return b.updatedAt.getTime() - a.updatedAt.getTime();
 }
 
 async function upsertAdvisory(tx: Database, findingId: string, u: FindingUpsert, now: Date) {

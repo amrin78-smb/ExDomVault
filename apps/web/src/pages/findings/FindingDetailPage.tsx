@@ -5,10 +5,12 @@ import {
   type FindingDetailResponse,
 } from '@exdomainvault/shared';
 import { ArrowLeft, Info } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { EvidenceView } from '../../components/findings/EvidenceView.tsx';
+import { FindingComments } from '../../components/findings/FindingComments.tsx';
 import { FindingStatusBadge } from '../../components/findings/FindingStatusBadge.tsx';
+import { FindingWorkflow } from '../../components/findings/FindingWorkflow.tsx';
 import {
   CATEGORY_LABELS,
   CONFIDENCE_LABELS,
@@ -21,11 +23,18 @@ import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
+import { usePermissions } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
 
 export function FindingDetailPage() {
   const { id = '' } = useParams();
   const state = useAsync((signal) => api.findings.get(id, { signal }), [id]);
+  // After a change, the latest version replaces the loaded one without unmounting the page (so
+  // focus, open forms and result messages survive the reload).
+  const [fresh, setFresh] = useState<{ id: string; data: FindingDetailResponse } | null>(null);
+  const refresh = async () => {
+    setFresh({ id, data: await api.findings.get(id) });
+  };
 
   if (state.status === 'loading') {
     return (
@@ -42,11 +51,18 @@ export function FindingDetailPage() {
       </>
     );
   }
-  return <FindingDetail detail={state.data} />;
+  return <FindingDetail detail={fresh?.id === id ? fresh.data : state.data} onRefresh={refresh} />;
 }
 
-function FindingDetail({ detail }: { detail: FindingDetailResponse }) {
-  const { finding, advisory, history, rule } = detail;
+function FindingDetail({
+  detail,
+  onRefresh,
+}: {
+  detail: FindingDetailResponse;
+  onRefresh: () => Promise<void>;
+}) {
+  const { finding, advisory, history, comments, rule } = detail;
+  const can = usePermissions();
   return (
     <>
       <BackLink />
@@ -93,6 +109,8 @@ function FindingDetail({ detail }: { detail: FindingDetailResponse }) {
           evidence that the system has been compromised.
         </div>
       </div>
+
+      <FindingWorkflow finding={finding} onRefresh={onRefresh} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="What we observed" className="lg:col-span-2">
@@ -168,8 +186,9 @@ function FindingDetail({ detail }: { detail: FindingDetailResponse }) {
               <>
                 <p>{rule.resolution}</p>
                 <p className="text-xs text-slate-500">
-                  A finding is only resolved by a later successful scan that confirms the condition
-                  is gone. Failed or incomplete scans never resolve findings.
+                  {finding.manualResolution
+                    ? 'This rule reports a change, so a user with triage permission resolves it after reviewing the change. Failed or incomplete scans never resolve findings.'
+                    : 'A finding is only resolved by a later successful scan that confirms the condition is gone. Failed or incomplete scans never resolve findings.'}
                 </p>
               </>
             ) : (
@@ -212,8 +231,12 @@ function FindingDetail({ detail }: { detail: FindingDetailResponse }) {
                       ? `${FINDING_STATUS_LABELS[h.fromStatus]} → ${FINDING_STATUS_LABELS[h.toStatus]}`
                       : FINDING_STATUS_LABELS[h.toStatus]}
                   </div>
-                  <div className="text-slate-600">{historyReasonLabel(h.reason)}</div>
-                  {h.note && <div className="text-slate-600">{h.note}</div>}
+                  <div className="text-slate-600">{historyReasonLabel(h.reason, h.changedBy)}</div>
+                  {h.note && (
+                    <blockquote className="mt-0.5 whitespace-pre-wrap border-l-2 border-slate-200 pl-2 text-slate-700">
+                      {h.note}
+                    </blockquote>
+                  )}
                   <div className="text-xs text-slate-500">
                     {formatDateTime(h.createdAt)} · {h.changedBy ? h.changedBy.email : 'System'}
                     {h.scanJobId && (
@@ -231,6 +254,13 @@ function FindingDetail({ detail }: { detail: FindingDetailResponse }) {
             </ol>
           )}
         </Card>
+
+        <FindingComments
+          findingId={finding.id}
+          comments={comments}
+          canComment={can('findings:triage') || can('findings:remediate')}
+          onAdded={onRefresh}
+        />
       </div>
     </>
   );

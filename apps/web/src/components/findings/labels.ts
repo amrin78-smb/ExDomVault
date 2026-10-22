@@ -1,4 +1,4 @@
-import type { RiskInputsDto } from '@exdomainvault/shared';
+import type { FindingStatus, FindingUserRef, RiskInputsDto } from '@exdomainvault/shared';
 
 /** Display labels for rule-engine vocabulary (category, confidence, exposure, history reasons). */
 export const CATEGORY_LABELS: Record<string, string> = {
@@ -34,7 +34,40 @@ export const SORT_LABELS: Record<string, string> = {
 const REASON_LABELS: Record<string, string> = {
   detected: 'First detected by a scan',
   recurrence: 'Observed again after being resolved',
-  condition_absent: 'A successful scan confirmed the condition is gone',
+  condition_absent: 'Resolved by scan',
+  accepted_risk_expired: 'Risk acceptance expired',
 };
 
-export const historyReasonLabel = (reason: string) => REASON_LABELS[reason] ?? reason;
+/** Friendly text for a status-history reason code; `manual` names the user who made the change. */
+export function historyReasonLabel(reason: string, changedBy?: { email: string } | null): string {
+  if (reason === 'manual') return `Changed by ${changedBy?.email ?? 'a user'}`;
+  return REASON_LABELS[reason] ?? reason;
+}
+
+/** Display name of a user reference (assignee, approver, comment author). */
+export const userLabel = (user: FindingUserRef | null | undefined, fallback = 'Unknown user') =>
+  user ? (user.displayName ?? user.email) : fallback;
+
+/** Button text for moving a finding from `from` to `to`. */
+export function transitionLabel(from: FindingStatus, to: FindingStatus): string {
+  switch (to) {
+    case 'acknowledged':
+      return from === 'open' ? 'Acknowledge' : 'Pause remediation';
+    case 'remediation_in_progress':
+      return 'Start remediation';
+    case 'open':
+      return from === 'accepted_risk' ? 'Withdraw risk acceptance' : 'Reopen';
+    case 'accepted_risk':
+      return 'Accept risk';
+    case 'resolved':
+      return 'Mark as reviewed (resolve)';
+  }
+}
+
+/** Why a bulk update left a finding unchanged (server codes; unknown codes are shown as-is). */
+export const SKIP_CODE_LABELS: Record<string, string> = {
+  not_found: 'not found or not visible to you',
+  invalid_transition: 'change not possible from their current status',
+  transition_not_allowed: 'change not permitted for your role',
+  no_change: 'already in that state',
+};

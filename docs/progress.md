@@ -13,12 +13,21 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 5   | Python worker                              | done        | Deployed; worker live on this host      |
 | 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
 | 7   | Deterministic rules engine                 | done        | Deployed 2026-10-22 (`7dff53fc`)        |
-| 8   | Finding lifecycle                          | not started |                                         |
+| 8   | Finding lifecycle                          | done        | Built; not yet deployed                 |
 | 9   | Passive subdomain discovery                | not started |                                         |
 | 10  | Frontend integration                       | not started |                                         |
 | 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
+
+- 2026-10-22 — **Finding lifecycle transitions** are one table in `packages/shared/src/domain/finding-lifecycle.ts`, enforced by the API and used by the UI. Analysts triage/accept risk/reopen; asset owners (`findings:remediate`) only start or pause remediation on findings they can see; viewers nothing. `resolved` is terminal by hand: a recurrence observed by a successful scan reopens it.
+- 2026-10-22 — **Manual resolution only for change-detection rules** (`Rule.manualResolution`: DNS-001, REG-002, EXP-001) whose condition can never become "absent"; every other finding resolves only through a successful scan (hard rule). Users ask for a **Re-check** instead (`POST /findings/:id/reassess`, cheapest profile running the rule's checks, normal scan authorisation applies).
+- 2026-10-22 — **Accepted risk:** reason ≥ 10 chars, the acting user is the approver, review date required and ≤ 366 days (UI default 90). The 5-minute cron reopens lapsed acceptances (`accepted_risk_expired`, system audit). Resolution or recurrence clears the acceptance.
+- 2026-10-22 — **Optimistic concurrency:** PATCH carries `expectedStatus`; a finding changed meanwhile (user or scan) → `409 conflict` with `details[0].path = expectedStatus` and nothing changes. Error codes stay within the shared `ERROR_CODES`; the specific cause is in `details[0].path`. Evaluation now locks the findings it touches (`FOR UPDATE`) so history never records a stale "from" status.
+- 2026-10-22 — **History reasons are codes** (`detected`, `recurrence`, `condition_absent`, `accepted_risk_expired`, `manual`); a user's explanation goes in `note`. Remediation notes are a separate append-only `finding_comments` table (production role: INSERT/SELECT only).
+- 2026-10-22 — **Bulk triage** (`POST /findings/bulk`, ≤ 500 ids) for the 339-domain portfolio, set-based (few statements) to stay within the Workers CPU budget; per-finding skip reasons returned.
+- 2026-10-22 — **Hyperdrive query caching disabled** (owner-approved): cached reads showed stale state for up to 60 s, including authorisation/kill-switch re-checks.
+- 2026-10-22 — **Workers free plan CPU limit (10 ms/request) observed in production** with 339 monitored domains: result uploads and some page loads fail with `exceededCpu` and are retried. Recommended Workers Paid ($5/month) — owner decision pending. Moving to another host was considered and rejected (Access, Hyperdrive, cron rework).
 
 - 2026-10-22 — **Rules engine (`packages/rules`) is pure and deterministic:** rules return findings plus the components they CHECKED with successful evidence; only checked-and-absent components resolve; rules lacking successful evidence are skipped (neither raise nor resolve); a throwing rule produces nothing. Fingerprint `ruleId|domainId|hostname|component`. Risk model v1 = severity weight (5/25/50/75/95) × exposure (public record 0.8, web 1.0, network service 1.1) × criticality (0.7/0.85/1.0/1.15), clamped 0–100, inputs stored.
 - 2026-10-22 — **23 rules**: the 14 from design §8 plus DNS-005 (no DNSSEC), DNS-006 (no CAA), DNS-007 (DMARC `p=none`), TLS-005 (untrusted chain), HTTP-001…005 (no HTTPS, no HTTP→HTTPS redirect, no HSTS, missing headers, version disclosure). `docs/advisory-rules.md` is generated from the registry (`npm run rules:docs`; CI fails on drift).
@@ -105,7 +114,9 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [ ] Optional: delete the `BOOTSTRAP_ADMIN_EMAILS` secret now that the first admin exists.
 - [x] ~~Cloudflare Access service token + Service Auth policy for the worker~~ — done by the owner 2026-10-22.
 - [x] ~~Install the worker on this host~~ — done by the owner 2026-10-22 (`install.sh`, key registered as `home-worker-01`, service token in `worker.env`, systemd unit enabled).
-- [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
+- [x] ~~Install Nmap on the scan host~~ — done 2026-10-22 (7.94).
+- [ ] **Upgrade to Workers Paid** (Cloudflare dashboard → Workers & Pages → Plans) — the free plan's 10 ms CPU limit kills some requests (see Decisions, 2026-10-22).
+- [ ] After migrating production to 0005: `REVOKE UPDATE, DELETE ON finding_comments FROM exdomainvault_app;` (Claude runs it with the migration, with approval).
 
 ## Future enhancements (owner requests)
 
@@ -125,19 +136,27 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
 - No user-management UI/API yet: non-bootstrap users must be inserted into `users` manually.
 - A positive DNS TXT verification has only been tested with a mocked resolver (needs a domain whose DNS you control); administrator authorisation was exercised end to end on the Neon `dev` branch with all 339 portfolio domains.
-- Challenge expiry is lazy (applied when domain data is read or changed); no scheduled sweep until Cron Triggers arrive (Milestone 4).
-- No domain deletion, no rate limit on domain creation beyond permissions. No bulk monitoring toggle yet (monitoring has no effect until collection exists).
-- Registration (RDAP) data is not collected; the UI says "Not collected yet".
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
-- Overview panels show empty states; other sections are placeholders naming their milestone.
-- The worker is not installed on the scan host yet (owner steps in `docs/home-worker-setup.md`): queued scans stay queued until it runs. Scheduled passive jobs only start once monitoring is on for a domain; with no worker they wait (one per domain, no pile-up).
-- Result submissions carry target statuses only; observation payloads (DNS/RDAP/TLS/HTTP) are added with the worker in Milestones 5–6.
-- The home worker will need a Cloudflare Access service token + Service Auth policy to reach `/api/v1/internal/worker/*` (the hostname is behind Access for all traffic).
 - No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
+- No domain deletion, no rate limit on domain creation beyond permissions.
+- **Only passive scans are scheduled.** Quick/Standard/Deep run on request (domain page or a finding's Re-check); the design's daily/weekly/monthly active schedules are not built yet (proposed next: opt-in scheduled Quick for monitored, authorised domains).
+- Workers free plan CPU limit (10 ms) causes intermittent 503s under scan load until the plan is upgraded.
+- Finding history timestamps: system entries use the scan's completion time, user entries wall-clock time, so a delayed evaluation can sort before a user change (each entry's "from" status is still correct).
+- Assignment notifications (email etc.) are not implemented; assignment is visible in the UI and filterable (`assignee=me`).
 
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Milestone 8 — 2026-10-22
+
+**Built (contracts first, then two parallel agents: server, UI):** transition matrix + requirements (`packages/shared/src/domain/finding-lifecycle.ts`), update/bulk/comment/reassess/assignable-user schemas, `Rule.manualResolution`, migration `0005_finding_lifecycle` (`finding_comments`, accepted-risk review index). Server: `services/finding-lifecycle.ts` (PATCH with row lock + `expectedStatus`, bulk set-based, comments, reassess via `createScan`, accepted-risk expiry sweep in cron), `routes/users.ts` (`GET /users/assignable`), read model with assignee/acceptedRisk/manualResolution/comments and `assignee` filter, evaluation locks findings and clears stale acceptance. UI: Workflow card (status actions from the matrix with inline reason/review-date forms, conflict handling, assignee picker, accepted-risk block, Re-check), comments, readable history, findings list assignee column/filter, row selection with bulk actions. Docs: API spec Findings section (was missing), schema, deployment (Hyperdrive caching, comments grant).
+
+**Checks:** `npm run lint` pass; `npm run typecheck` pass; `npm run db:check` pass; `npm run rules:docs:check` pass; `npm test` 47 files, 1311 tests pass (incl. 28 server lifecycle tests covering every from/to pair for all four roles, concurrency, recurrence after manual resolve, failed scans never resolving; 26 UI lifecycle tests); `npm run build` pass. Worker (Python) unchanged.
+
+**Not yet done:** production migration (0005) and deploy — need owner approval; Workers Paid upgrade recommended first.
+
+**Next:** Milestone 9 — passive subdomain discovery (CT logs). Proposed small follow-up: opt-in scheduled Quick scans.
 
 ### Milestone 1 — 2026-10-22
 

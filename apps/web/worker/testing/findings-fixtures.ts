@@ -65,6 +65,8 @@ export const aChangeRule: Rule = {
   title: 'Synthetic A change rule',
   requires: ['dns'],
   requiresChecks: ['dns'],
+  // Change detection: the baseline moves with every scan, so users may resolve by hand.
+  manualResolution: true,
   defaultSeverity: 'low',
   defaultConfidence: 'high',
   ...doc,

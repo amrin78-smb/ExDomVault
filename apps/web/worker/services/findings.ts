@@ -7,6 +7,7 @@ import {
   type AdvisoryListResponse,
   type CurrentUser,
   type Finding,
+  type FindingComment,
   type FindingDetailResponse,
   type FindingListQuery,
   type FindingListResponse,
@@ -14,12 +15,14 @@ import {
   type RiskInputsDto,
   type RuleCatalogueEntry,
 } from '@exdomainvault/shared';
-import { and, asc, count, desc, eq, ilike, inArray, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { ApiError } from '../lib/errors.ts';
 
-const { advisories, assets, domains, findingStatusHistory, findings, users } = schema;
+const { advisories, assets, domains, findingComments, findingStatusHistory, findings, users } =
+  schema;
 
-type FindingRow = typeof findings.$inferSelect;
+export type FindingRow = typeof findings.$inferSelect;
 type AdvisoryRow = typeof advisories.$inferSelect;
 
 /**
@@ -37,13 +40,35 @@ export function visibleTo(db: Database, user: Pick<CurrentUser, 'id' | 'role'>):
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-export function toFindingDto(row: FindingRow, domain: { id: string; fqdn: string }): Finding {
+type UserRef = { id: string; email: string; displayName: string | null };
+
+/** Related rows a finding DTO needs besides the finding itself. */
+export interface FindingRefs {
+  domain: { id: string; fqdn: string };
+  assignee: UserRef | null;
+  approver: UserRef | null;
+}
+
+/** Whether the rule's findings may be resolved by hand (unknown rules: no). */
+export function isManualResolution(rules: readonly Rule[], ruleId: string): boolean {
+  return rules.find((r) => r.id === ruleId)?.manualResolution === true;
+}
+
+export function toFindingDto(row: FindingRow, refs: FindingRefs, rules: readonly Rule[]): Finding {
+  const accepted =
+    row.status === 'accepted_risk' && row.acceptedRiskReason && row.acceptedRiskReviewAt
+      ? {
+          reason: row.acceptedRiskReason,
+          approvedBy: refs.approver,
+          reviewAt: row.acceptedRiskReviewAt.toISOString(),
+        }
+      : null;
   return {
     id: row.id,
     ruleId: row.ruleId,
     ruleVersion: row.ruleVersion,
     category: row.category as Finding['category'],
-    domain,
+    domain: refs.domain,
     hostname: row.hostname,
     component: row.component,
     assetId: row.assetId,
@@ -59,9 +84,63 @@ export function toFindingDto(row: FindingRow, domain: { id: string; fqdn: string
     lastSeenAt: row.lastSeenAt.toISOString(),
     resolvedAt: iso(row.resolvedAt),
     recurrenceCount: row.recurrenceCount,
+    assignee: refs.assignee,
+    acceptedRisk: accepted,
+    manualResolution: isManualResolution(rules, row.ruleId),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+const assigneeUser = alias(users, 'assignee_user');
+const approverUser = alias(users, 'approver_user');
+
+/** Findings joined with everything their DTO shows (domain, assignee, risk approver). */
+function findingQuery(db: Database) {
+  return db
+    .select({
+      f: findings,
+      domainFqdn: domains.fqdn,
+      assignee: {
+        id: assigneeUser.id,
+        email: assigneeUser.email,
+        displayName: assigneeUser.displayName,
+      },
+      approver: {
+        id: approverUser.id,
+        email: approverUser.email,
+        displayName: approverUser.displayName,
+      },
+    })
+    .from(findings)
+    .innerJoin(domains, eq(domains.id, findings.domainId))
+    .leftJoin(assigneeUser, eq(assigneeUser.id, findings.assignedTo))
+    .leftJoin(approverUser, eq(approverUser.id, findings.acceptedRiskApprovedBy));
+}
+
+type FindingJoinRow = Awaited<ReturnType<ReturnType<typeof findingQuery>['where']>>[number];
+
+function joinRowToDto(r: FindingJoinRow, rules: readonly Rule[]): Finding {
+  return toFindingDto(
+    r.f,
+    {
+      domain: { id: r.f.domainId, fqdn: r.domainFqdn },
+      assignee: r.assignee?.id ? r.assignee : null,
+      approver: r.approver?.id ? r.approver : null,
+    },
+    rules,
+  );
+}
+
+/** One finding as its DTO (no visibility check: callers have done it). */
+export async function loadFinding(
+  db: Database,
+  id: string,
+  rules: readonly Rule[],
+): Promise<Finding> {
+  const [row] = await findingQuery(db).where(eq(findings.id, id)).limit(1);
+  if (!row) throw new ApiError(404, 'not_found', 'The requested resource was not found.');
+  return joinRowToDto(row, rules);
 }
 
 function toAdvisoryDto(row: AdvisoryRow): AdvisoryDto {
@@ -79,6 +158,15 @@ function toAdvisoryDto(row: AdvisoryRow): AdvisoryDto {
 }
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
+
+function assigneeFilter(
+  assignee: FindingListQuery['assignee'],
+  user: Pick<CurrentUser, 'id'>,
+): SQL | undefined {
+  if (assignee === undefined) return undefined;
+  if (assignee === 'unassigned') return isNull(findings.assignedTo);
+  return eq(findings.assignedTo, assignee === 'me' ? user.id : assignee.toLowerCase());
+}
 
 function statusFilter(status: FindingListQuery['status']): SQL | undefined {
   if (status === 'all') return undefined;
@@ -107,6 +195,7 @@ export async function listFindings(
   db: Database,
   user: Pick<CurrentUser, 'id' | 'role'>,
   q: FindingListQuery,
+  rules: readonly Rule[],
 ): Promise<FindingListResponse> {
   const filters: (SQL | undefined)[] = [
     visibleTo(db, user),
@@ -115,6 +204,7 @@ export async function listFindings(
     q.category ? eq(findings.category, q.category) : undefined,
     q.domainId ? eq(findings.domainId, q.domainId.toLowerCase()) : undefined,
     q.ruleId ? eq(findings.ruleId, q.ruleId.toUpperCase()) : undefined,
+    assigneeFilter(q.assignee, user),
   ];
   if (q.q) {
     const term = `%${escapeLike(q.q.toLowerCase())}%`;
@@ -122,10 +212,7 @@ export async function listFindings(
   }
   const where = and(...filters);
   const [rows, [totalRow]] = await Promise.all([
-    db
-      .select({ f: findings, domainFqdn: domains.fqdn })
-      .from(findings)
-      .innerJoin(domains, eq(domains.id, findings.domainId))
+    findingQuery(db)
       .where(where)
       .orderBy(...orderFor(q.sort))
       .limit(q.pageSize)
@@ -133,7 +220,7 @@ export async function listFindings(
     db.select({ total: count() }).from(findings).where(where),
   ]);
   return {
-    items: rows.map((r) => toFindingDto(r.f, { id: r.f.domainId, fqdn: r.domainFqdn })),
+    items: rows.map((r) => joinRowToDto(r, rules)),
     page: q.page,
     pageSize: q.pageSize,
     total: totalRow?.total ?? 0,
@@ -178,10 +265,7 @@ export async function getFindingDetail(
   id: string,
   rules: readonly Rule[],
 ): Promise<FindingDetailResponse> {
-  const [row] = await db
-    .select({ f: findings, domainFqdn: domains.fqdn })
-    .from(findings)
-    .innerJoin(domains, eq(domains.id, findings.domainId))
+  const [row] = await findingQuery(db)
     .where(and(eq(findings.id, id), visibleTo(db, user)))
     .limit(1);
   // Not visible and not existing are indistinguishable.
@@ -194,10 +278,19 @@ export async function getFindingDetail(
     .leftJoin(users, eq(users.id, findingStatusHistory.changedBy))
     .where(eq(findingStatusHistory.findingId, id))
     .orderBy(asc(findingStatusHistory.createdAt), asc(findingStatusHistory.id));
+  const comments = await db
+    .select({
+      c: findingComments,
+      author: { id: users.id, email: users.email, displayName: users.displayName },
+    })
+    .from(findingComments)
+    .leftJoin(users, eq(users.id, findingComments.authorUserId))
+    .where(eq(findingComments.findingId, id))
+    .orderBy(asc(findingComments.createdAt), asc(findingComments.id));
   const rule = rules.find((r) => r.id === row.f.ruleId);
 
   return {
-    finding: toFindingDto(row.f, { id: row.f.domainId, fqdn: row.domainFqdn }),
+    finding: joinRowToDto(row, rules),
     advisory: advisory ? toAdvisoryDto(advisory) : null,
     history: history.map(({ h, email }) => ({
       id: h.id,
@@ -209,6 +302,7 @@ export async function getFindingDetail(
       scanJobId: h.scanJobId,
       createdAt: h.createdAt.toISOString(),
     })),
+    comments: comments.map(({ c, author }) => toCommentDto(c, author?.id ? author : null)),
     rule: rule
       ? {
           id: rule.id,
@@ -219,6 +313,13 @@ export async function getFindingDetail(
         }
       : null,
   };
+}
+
+export function toCommentDto(
+  c: typeof findingComments.$inferSelect,
+  author: UserRef | null,
+): FindingComment {
+  return { id: c.id, author, body: c.body, createdAt: c.createdAt.toISOString() };
 }
 
 export async function listAdvisories(

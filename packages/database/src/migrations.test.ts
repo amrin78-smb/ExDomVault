@@ -78,6 +78,7 @@ describe('migrations', () => {
       'dns_observations',
       'domain_verifications',
       'domains',
+      'finding_comments',
       'finding_status_history',
       'findings',
       'http_observations',

@@ -6,12 +6,15 @@ import {
   SEVERITIES,
   SEVERITY_LABELS,
   compareSeverityDesc,
+  type FindingBulkUpdateResponse,
 } from '@exdomainvault/shared';
 import { Bug, Search, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { BulkFindingActions } from '../../components/findings/BulkFindingActions.tsx';
+import { BULK_PERMISSIONS, bulkResultText } from '../../components/findings/lifecycle.ts';
 import { FindingStatusBadge } from '../../components/findings/FindingStatusBadge.tsx';
-import { CATEGORY_LABELS, SORT_LABELS } from '../../components/findings/labels.ts';
+import { CATEGORY_LABELS, SORT_LABELS, userLabel } from '../../components/findings/labels.ts';
 import { Pagination } from '../../components/findings/Pagination.tsx';
 import { RiskScore } from '../../components/findings/RiskScore.tsx';
 import { Button } from '../../components/ui/Button.tsx';
@@ -22,9 +25,18 @@ import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
+import { usePermissions } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
 
-const FILTER_KEYS = ['status', 'severity', 'category', 'domainId', 'ruleId', 'q'] as const;
+const FILTER_KEYS = [
+  'status',
+  'severity',
+  'category',
+  'assignee',
+  'domainId',
+  'ruleId',
+  'q',
+] as const;
 const QUERY_KEYS = ['page', 'pageSize', ...FILTER_KEYS, 'sort'] as const;
 
 const selectClass =
@@ -33,9 +45,17 @@ const selectClass =
 export function FindingsPage() {
   const [params, setParams] = useSearchParams();
   const [searchDraft, setSearchDraft] = useState(params.get('q') ?? '');
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [reloadKey, setReloadKey] = useState(0);
+  const [bulkResult, setBulkResult] = useState<FindingBulkUpdateResponse | null>(null);
+  const can = usePermissions();
+  const canSelect = BULK_PERMISSIONS.some((p) => can(p));
 
   const query = Object.fromEntries(QUERY_KEYS.map((k) => [k, params.get(k) ?? undefined]));
-  const state = useAsync((signal) => api.findings.list(query, { signal }), [params.toString()]);
+  const state = useAsync(
+    (signal) => api.findings.list(query, { signal }),
+    [params.toString(), reloadKey],
+  );
   const filtered = FILTER_KEYS.some((k) => params.get(k));
 
   const setParam = (key: string, value: string) => {
@@ -43,8 +63,18 @@ export function FindingsPage() {
     if (value) next.set(key, value);
     else next.delete(key);
     if (key !== 'page') next.delete('page');
+    // A selection made under other filters may include rows no longer visible: start over.
+    setSelected(new Set());
     setParams(next);
   };
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const onSearch = (e: FormEvent) => {
     e.preventDefault();
@@ -133,6 +163,18 @@ export function FindingsPage() {
             </select>
           </label>
           <label className="text-xs text-slate-600">
+            <span className="mb-1 block">Assignee</span>
+            <select
+              className={selectClass}
+              value={params.get('assignee') ?? ''}
+              onChange={(e) => setParam('assignee', e.target.value)}
+            >
+              <option value="">Anyone</option>
+              <option value="me">Assigned to me</option>
+              <option value="unassigned">Unassigned</option>
+            </select>
+          </label>
+          <label className="text-xs text-slate-600">
             <span className="mb-1 block">Sort</span>
             <select
               className={selectClass}
@@ -167,6 +209,28 @@ export function FindingsPage() {
           </div>
         )}
 
+        <div aria-live="polite">
+          {bulkResult && (
+            <p
+              role="status"
+              className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900"
+            >
+              {bulkResultText(bulkResult)}
+            </p>
+          )}
+        </div>
+        {canSelect && selected.size > 0 && (
+          <BulkFindingActions
+            ids={[...selected]}
+            onDone={(result) => {
+              setBulkResult(result);
+              setSelected(new Set());
+              setReloadKey((k) => k + 1);
+            }}
+            onClear={() => setSelected(new Set())}
+          />
+        )}
+
         {state.status === 'loading' && (
           <p className="py-8 text-center text-sm text-slate-500" role="status">
             Loading findings…
@@ -191,6 +255,25 @@ export function FindingsPage() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                    {canSelect && (
+                      <th scope="col" className="w-8 py-2 pr-2">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all findings on this page"
+                          checked={state.data.items.every((f) => selected.has(f.id))}
+                          onChange={(e) =>
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              for (const f of state.data.items) {
+                                if (e.target.checked) next.add(f.id);
+                                else next.delete(f.id);
+                              }
+                              return next;
+                            })
+                          }
+                        />
+                      </th>
+                    )}
                     <th scope="col" className="py-2 pr-4">
                       Severity
                     </th>
@@ -206,6 +289,9 @@ export function FindingsPage() {
                     <th scope="col" className="py-2 pr-4">
                       Status
                     </th>
+                    <th scope="col" className="py-2 pr-4">
+                      Assignee
+                    </th>
                     <th scope="col" className="py-2">
                       Last seen
                     </th>
@@ -214,6 +300,16 @@ export function FindingsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {state.data.items.map((f) => (
                     <tr key={f.id} className="hover:bg-slate-50">
+                      {canSelect && (
+                        <td className="py-2.5 pr-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${f.title} on ${f.hostname}`}
+                            checked={selected.has(f.id)}
+                            onChange={() => toggle(f.id)}
+                          />
+                        </td>
+                      )}
                       <td className="py-2.5 pr-4">
                         <SeverityBadge severity={f.severity} />
                       </td>
@@ -237,6 +333,13 @@ export function FindingsPage() {
                       </td>
                       <td className="py-2.5 pr-4">
                         <FindingStatusBadge status={f.status} />
+                      </td>
+                      <td className="py-2.5 pr-4 text-slate-700">
+                        {f.assignee ? (
+                          userLabel(f.assignee)
+                        ) : (
+                          <span className="text-slate-400">Unassigned</span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap py-2.5 text-slate-600">
                         {formatDateTime(f.lastSeenAt)}

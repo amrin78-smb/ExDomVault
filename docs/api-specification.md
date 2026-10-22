@@ -534,6 +534,89 @@ base64; the same key cannot be registered twice.
   credential that belongs to another worker → `404`.
 - A disabled worker's requests are refused; its credentials are kept.
 
+## Findings and advisories
+
+Findings come only from the deterministic rules engine ([`advisory-rules.md`](advisory-rules.md)).
+Asset owners see only findings on assets they own (domain-level findings have no asset and are not
+visible to them); an invisible finding answers `404` exactly like a missing one.
+
+### `GET /api/v1/findings` — `findings:read`
+
+Query: `page`, `pageSize` (≤ 100), `status` (`active` = everything except resolved, default; `all`; or
+one status), `severity`, `category`, `domainId`, `ruleId`, `assignee` (`me`, `unassigned` or a user
+id), `q` (title/hostname), `sort` (`-riskScore` default, `riskScore`, `-lastSeenAt`, `-firstSeenAt`,
+`-severity`). Each finding carries `assignee`, `acceptedRisk` (`{ reason, approvedBy, reviewAt }`, only
+while `accepted_risk`) and `manualResolution` (its rule is a change-detection rule).
+
+### `GET /api/v1/findings/summary` — `findings:read`
+
+Active findings by severity and category; optional `domainId`.
+
+### `GET /api/v1/findings/:id` — `findings:read`
+
+`{ finding, advisory, history, comments, rule }`. History `reason` is a code: `detected`,
+`recurrence`, `condition_absent` (resolved by a successful scan), `accepted_risk_expired`, or `manual`
+(a user's change; their text is in `note`).
+
+### `PATCH /api/v1/findings/:id` — a finding permission
+
+Body: `{ expectedStatus, status?, reason?, acceptedRiskReviewAt?, assigneeId? }` (status and/or
+assignee). Allowed transitions (`packages/shared/src/domain/finding-lifecycle.ts`):
+
+| From                                                 | To                      | Permission             | Requires                                  |
+| ---------------------------------------------------- | ----------------------- | ---------------------- | ----------------------------------------- |
+| open                                                 | acknowledged            | `findings:triage`      | —                                         |
+| remediation_in_progress                              | acknowledged            | `findings:remediate`   | —                                         |
+| open, acknowledged                                   | remediation_in_progress | `findings:remediate`   | —                                         |
+| acknowledged, remediation_in_progress, accepted_risk | open                    | `findings:triage`      | reason                                    |
+| open, acknowledged, remediation_in_progress          | accepted_risk           | `findings:accept_risk` | reason ≥ 10 chars, review date ≤ 366 days |
+| any non-resolved                                     | resolved                | `findings:triage`      | reason; **change-detection rules only**   |
+
+Nothing leaves `resolved` by hand; a successful scan that observes the condition again reopens it.
+Accepting a risk records the acting user as approver; leaving `accepted_risk` clears the acceptance.
+Assignment needs `findings:assign`; the assignee must be an active user (`null` unassigns).
+
+Errors (shared codes, cause in `details[0].path`): `403 forbidden` (permission), `404 not_found`,
+`409 conflict` path `expectedStatus` (the finding changed since the client read it — nothing changed),
+`409 conflict` path `status` (no user may make this transition), `400 validation_failed` (reason,
+review date or assignee). Audit: `finding.status_changed`, `finding.risk_accepted`,
+`finding.assigned` / `finding.unassigned`.
+
+### `POST /api/v1/findings/bulk` — a finding permission
+
+Body: `{ ids (1–500), status?, reason?, acceptedRiskReviewAt?, assigneeId? }`. Each finding is checked
+like a PATCH; response `{ updated, skipped: [{ id, code }] }` with codes `not_found`,
+`invalid_transition`, `transition_not_allowed`, `no_change`. Set-based, one transaction.
+
+### `POST /api/v1/findings/:id/comments` — `findings:triage` or `findings:remediate`
+
+Body `{ body }` (1–4000 chars). `201 { comment }`. Append-only. Audit `finding.commented` (length only).
+
+### `POST /api/v1/findings/:id/reassess` — `scans:request`
+
+Queues a scan of the finding's domain with the cheapest enabled profile (passive → quick → standard →
+deep) that runs the rule's checks, through the normal scan rules (active scanning switch, domain
+authorisation). `201 { scanJobId, profile, created: true }`, or `200` with `created: false` when the same
+job is already queued or running. `409 conflict` path `ruleId` when no profile runs the rule.
+
+### `GET /api/v1/users/assignable` — `findings:assign`
+
+Active users `{ id, email, displayName, role }`, by email.
+
+### `GET /api/v1/advisories` — `findings:read`
+
+Advisories with a summary of their finding; `status` `active` (default) or `all`; paginated.
+
+### `GET /api/v1/rules` — `findings:read`
+
+The rule catalogue (id, version, category, severity, detection, resolution, evidence required).
+
+### Accepted-risk expiry (cron)
+
+Every 5 minutes, accepted risks whose review date has passed return to `open` (history
+`accepted_risk_expired` with the previous reason as note; system audit
+`finding.risk_acceptance_expired`).
+
 ## Internal worker API — signed requests
 
 `/api/v1/internal/worker/*` is used only by the home scanning worker. It does **not** use Cloudflare
@@ -673,7 +756,8 @@ Body:
   its active evidence was not accepted."). Status-only and passive (`dns`/`registration`) submissions
   are still accepted. The worker treats any `409` as "stop work on this job".
 
-Findings are not produced yet (Milestone 7).
+After a successful submission that completes the job, the rules engine evaluates its observations
+(immediately, best effort, and otherwise by the 5-minute cron).
 
 ### `POST /api/v1/internal/worker/failures`
 

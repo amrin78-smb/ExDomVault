@@ -44,6 +44,9 @@ export const finding = (overrides: Partial<Finding> = {}): Finding => ({
   lastSeenAt: '2026-10-22T03:00:00.000Z',
   resolvedAt: null,
   recurrenceCount: 1,
+  assignee: null,
+  acceptedRisk: null,
+  manualResolution: false,
   createdAt: '2026-10-20T03:00:00.000Z',
   updatedAt: '2026-10-22T03:00:00.000Z',
   ...overrides,
@@ -89,6 +92,7 @@ export const detailOf = (
       createdAt: '2026-10-22T03:00:00.000Z',
     },
   ],
+  comments: [],
   rule: {
     id: 'TLS-003',
     version: 1,
@@ -129,3 +133,20 @@ export const domain = (overrides: Partial<Domain> = {}): Domain => ({
 
 /** Zero count for every rule category (the summary schema requires each key). */
 export const NO_CATEGORIES = Object.fromEntries(RULE_CATEGORIES.map((c) => [c, 0]));
+
+export const ANALYST = {
+  id: '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+  email: 'analyst@example.com',
+  displayName: 'Ana Lyst',
+};
+export const OWNER = {
+  id: '8b2c3d4e-5f6a-4b7c-9d8e-0f1a2b3c4d5e',
+  email: 'owner@example.com',
+  displayName: null,
+};
+export const assignable = {
+  items: [
+    { ...ANALYST, role: 'analyst' as const },
+    { ...OWNER, role: 'asset_owner' as const },
+  ],
+};

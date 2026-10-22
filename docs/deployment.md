@@ -74,6 +74,8 @@ GRANT USAGE ON SCHEMA public TO exdomainvault_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO exdomainvault_app;
 -- Append-only tables: no UPDATE or DELETE for the application.
 REVOKE UPDATE, DELETE ON audit_logs, finding_status_history FROM exdomainvault_app;
+-- After migration 0005 (Milestone 8):
+REVOKE UPDATE, DELETE ON finding_comments FROM exdomainvault_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO exdomainvault_app;
 ```
@@ -82,6 +84,10 @@ Verified on 2026-10-22: no role memberships; DML on normal tables works; `UPDATE
 `DELETE finding_status_history`, `CREATE TABLE`, `DROP TABLE` and `CREATE ROLE` are denied. The password
 exists only inside the Hyperdrive configuration; to rotate, `ALTER ROLE ... PASSWORD` and
 `wrangler hyperdrive update`.
+
+Hyperdrive **query caching is disabled** (`wrangler hyperdrive update <id> --caching-disabled`,
+2026-10-22): cached reads showed stale state for up to a minute after changes, including the
+authorisation and kill-switch re-checks the worker API depends on.
 
 ### Hyperdrive configuration
 

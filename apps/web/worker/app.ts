@@ -17,6 +17,7 @@ import { meRoutes } from './routes/me.ts';
 import { approvedNetworkRoutes } from './routes/networks.ts';
 import { ruleRoutes } from './routes/rules.ts';
 import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
+import { userRoutes } from './routes/users.ts';
 import { workerAdminRoutes } from './routes/workers.ts';
 import type { AppBindings } from './types.ts';
 
@@ -61,9 +62,10 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/scans', scanRoutes({ now: deps.now }));
   authed.route('/workers', workerAdminRoutes({ now: deps.now }));
   authed.route('/approved-networks', approvedNetworkRoutes({ now: deps.now }));
-  authed.route('/findings', findingRoutes({ rules: deps.rules }));
+  authed.route('/findings', findingRoutes({ rules: deps.rules, now: deps.now }));
   authed.route('/advisories', advisoryRoutes());
   authed.route('/rules', ruleRoutes({ rules: deps.rules }));
+  authed.route('/users', userRoutes());
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

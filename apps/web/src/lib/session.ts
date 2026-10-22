@@ -17,3 +17,10 @@ export function usePermission(permission: Permission): boolean {
   const session = useSession();
   return session.status === 'success' && session.data.permissions.includes(permission);
 }
+
+/** A permission check for the current user (false for every permission until the session loads). */
+export function usePermissions(): (permission: Permission) => boolean {
+  const session = useSession();
+  const granted = session.status === 'success' ? session.data.permissions : [];
+  return (permission) => granted.includes(permission);
+}

@@ -2,8 +2,20 @@ import {
   advisoryListResponseSchema,
   bulkMonitoringResponseSchema,
   type BulkMonitoringResponse,
+  assignableUsersResponseSchema,
+  findingBulkUpdateResponseSchema,
+  findingCommentResponseSchema,
   findingDetailResponseSchema,
   findingListResponseSchema,
+  findingReassessResponseSchema,
+  findingUpdateResponseSchema,
+  type AssignableUsersResponse,
+  type Finding,
+  type FindingBulkUpdateRequest,
+  type FindingBulkUpdateResponse,
+  type FindingComment,
+  type FindingReassessResponse,
+  type FindingUpdateRequest,
   findingSummaryResponseSchema,
   ruleCatalogueResponseSchema,
   type AdvisoryListResponse,
@@ -141,6 +153,7 @@ export function toQuery(params: Record<string, string | number | undefined>): st
 type QueryParams = Record<string, string | number | undefined>;
 
 const domainPath = (id: string) => `/api/v1/domains/${encodeURIComponent(id)}`;
+const findingPath = (id: string) => `/api/v1/findings/${encodeURIComponent(id)}`;
 
 export const api = {
   health: (init?: RequestInit): Promise<HealthResponse> =>
@@ -246,7 +259,27 @@ export const api = {
     summary: (params: QueryParams, init?: RequestInit): Promise<FindingSummaryResponse> =>
       getJson(`/api/v1/findings/summary${toQuery(params)}`, findingSummaryResponseSchema, init),
     get: (id: string, init?: RequestInit): Promise<FindingDetailResponse> =>
-      getJson(`/api/v1/findings/${encodeURIComponent(id)}`, findingDetailResponseSchema, init),
+      getJson(findingPath(id), findingDetailResponseSchema, init),
+    /**
+     * Status change and/or assignment. `expectedStatus` is the status the user saw; the server
+     * answers 409 `finding_conflict` (and changes nothing) if the finding changed meanwhile.
+     */
+    update: (id: string, body: FindingUpdateRequest): Promise<{ finding: Finding }> =>
+      sendJson('PATCH', findingPath(id), findingUpdateResponseSchema, body),
+    /** The same change for many findings; each is checked individually and may be skipped. */
+    bulkUpdate: (body: FindingBulkUpdateRequest): Promise<FindingBulkUpdateResponse> =>
+      sendJson('POST', '/api/v1/findings/bulk', findingBulkUpdateResponseSchema, body),
+    addComment: (id: string, body: string): Promise<{ comment: FindingComment }> =>
+      sendJson('POST', `${findingPath(id)}/comments`, findingCommentResponseSchema, { body }),
+    /** Queues a scan of the finding's domain with the profile that runs its rule's checks. */
+    reassess: (id: string): Promise<FindingReassessResponse> =>
+      sendJson('POST', `${findingPath(id)}/reassess`, findingReassessResponseSchema),
+  },
+
+  users: {
+    /** Users a finding can be assigned to (requires `findings:assign`). */
+    assignable: (init?: RequestInit): Promise<AssignableUsersResponse> =>
+      getJson('/api/v1/users/assignable', assignableUsersResponseSchema, init),
   },
 
   advisories: {
