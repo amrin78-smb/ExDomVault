@@ -23,6 +23,27 @@ export type ScanCheck = z.infer<typeof scanCheckSchema>;
 export const PASSIVE_CHECKS: readonly ScanCheck[] = ['dns', 'rdap'];
 
 /**
+ * Browser-like checks (one TLS handshake, one HTTP request per hop, as any visitor makes). Allowed to
+ * any public address an approved hostname resolves to (owner decision, tiered policy).
+ */
+export const WEB_CHECKS: readonly ScanCheck[] = [
+  'tls_certificate',
+  'http_availability',
+  'http_headers',
+];
+
+/**
+ * Network checks (port probes, service identification, TLS configuration enumeration). Only to
+ * addresses inside admin-approved networks: domain verification never authorises probing third-party
+ * hosting, CDN or cloud infrastructure.
+ */
+export const NETWORK_CHECKS: readonly ScanCheck[] = [
+  'tcp_ports',
+  'service_identification',
+  'tls_configuration',
+];
+
+/**
  * A profile's configuration (design §6). Stored in `scan_profiles.config`, copied into each job's
  * snapshot. Never contains scanner flags: only data the worker interprets with fixed code.
  */
@@ -119,6 +140,11 @@ export const scopeSnapshotSchema = z.object({
   }),
   profile: z.object({ key: z.string(), version: z.int(), config: scanProfileConfigSchema }),
   targets: z.array(z.object({ assetId: z.uuid().nullable(), hostname: z.string() })),
+  /**
+   * Admin-approved networks (CIDR) that network-tier checks may probe. Captured at creation and
+   * intersected with the still-approved set at claim time (revocation shrinks scope; nothing enlarges it).
+   */
+  approvedNetworks: z.array(z.string()).default([]),
 });
 export type ScopeSnapshot = z.infer<typeof scopeSnapshotSchema>;
 

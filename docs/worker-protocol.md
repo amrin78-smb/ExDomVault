@@ -102,6 +102,32 @@ Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `re
   `nameservers` (lowercase, no trailing dot), `dataStatus` (`available` | `redacted` when the registry
   withholds data | `unavailable` when no RDAP data could be obtained).
 
+## Active checks (Milestone 6)
+
+Tiers (owner decision): **web** checks (`tls_certificate`, `http_availability`, `http_headers`) may
+connect to any public address an in-scope hostname resolves to; **network** checks (`tcp_ports`,
+`service_identification`, `tls_configuration`) only to addresses inside `snapshot.approvedNetworks`.
+Every connection goes resolve → validate → connect to the validated IP (pinned; SNI/Host set
+separately); redirects are never auto-followed — each hop is re-resolved and re-validated (≤ 5 hops);
+CNAME chains must stay within the job's domain. Prohibited addresses (private, loopback, link-local,
+CGNAT, multicast, reserved, documentation, IPv4-mapped/embedded private, …) are always refused.
+
+Additional observation kinds (all with the common fields):
+
+- `tls`: `hostname`, `ipAddress` (pinned), `port`, `protocolVersion`, `notBefore`, `notAfter`, `issuer`,
+  `subject`, `subjectAltNames`, `fingerprintSha256` (lowercase hex), `hostnameMatches`. Evidence:
+  `{ trusted, verifyError?, chainLength }`.
+- `http`: `url` (first request), `ipAddress` (first hop), `statusCode`, `finalUrl`, `redirectCount`,
+  `hstsEnabled`. Evidence: security headers present/values (`strict-transport-security`,
+  `content-security-policy`, `x-content-type-options`, `x-frame-options`, `referrer-policy`,
+  `permissions-policy`), `server` and `x-powered-by` values (version disclosure), and `hops`
+  (each `{ url, ip, status, decision }`).
+- `port`: `ipAddress`, `port` (must be in the profile's `tcpPorts`), `protocol: "tcp"`,
+  `state` (`open|closed|filtered`), `service`. Evidence: `{ product?, version?, method: "nmap-sT" }`.
+
+The server re-validates: hostnames within the domain, addresses public, ports in the profile, and port
+observations' addresses inside the job's approved networks.
+
 ## Worker configuration (environment)
 
 | Variable                     | Required | Meaning                                                                                                            |
@@ -119,4 +145,6 @@ Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `re
 | `EXDV_HEALTH_FILE`           | no       | health JSON path, default `/var/lib/exdomainvault-worker/health.json`                                              |
 | `EXDV_LOG_LEVEL`             | no       | `DEBUG INFO WARNING ERROR`, default `INFO`                                                                         |
 
-Active scanning is **not** configurable: it is hard-coded off until Milestone 6.
+| `EXDV_ACTIVE_SCANNING_ENABLED`  | no       | `true` to run active checks (Milestone 6 gate); default `false`. The server has its own flag |
+| `EXDV_DENY_NETWORKS`            | no       | extra CIDRs never to contact (e.g. this home's public IP), comma-separated                  |
+| `EXDV_NMAP_PATH`                | no       | default `/usr/bin/nmap`; network checks are refused if Nmap is missing                       |

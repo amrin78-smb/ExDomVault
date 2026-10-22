@@ -76,9 +76,62 @@ export const registrationObservationSchema = z.strictObject({
 });
 export type RegistrationObservation = z.infer<typeof registrationObservationSchema>;
 
+/** IPv4/IPv6 address in canonical text form (validated as public on the server). */
+const ipAddressSchema = z.union([z.ipv4(), z.ipv6()]);
+
+const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const tlsObservationSchema = z.strictObject({
+  kind: z.literal('tls'),
+  ...observationBase,
+  hostname: hostnameSchema,
+  /** The validated address the connection was pinned to. */
+  ipAddress: ipAddressSchema,
+  port: z.int().min(1).max(65535),
+  protocolVersion: z.string().max(20).nullable(),
+  notBefore: isoDateTime.nullable(),
+  notAfter: isoDateTime.nullable(),
+  issuer: z.string().max(1000).nullable(),
+  subject: z.string().max(1000).nullable(),
+  subjectAltNames: z.array(z.string().max(253)).max(200),
+  fingerprintSha256: sha256HexSchema.nullable(),
+  /** Certificate matches the hostname (SNI) per RFC 6125. */
+  hostnameMatches: z.boolean().nullable(),
+});
+export type TlsObservation = z.infer<typeof tlsObservationSchema>;
+
+export const httpObservationSchema = z.strictObject({
+  kind: z.literal('http'),
+  ...observationBase,
+  /** First URL requested (`http(s)://<hostname>[:port]/`). */
+  url: z.string().max(2048),
+  ipAddress: ipAddressSchema,
+  statusCode: z.int().min(100).max(599).nullable(),
+  /** Last URL reached after validated redirects (or the stopping point if a hop was refused). */
+  finalUrl: z.string().max(2048).nullable(),
+  redirectCount: z.int().min(0).max(10),
+  hstsEnabled: z.boolean().nullable(),
+});
+export type HttpObservation = z.infer<typeof httpObservationSchema>;
+
+export const portObservationSchema = z.strictObject({
+  kind: z.literal('port'),
+  ...observationBase,
+  ipAddress: ipAddressSchema,
+  port: z.int().min(1).max(65535),
+  protocol: z.literal('tcp'),
+  state: z.enum(['open', 'closed', 'filtered']),
+  /** Service name from limited identification (e.g. `https`, `ssh`), product/version in evidence. */
+  service: z.string().max(100).nullable(),
+});
+export type PortObservation = z.infer<typeof portObservationSchema>;
+
 export const observationSchema = z.discriminatedUnion('kind', [
   dnsObservationSchema,
   registrationObservationSchema,
+  tlsObservationSchema,
+  httpObservationSchema,
+  portObservationSchema,
 ]);
 export type Observation = z.infer<typeof observationSchema>;
 
@@ -109,9 +162,59 @@ export const registrationSnapshotSchema = z.object({
 });
 export type RegistrationSnapshot = z.infer<typeof registrationSnapshotSchema>;
 
-/** Latest observation per (hostname, record type), and the latest registration observation. */
+const readBase = {
+  resultStatus: observationResultSchema,
+  observedAt: isoDateTime,
+  scanJobId: z.uuid(),
+  evidence: z.record(z.string(), z.unknown()),
+};
+
+export const tlsSnapshotSchema = z.object({
+  hostname: z.string(),
+  ipAddress: z.string(),
+  port: z.int(),
+  protocolVersion: z.string().nullable(),
+  notBefore: isoDateTime.nullable(),
+  notAfter: isoDateTime.nullable(),
+  issuer: z.string().nullable(),
+  subject: z.string().nullable(),
+  subjectAltNames: z.array(z.string()),
+  fingerprintSha256: z.string().nullable(),
+  hostnameMatches: z.boolean().nullable(),
+  ...readBase,
+});
+export type TlsSnapshot = z.infer<typeof tlsSnapshotSchema>;
+
+export const httpSnapshotSchema = z.object({
+  url: z.string(),
+  ipAddress: z.string(),
+  statusCode: z.int().nullable(),
+  finalUrl: z.string().nullable(),
+  redirectCount: z.int(),
+  hstsEnabled: z.boolean().nullable(),
+  ...readBase,
+});
+export type HttpSnapshot = z.infer<typeof httpSnapshotSchema>;
+
+export const portSnapshotSchema = z.object({
+  ipAddress: z.string(),
+  port: z.int(),
+  protocol: z.string(),
+  state: z.enum(['open', 'closed', 'filtered']),
+  service: z.string().nullable(),
+  ...readBase,
+});
+export type PortSnapshot = z.infer<typeof portSnapshotSchema>;
+
+/**
+ * Latest observation per (hostname, record type); latest registration; latest TLS per
+ * (hostname, ip, port); latest HTTP per url; latest port state per (ip, port).
+ */
 export const domainObservationsResponseSchema = z.object({
   dns: z.array(dnsRecordSetSchema),
   registration: registrationSnapshotSchema.nullable(),
+  tls: z.array(tlsSnapshotSchema).default([]),
+  http: z.array(httpSnapshotSchema).default([]),
+  ports: z.array(portSnapshotSchema).default([]),
 });
 export type DomainObservationsResponse = z.infer<typeof domainObservationsResponseSchema>;
