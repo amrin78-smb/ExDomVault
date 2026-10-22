@@ -1,0 +1,18 @@
+# Milestone 10 — Frontend integration
+
+Read `CLAUDE.md`, `docs/progress.md`, and `docs/prompts/00-master-build-prompt.md` (especially §6–§11). Check `git status` and confirm the previous milestone is marked done in `docs/progress.md`; if it is not, report what is missing and finish it first.
+
+Spec: `docs/design.md` §14. Milestone definition: master prompt §5, "Milestone 10".
+
+## Scope
+- Replace fixtures with real API data across Overview (all metrics in design §14), Domains (list/filters/detail), Assets (inventory + approval), Scans (create, progress, history), Findings (list/detail/evidence/remediation workflow), Advisories, Reports summary, Settings (worker health, profiles, users for admins).
+- Loading, empty, error, permission-denied and stale-data states on every page; confirmation for destructive or scope-changing actions; search/sort/pagination/filters.
+- Consistent severity labels and colours with accessible contrast; charts only where they aid operations.
+- Typed API client from `packages/shared` schemas; UI hides unauthorised actions but relies on server enforcement.
+- Component tests for key workflows (add + verify domain, approve asset, launch scan, update finding).
+
+## Finish
+1. Run lint, typecheck, test, build (and `worker:test` if the worker changed). Fix failures; report anything that genuinely cannot run and why.
+2. Update the relevant docs in `docs/` to match what was actually built.
+3. Update `docs/progress.md`: status table, decisions, operator actions, limitations, session log.
+4. Summarise files changed, check results, remaining limitations, and the next milestone. Commit and push to `main`.
