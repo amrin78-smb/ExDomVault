@@ -24,7 +24,8 @@ WorkingDirectory=/opt/exdomainvault-worker
 EnvironmentFile=/etc/exdomainvault/worker.env
 # The Ed25519 private key stays root-owned (0600) at rest. systemd copies it into a private,
 # non-swappable credentials directory readable only by this service ($CREDENTIALS_DIRECTORY, %d).
-# This overrides any EXDV_PRIVATE_KEY_FILE in worker.env.
+# Do NOT set EXDV_PRIVATE_KEY_FILE in worker.env: EnvironmentFile= takes precedence over
+# Environment=, and /etc/exdomainvault is inaccessible to the service.
 LoadCredential=worker.key:/etc/exdomainvault/worker.key
 Environment=EXDV_PRIVATE_KEY_FILE=%d/worker.key
 Environment=EXDV_HEALTH_FILE=/var/lib/exdomainvault-worker/health.json

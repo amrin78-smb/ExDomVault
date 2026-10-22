@@ -4,19 +4,19 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Milestone status
 
-| #   | Milestone                                  | Status      | Notes                                   |
-| --- | ------------------------------------------ | ----------- | --------------------------------------- |
-| 1   | Repository foundation                      | done        |                                         |
-| 2   | Database and authentication                | done        | Deployed; production migrated           |
-| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
-| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
-| 5   | Python worker                              | done        | Not deployed yet; worker not installed  |
-| 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
-| 7   | Deterministic rules engine                 | not started |                                         |
-| 8   | Finding lifecycle                          | not started |                                         |
-| 9   | Passive subdomain discovery                | not started |                                         |
-| 10  | Frontend integration                       | not started |                                         |
-| 11  | Production hardening                       | not started |                                         |
+| #   | Milestone                                  | Status      | Notes                                       |
+| --- | ------------------------------------------ | ----------- | ------------------------------------------- |
+| 1   | Repository foundation                      | done        |                                             |
+| 2   | Database and authentication                | done        | Deployed; production migrated               |
+| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)            |
+| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)            |
+| 5   | Python worker                              | done        | Deployed `98621b00`; worker install pending |
+| 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete     |
+| 7   | Deterministic rules engine                 | not started |                                             |
+| 8   | Finding lifecycle                          | not started |                                             |
+| 9   | Passive subdomain discovery                | not started |                                             |
+| 10  | Frontend integration                       | not started |                                             |
+| 11  | Production hardening                       | not started |                                             |
 
 ## Decisions log
 
@@ -217,5 +217,7 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 - **End to end (real Python worker → local workerd → Neon `dev`):** registered a key, requested a passive scan of `armoric.com`, `exdomainvault-worker --once` claimed, ran real DNS + RDAP lookups (public resolvers/registry only), uploaded 11 DNS + 1 registration observations, job `succeeded`; domain page showed registrar CSC, registered 1997-10-14, expiry 2027-10-13, CSC nameservers, A/MX/NS/SOA, no DMARC, no DNSSEC. Test data removed afterwards.
 - Found and fixed by the end-to-end run: systemd-resolved SERVFAIL on DS/DNSKEY (→ public resolver default); `pip install .` failed because `deploy/` made setuptools see two packages (→ explicit `packages = ["app"]`, `worker:install` now installs the CLI).
 - Not verifiable here: Docker image build (Docker not installed), the systemd unit under real root (`systemd-analyze verify` only).
+- Deployed to production 2026-10-22 on request (no migration): version `98621b00-60c9-4d98-baee-0a6a3ea001d6`.
+- Pre-install review found that `worker.env` setting `EXDV_PRIVATE_KEY_FILE` would override the unit's `LoadCredential=` path (systemd `EnvironmentFile=` beats `Environment=`) and break start-up; removed from the template and guide. Added `worker/deploy/install.sh` (idempotent; steps 2–4 + unit install; shellcheck clean).
 
 **Next:** owner installs the worker (`docs/home-worker-setup.md`); then Milestone 6 — scanning and target safety (the security gate for active scanning).

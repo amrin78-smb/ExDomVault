@@ -29,6 +29,20 @@ Commands marked `sudo` are run by the owner. Nothing here is automated.
   dashboard (to create the Access service token).
 - Nmap is **not** needed yet. It arrives with active scanning in Milestone 6.
 
+## Quick path: install script
+
+`worker/deploy/install.sh` performs steps 2–4 and installs the units from step 9 (it does not start
+the service). It is safe to re-run for upgrades and never overwrites an existing key or `worker.env`:
+
+```bash
+cd ~/development/Nocvault/ExDomVault && git pull
+sudo bash worker/deploy/install.sh        # prints the public key to register
+```
+
+Then register the public key (step 5), fill in `EXDV_KEY_ID` and the service token with
+`sudoedit /etc/exdomainvault/worker.env` (step 7), optionally dry-run (step 8), and
+`sudo systemctl enable --now exdomainvault-worker` (step 9). The manual steps follow.
+
 ## 2. Create the service user and directories
 
 ```bash
@@ -128,7 +142,6 @@ sudoedit /etc/exdomainvault/worker.env
 EXDV_API_BASE_URL=https://exdomainvault.amrin78.workers.dev
 EXDV_WORKER_ID=home-worker-01
 EXDV_KEY_ID=<key id from step 5>
-EXDV_PRIVATE_KEY_FILE=/etc/exdomainvault/worker.key
 EXDV_ACCESS_CLIENT_ID=<Client ID from step 6>
 EXDV_ACCESS_CLIENT_SECRET=<Client Secret from step 6>
 EXDV_ENVIRONMENT=production
@@ -141,7 +154,9 @@ Leave `EXDV_DNS_RESOLVERS` unset to query the public resolvers 1.1.1.1 and 9.9.9
 addresses), so records are seen as the internet sees them. `system` uses the host's resolver
 (`127.0.0.53`, systemd-resolved), which answers DS/DNSKEY queries with SERVFAIL. Write
 the values without quotes or trailing comments: systemd's `EnvironmentFile=` parser is not a shell.
-The unit overrides `EXDV_PRIVATE_KEY_FILE` with its `LoadCredential=` copy of the key.
+Do **not** set `EXDV_PRIVATE_KEY_FILE` here: the unit sets it to its `LoadCredential=` copy of the key,
+and a value in `worker.env` would take precedence (systemd's `EnvironmentFile=` overrides
+`Environment=`) and point at `/etc/exdomainvault`, which the service cannot read.
 
 ## 8. Validate and dry-run
 
