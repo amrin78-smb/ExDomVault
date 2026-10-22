@@ -95,7 +95,9 @@ All from the repo root unless noted.
 | `npm run db:check` | drizzle-kit consistency check (CI also fails on schema/migration drift) |
 | `npm run db:migrate` | Apply migrations to the Neon branch in `.env.local` (direct URL). Refuses `NEON_BRANCH=production` unless `ALLOW_PRODUCTION_MIGRATION=yes`, and refuses pooled URLs |
 
-**Database wiring:** Neon project `flat-sound-26073660`. Worker → `HYPERDRIVE` binding → Neon direct endpoint, `pg` + Drizzle, one client per request (`packages/database`); locally `vite.config.ts` points the binding at the branch in `.env.local`. Branches: `production` (live; no schema yet) and `dev` (local default; expires 7 days after creation — recreate with `neon checkout dev --create` then `npm run db:migrate`). Never migrate `production` without the user asking.
+**Database wiring:** Neon project `flat-sound-26073660`. Worker → `HYPERDRIVE` binding → Neon direct endpoint, `pg` + Drizzle, one client per request (`packages/database`); locally `vite.config.ts` points the binding at the branch in `.env.local`. Branches: `production` (live, migrated; app connects as least-privilege `exdomainvault_app` via Hyperdrive `exdomainvault-db`) and `dev` (local default; expires 7 days after creation — recreate with `neon checkout dev --create` then `npm run db:migrate`). Never migrate `production` without the user asking.
+
+**Live:** https://exdomainvault.amrin78.workers.dev behind Cloudflare Access (see `docs/deployment.md`). Deploy = `cd apps/web && npx wrangler deploy`, only with the user's approval.
 
 **Auth wiring:** `AUTH_PROVIDER` = `cloudflare_access` (prod; vars `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`) or `dev` (local `.dev.vars`; refused in production). Unconfigured → protected routes 503. New routes go on the `authed` sub-app in `app.ts` and must add `requirePermission(...)`; audit privileged changes with `writeAudit()` in the same transaction. DB-backed tests use `createTestDatabase()` from `@exdomainvault/database/testing` (PGlite) via `createApp({ connect })`.
 

@@ -6,8 +6,8 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 | #   | Milestone                                  | Status      | Notes                                   |
 | --- | ------------------------------------------ | ----------- | --------------------------------------- |
-| 1   | Repository foundation                      | not started |                                         |
-| 2   | Database and authentication                | not started |                                         |
+| 1   | Repository foundation                      | done        |                                         |
+| 2   | Database and authentication                | done        | Deployed; production migrated           |
 | 3   | Domain inventory                           | not started |                                         |
 | 4   | Scan job lifecycle                         | not started |                                         |
 | 5   | Python worker                              | not started |                                         |
@@ -20,6 +20,9 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-22 — **Production deployed** to `exdomainvault.amrin78.workers.dev`, protected by the Worker's Access tab (All traffic, owner-only Allow policy). Preview URLs disabled so no unprotected alternate hostname exists.
+- 2026-10-22 — **`exdomainvault_app` created with SQL, not the Neon CLI/console** — those add `neon_superuser` membership (read/write all data, CREATEROLE, BYPASSRLS).
+- 2026-10-22 — **`BOOTSTRAP_ADMIN_EMAILS` is a Worker secret**, not a `wrangler.jsonc` var, so the owner's email is not committed. Access team domain and AUD are committed (public identifiers).
 - 2026-10-22 — **Migrations: drizzle-kit `generate` only; applied by `scripts/migrate.ts`** (drizzle-orm migrator). Guarded: refuses `NEON_BRANCH=production` without `ALLOW_PRODUCTION_MIGRATION=yes`, and pooled URLs. TLS mode forced to `verify-full`.
 - 2026-10-22 — **Schema work happens on Neon branch `dev`** (from `neon.ts`, 7-day TTL); `production` stays empty until the owner approves migrating it.
 - 2026-10-22 — **DB tests use PGlite** (PostgreSQL in WASM) with the real migrations — no Docker or local Postgres needed, runs in CI.
@@ -50,21 +53,18 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 _Things only the owner can do (Cloudflare account, Neon project, Access app, secrets). Add exact steps as they arise._
 
 - [x] ~~Install Python venv support on the scan host~~ — done 2026-10-22; `npm run worker:install` / `worker:lint` / `worker:test` verified locally (18 pass).
-- [ ] Before first production deploy (all steps in `docs/deployment.md`):
-  - [ ] Create a **Cloudflare Access** self-hosted application for the app hostname; set `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `BOOTSTRAP_ADMIN_EMAILS` in `wrangler.jsonc`.
-  - [ ] Approve migrating the Neon `production` branch (`ALLOW_PRODUCTION_MIGRATION=yes npm run db:migrate`).
-  - [ ] Create least-privilege role `exdomainvault_app` and apply the grants.
-  - [ ] Create the Hyperdrive config with that role's direct URL; replace the placeholder Hyperdrive id.
+- [x] ~~First production deploy~~ — done 2026-10-22: production migrated, `exdomainvault_app` + grants, Hyperdrive, Access, bootstrap admin signed in (details in `docs/deployment.md`).
+- [ ] Optional: replace the shared `demo-allowlist` Access policy with a dedicated ExDomainVault policy.
+- [ ] Optional: delete the `BOOTSTRAP_ADMIN_EMAILS` secret now that the first admin exists.
 - [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
 
 ## Known limitations
 
 - Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
 - No user-management UI/API yet: non-bootstrap users must be inserted into `users` manually.
-- Cloudflare Access verification is tested with locally generated keys; it has not yet run against your real Access team (needs the owner setup above).
-- Local dev connects as the Neon owner role (`neondb_owner`); a least-privilege app role is required before production.
+- Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
-- No deploy workflow; nothing has been deployed.
+- No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
 
 ## Session log
 
@@ -105,3 +105,9 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 - `npm run dev` (workerd + Neon `dev`): health `database: ok, auth: ok`; `/me` bootstrapped `dev@example.com` as admin with one `user.bootstrap_admin` audit row; CSRF 403 without/foreign Origin; Access mode unconfigured → 503, configured without token → 401, spoofed identity header → 401; dev provider with `APP_ENV=production` → 500
 
 **Next:** Milestone 3 — domain inventory (`docs/prompts/03-domain-inventory.md`).
+
+### Production setup — 2026-10-22
+
+**Done (owner-approved):** Neon `production` migrated (22 tables); `exdomainvault_app` created via SQL after the CLI-created role turned out to inherit `neon_superuser` (deleted); grants verified (append-only tables enforced, no DDL/role creation); Hyperdrive `exdomainvault-db`; Worker deployed (first with auth unconfigured → `/me` 503, health `database: ok`); owner enabled Access on the Worker; `ACCESS_TEAM_DOMAIN`/`ACCESS_AUD` set, `BOOTSTRAP_ADMIN_EMAILS` secret, redeployed (version `fc72fb76`).
+
+**Verified live:** unauthenticated `/`, `/api/v1/health`, `/api/v1/me` and a forged `Cf-Access-Jwt-Assertion` → 302 to Access login; owner signed in → UI shows Administrator, API healthy, `production`; Neon `production` has one admin user bound to the Access subject and one `user.bootstrap_admin` audit row.
