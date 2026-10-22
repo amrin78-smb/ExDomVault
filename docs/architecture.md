@@ -57,6 +57,11 @@ content type and a 300 KB body limit enforced; malformed UUID params → 404).
   Chosen over a home-worker job because it is a single passive query to a public resolver, needs no
   scanning infrastructure (Milestone 5) and gives immediate feedback. Expiry is applied lazily on reads
   and writes (no cron yet).
+- **Administrator authorisation** (`services/domain-authorisation.ts`): the second verification
+  method, for owned domains whose DNS cannot be edited. Reason, reference and review date (≤ 24 months)
+  are stored on the verification record and audited per domain; it lapses on the review date (lazy,
+  like challenge expiry). Bulk operations are set-based. Verification of either kind gates only active
+  scanning; passive monitoring is allowed for every domain.
 - **Import** (`services/domain-import.ts`, `lib/csv.ts`): stateless two-step preview/confirm bound by a
   SHA-256 digest of the file; confirm re-validates and inserts valid rows in one transaction.
 - Every change writes its audit record in the same transaction (`domain.*` actions).

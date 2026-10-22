@@ -18,6 +18,15 @@ export const DOMAIN_VERIFICATION_STATUS_LABELS: Record<DomainVerificationStatus,
   revoked: 'Revoked',
 };
 
+export const VERIFICATION_METHODS = ['dns_txt', 'admin_attestation'] as const;
+export const verificationMethodSchema = z.enum(VERIFICATION_METHODS);
+export type VerificationMethod = z.infer<typeof verificationMethodSchema>;
+
+export const VERIFICATION_METHOD_LABELS: Record<VerificationMethod, string> = {
+  dns_txt: 'DNS TXT record',
+  admin_attestation: 'Authorised by administrator',
+};
+
 export const registrationDataStatusSchema = z.enum([
   'unknown',
   'available',
@@ -49,6 +58,11 @@ export const domainSchema = z.object({
   businessOwner: z.string().nullable(),
   verificationStatus: domainVerificationStatusSchema,
   verifiedAt: isoDateTime.nullable(),
+  /** How the domain was authorised for active scanning (null unless verified). */
+  verificationMethod: verificationMethodSchema.nullable(),
+  /** Review-by date of an administrator authorisation; it lapses then. Null for DNS proof. */
+  verificationExpiresAt: isoDateTime.nullable(),
+  /** Passive monitoring (public DNS, certificates, CT logs, registration data). Allowed for any domain. */
   monitoringEnabled: z.boolean(),
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
@@ -105,14 +119,19 @@ export const CHALLENGE_STATUSES = [
   'expired',
   'failed',
   'superseded',
+  'revoked',
 ] as const;
 
+/** A verification record: a DNS TXT challenge or an administrator attestation. */
 export const verificationChallengeSchema = z.object({
   id: z.uuid(),
-  method: z.literal('dns_txt'),
+  method: verificationMethodSchema,
   status: z.enum(CHALLENGE_STATUSES),
-  /** DNS name the TXT record must be published at. */
-  recordName: z.string(),
+  /** DNS name the TXT record must be published at (DNS challenges only). */
+  recordName: z.string().nullable(),
+  /** Attestations only: why the domain is authorised, and a supporting reference. */
+  reason: z.string().nullable(),
+  reference: z.string().nullable(),
   createdAt: isoDateTime,
   expiresAt: isoDateTime,
   lastCheckedAt: isoDateTime.nullable(),
@@ -157,6 +176,61 @@ export const verifyDomainResponseSchema = z.object({
   verification: verificationChallengeSchema.nullable(),
 });
 export type VerifyDomainResponse = z.infer<typeof verifyDomainResponseSchema>;
+
+// --- Administrator authorisation -----------------------------------------------------------
+
+export const ATTESTATION_MAX_MONTHS = 24;
+export const ATTESTATION_DEFAULT_MONTHS = 12;
+
+/**
+ * An administrator's statement that the organisation owns the domain(s) and authorises active
+ * scanning, for domains whose DNS cannot carry a TXT record. Expires on `reviewBy`.
+ */
+export const authorisationSchema = z.strictObject({
+  reason: z
+    .string()
+    .trim()
+    .min(10, 'Give a reason of at least 10 characters.')
+    .max(500, 'The reason must be at most 500 characters.'),
+  reference: z
+    .string()
+    .trim()
+    .max(200, 'The reference must be at most 200 characters.')
+    .transform((v) => (v === '' ? null : v))
+    .nullish(),
+  /** Calendar date (UTC) on which the authorisation lapses unless renewed. */
+  reviewBy: z.iso.date('Enter the review date as YYYY-MM-DD.'),
+});
+export type AuthorisationInput = z.input<typeof authorisationSchema>;
+
+export const bulkAuthoriseRequestSchema = authorisationSchema.extend({
+  domainIds: z
+    .array(z.uuid())
+    .min(1, 'Select at least one domain.')
+    .max(500, 'At most 500 domains at a time.')
+    .refine((ids) => new Set(ids).size === ids.length, 'Domain ids must be unique.'),
+});
+export type BulkAuthoriseRequest = z.input<typeof bulkAuthoriseRequestSchema>;
+
+export const bulkAuthoriseResponseSchema = z.object({
+  authorised: z.array(z.object({ id: z.uuid(), fqdn: z.string() })),
+  skipped: z.array(
+    z.object({
+      id: z.uuid(),
+      fqdn: z.string().nullable(),
+      reason: z.enum(['already_verified', 'not_found']),
+    }),
+  ),
+});
+export type BulkAuthoriseResponse = z.infer<typeof bulkAuthoriseResponseSchema>;
+
+export const revokeRequestSchema = z.strictObject({
+  reason: z
+    .string()
+    .trim()
+    .min(10, 'Give a reason of at least 10 characters.')
+    .max(500, 'The reason must be at most 500 characters.'),
+});
 
 // --- CSV import ---------------------------------------------------------------------------------
 
@@ -210,10 +284,14 @@ export type ImportPreviewResponse = z.infer<typeof importPreviewResponseSchema>;
 
 export const importConfirmRequestSchema = importPreviewRequestSchema.extend({
   digest: z.string().regex(/^[0-9a-f]{64}$/),
+  /** Optionally authorise every imported domain in the same transaction (needs domains:verify). */
+  authorisation: authorisationSchema.optional(),
 });
 
 export const importConfirmResponseSchema = z.object({
   created: z.array(z.object({ id: z.uuid(), fqdn: z.string() })),
   skipped: z.number().int(),
+  /** Number of created domains authorised by the optional administrator authorisation. */
+  authorised: z.number().int(),
 });
 export type ImportConfirmResponse = z.infer<typeof importConfirmResponseSchema>;

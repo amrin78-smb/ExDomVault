@@ -1,5 +1,7 @@
 import {
+  ATTESTATION_DEFAULT_MONTHS,
   CRITICALITY_LABELS,
+  type AuthorisationInput,
   IMPORT_MAX_BYTES,
   IMPORT_MAX_ROWS,
   type ImportConfirmResponse,
@@ -7,13 +9,16 @@ import {
   type ImportRowStatus,
 } from '@exdomainvault/shared';
 import { ArrowLeft, CheckCircle2, FileUp } from 'lucide-react';
-import { useState, type ChangeEvent } from 'react';
+import { useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
+import { AuthorisationFields } from '../../components/domains/AuthorisationFields.tsx';
 import { api } from '../../lib/api.ts';
+import { addMonthsIso } from '../../lib/format.ts';
+import { usePermission } from '../../lib/session.ts';
 
 const STATUS_TEXT: Record<ImportRowStatus, { label: string; cls: string }> = {
   valid: { label: 'Will be added', cls: 'text-emerald-800' },
@@ -33,6 +38,13 @@ export function DomainImportPage() {
   const [result, setResult] = useState<ImportConfirmResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const canVerify = usePermission('domains:verify');
+  const [authorise, setAuthorise] = useState(false);
+  const [authInput, setAuthInput] = useState<AuthorisationInput>(() => ({
+    reason: '',
+    reference: '',
+    reviewBy: addMonthsIso(ATTESTATION_DEFAULT_MONTHS),
+  }));
 
   const reset = (text: string) => {
     setCsv(text);
@@ -69,7 +81,13 @@ export function DomainImportPage() {
   const confirm = () =>
     act(async () => {
       if (!preview) return;
-      setResult(await api.domains.confirmImport(csv, preview.digest));
+      setResult(
+        await api.domains.confirmImport(
+          csv,
+          preview.digest,
+          canVerify && authorise ? authInput : undefined,
+        ),
+      );
       setPreview(null);
     });
 
@@ -127,13 +145,42 @@ export function DomainImportPage() {
 
         {error && <ErrorAlert error={error} />}
 
-        {preview && <PreviewCard preview={preview} busy={busy} onConfirm={confirm} />}
+        {preview && (
+          <PreviewCard
+            preview={preview}
+            busy={busy || (authorise && authInput.reason.trim().length < 10)}
+            onConfirm={confirm}
+          >
+            {canVerify && (
+              <div className="mt-4 space-y-3 rounded-md border border-slate-200 p-3 text-sm">
+                <label className="flex items-start gap-2 font-medium text-slate-800">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={authorise}
+                    onChange={(e) => setAuthorise(e.target.checked)}
+                  />
+                  <span>
+                    Also authorise every imported domain for active scanning (administrator
+                    authorisation)
+                    <span className="block font-normal text-slate-500">
+                      For domains the organisation owns whose DNS you cannot edit. Recorded per
+                      domain in the audit log; lapses on the review date.
+                    </span>
+                  </span>
+                </label>
+                {authorise && <AuthorisationFields value={authInput} onChange={setAuthInput} />}
+              </div>
+            )}
+          </PreviewCard>
+        )}
 
         {result && (
           <Card title="Import complete">
             <p className="flex items-center gap-2 text-sm text-emerald-800" role="status">
               <CheckCircle2 className="size-4" aria-hidden />
               Added {result.created.length} domain{result.created.length === 1 ? '' : 's'}
+              {result.authorised > 0 && ` (${result.authorised} authorised)`}
               {result.skipped > 0 &&
                 `; skipped ${result.skipped} row${result.skipped === 1 ? '' : 's'}`}
               .
@@ -153,7 +200,9 @@ export function DomainImportPage() {
               </ul>
             )}
             <p className="mt-3 text-xs text-slate-500">
-              Imported domains are unverified. Verify each one before enabling monitoring.
+              {result.authorised > 0
+                ? 'Authorised domains show "Authorised (admin)" on the Domains page.'
+                : 'Imported domains are unverified: passive monitoring works, but active scanning needs verification or authorisation.'}
             </p>
           </Card>
         )}
@@ -166,10 +215,12 @@ function PreviewCard({
   preview,
   busy,
   onConfirm,
+  children,
 }: {
   preview: ImportPreviewResponse;
   busy: boolean;
   onConfirm: () => void;
+  children?: ReactNode;
 }) {
   const { summary } = preview;
   return (
@@ -244,6 +295,7 @@ function PreviewCard({
               </tbody>
             </table>
           </div>
+          {children}
           <div className="mt-4 flex items-center gap-3">
             <Button variant="primary" onClick={onConfirm} disabled={busy || summary.valid === 0}>
               Import {summary.valid} domain{summary.valid === 1 ? '' : 's'}

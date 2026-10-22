@@ -3,8 +3,9 @@ import {
   DOMAIN_VERIFICATION_STATUS_LABELS,
   type Criticality,
   type DomainVerificationStatus,
+  type VerificationMethod,
 } from '@exdomainvault/shared';
-import { CircleDashed, Clock, ShieldCheck, ShieldOff } from 'lucide-react';
+import { CircleDashed, Clock, ShieldCheck, ShieldOff, UserCheck } from 'lucide-react';
 
 const VERIFICATION_STYLES: Record<DomainVerificationStatus, { cls: string; Icon: typeof Clock }> = {
   verified: { cls: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20', Icon: ShieldCheck },
@@ -13,14 +14,32 @@ const VERIFICATION_STYLES: Record<DomainVerificationStatus, { cls: string; Icon:
   revoked: { cls: 'bg-red-50 text-red-800 ring-red-600/20', Icon: ShieldOff },
 };
 
-export function VerificationBadge({ status }: { status: DomainVerificationStatus }) {
-  const { cls, Icon } = VERIFICATION_STYLES[status];
+/**
+ * Verification state. Verified domains also show how: DNS proof and administrator authorisation are
+ * deliberately distinguishable.
+ */
+export function VerificationBadge({
+  status,
+  method,
+}: {
+  status: DomainVerificationStatus;
+  method?: VerificationMethod | null;
+}) {
+  const attested = status === 'verified' && method === 'admin_attestation';
+  const { cls, Icon } = attested
+    ? { cls: 'bg-sky-50 text-sky-800 ring-sky-600/20', Icon: UserCheck }
+    : VERIFICATION_STYLES[status];
+  const label = attested
+    ? 'Authorised (admin)'
+    : status === 'verified' && method === 'dns_txt'
+      ? 'Verified (DNS)'
+      : DOMAIN_VERIFICATION_STATUS_LABELS[status];
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${cls}`}
     >
       <Icon className="size-3" aria-hidden />
-      {DOMAIN_VERIFICATION_STATUS_LABELS[status]}
+      {label}
     </span>
   );
 }

@@ -20,6 +20,13 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-22 — **Verification gates only active scanning (owner decision).** Passive monitoring (public DNS, certificates, CT logs, registration data) is allowed for every domain; monitoring no longer requires verification. Milestones 4–6 must require `verification_status = 'verified'` (either method, review date not passed) before any active scan.
+- 2026-10-22 — **Second verification method: administrator authorisation (owner decision)** for owned domains whose DNS cannot carry a TXT record (317 of the 339 portfolio domains use the registrar's CSC DNS). Requires `domains:verify`, a reason (≥10 chars), optional reference, review-by date (default 12 months, max 24); audited per domain; labelled "Authorised (admin)" everywhere, distinct from "Verified (DNS)"; lapses on the review date. Available per domain, in bulk from the list, and as an option on CSV import.
+- 2026-10-22 — **Revocation** of either method with a mandatory reason (`revoked` status); re-verification is allowed afterwards.
+- 2026-10-22 — **Bulk writes are set-based** (one statement per step + one multi-row audit insert): 339-domain import with authorisation went from 66 s to 1.4 s against Neon.
+- 2026-10-22 — **Portfolio import file** built from the CSC export with only `domain`, `criticality` (`Vital Domain` = Yes → high, else medium) and `business_owner` (`Business Unit`). Registrant/admin/tech contact data is deliberately not imported. Registration and expiry dates in the export are not imported either; RDAP collection will supply verified values.
+- 2026-10-22 — `punycode` is imported from its ES-module file (`punycode/punycode.es6.js`): the CommonJS entry broke the local workerd dev runner, and `punycode/` broke plain Node ESM.
+
 - 2026-10-22 — **Only registrable domains (eTLD+1) can be registered**; subdomains are rejected with a suggestion (they become assets later). PSL via `tldts` 7.4.17, ICANN section only: private-section suffixes (`github.io`, `workers.dev`), unknown/special-use TLDs and `.arpa` are rejected.
 - 2026-10-22 — **IDN handling:** WHATWG URL (UTS #46) produces A-labels; ASCII input is pre-filtered to `[a-z0-9.-]` first so percent-encoding and numeric IP shorthands never reach the parser; `xn--` labels must round-trip. Canonical A-label is shown first; Unicode form is secondary; mixed-script labels are flagged (`mixed_script`) but allowed, because DNS verification proves control anyway.
 - 2026-10-22 — **Verification by DoH from the Worker** (Cloudflare `dns-query` JSON), not a worker job: one passive query to a public resolver, no scanning infrastructure needed. Record `_exdomainvault-challenge.<domain>` TXT `exdomainvault-verification=<token>`.
@@ -71,9 +78,9 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 - Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
 - No user-management UI/API yet: non-bootstrap users must be inserted into `users` manually.
-- Domain verification has been exercised end to end locally only up to `record_not_found` against real DNS; a positive verification has only been tested with a mocked resolver (needs a domain whose DNS you control).
+- A positive DNS TXT verification has only been tested with a mocked resolver (needs a domain whose DNS you control); administrator authorisation was exercised end to end on the Neon `dev` branch with all 339 portfolio domains.
 - Challenge expiry is lazy (applied when domain data is read or changed); no scheduled sweep until Cron Triggers arrive (Milestone 4).
-- No revoke/re-verify flow, no domain deletion, no rate limit on domain creation beyond permissions.
+- No domain deletion, no rate limit on domain creation beyond permissions. No bulk monitoring toggle yet (monitoring has no effect until collection exists).
 - Registration (RDAP) data is not collected; the UI says "Not collected yet".
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
@@ -141,3 +148,13 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 **Deployed** 2026-10-22 on request, version `cf062f76-4896-4c7a-be8a-50d813fbd696` (no migration needed). Unauthenticated `/`, `/domains`, `/api/v1/domains` and a forged-token POST → 302 to the Access login.
 
 **Next:** Milestone 4 — scan job lifecycle (`docs/prompts/04-scan-job-lifecycle.md`).
+
+### Milestone 3 follow-up: administrator authorisation — 2026-10-22
+
+**Why:** 339 owned domains, most with registrar-managed DNS where a TXT record per domain is impractical (owner request).
+
+**Built:** migration `0001_domain_authorisation` (new enum values, attestation fields, domain verification method/review date, backfill, checks); `services/domain-authorisation.ts` (authorise single/bulk, revoke, lapse); routes `POST /domains/:id/authorise`, `POST /domains/authorise`, `POST /domains/:id/revoke`; optional `authorisation` on import confirm; monitoring no longer gated; set-based bulk audit (`writeAuditMany`). UI: badges distinguish DNS vs admin, "Authorise without DNS" form, revoke with reason, list row selection + bulk authorise, rows per page, import "also authorise" option.
+
+**Checks:** lint pass · typecheck pass · build pass · `db:check` pass, no drift · `npm test` 18 files / 235 tests pass (+ constraint and backfill migration tests, authorisation API incl. review-date validation, RBAC, bulk skip rules, lapse at end of review day, revoke, import+authorise and rollback, UI flows) · Neon `dev` migrated (`0001`) · rehearsal on `dev`: full 339-row portfolio import with authorisation → 339 created/authorised, 1.4 s, audit rows per domain.
+
+**Production:** not migrated or deployed yet — needs the owner's go-ahead (`0001` must run before deploying this code).

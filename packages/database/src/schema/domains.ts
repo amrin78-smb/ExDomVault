@@ -28,6 +28,10 @@ export const domains = pgTable(
       .notNull()
       .default('unverified'),
     verifiedAt: ts('verified_at'),
+    /** Set while verified: how authorisation was established. */
+    verificationMethod: verificationMethod('verification_method'),
+    /** When an administrator attestation lapses and must be reviewed (null for DNS proof). */
+    verificationExpiresAt: ts('verification_expires_at'),
     monitoringEnabled: boolean('monitoring_enabled').notNull().default(false),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
@@ -43,11 +47,23 @@ export const domains = pgTable(
       'domains_verified_at_consistent',
       sql`(${t.verificationStatus} = 'verified') = (${t.verifiedAt} IS NOT NULL)`,
     ),
+    check(
+      'domains_verification_method_consistent',
+      sql`(${t.verificationStatus} = 'verified') = (${t.verificationMethod} IS NOT NULL)`,
+    ),
+    check(
+      'domains_attestation_has_review_date',
+      // Written against 'dns_txt' so the migration that adds 'admin_attestation' can create it in the
+      // same transaction (a new enum value cannot be referenced there).
+      sql`COALESCE(${t.verificationMethod} <> 'dns_txt', false) = (${t.verificationExpiresAt} IS NOT NULL)`,
+    ),
   ],
 );
 
 /**
- * Domain-control challenges. Only a hash of the challenge token is stored; challenges expire.
+ * Verification records. `dns_txt`: a challenge of which only the token hash is stored; it expires if
+ * not confirmed. `admin_attestation`: an administrator's recorded authorisation (reason, reference),
+ * created already `verified`; `expires_at` is its review-by date.
  */
 export const domainVerifications = pgTable(
   'domain_verifications',
@@ -57,7 +73,9 @@ export const domainVerifications = pgTable(
       .notNull()
       .references(() => domains.id, { onDelete: 'cascade' }),
     method: verificationMethod('method').notNull(),
-    challengeHash: text('challenge_hash').notNull(),
+    challengeHash: text('challenge_hash'),
+    reason: text('reason'),
+    reference: text('reference'),
     status: challengeStatus('status').notNull().default('pending'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
@@ -73,5 +91,11 @@ export const domainVerifications = pgTable(
       .on(t.domainId, t.method)
       .where(sql`${t.status} = 'pending'`),
     check('domain_verifications_expiry_after_creation', sql`${t.expiresAt} > ${t.createdAt}`),
+    check(
+      'domain_verifications_method_fields',
+      sql`CASE ${t.method}
+        WHEN 'dns_txt' THEN ${t.challengeHash} IS NOT NULL AND ${t.reason} IS NULL
+        ELSE ${t.challengeHash} IS NULL AND ${t.reason} IS NOT NULL END`,
+    ),
   ],
 );

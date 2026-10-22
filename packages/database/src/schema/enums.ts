@@ -22,13 +22,18 @@ export const registrationDataStatus = pgEnum('registration_data_status', [
   'unavailable',
 ]);
 
-export const verificationMethod = pgEnum('verification_method', ['dns_txt']);
+/**
+ * How a domain was authorised for active scanning: proven by a DNS TXT record, or attested by an
+ * administrator (with reason, reference and a review date) when the DNS is managed elsewhere.
+ */
+export const verificationMethod = pgEnum('verification_method', ['dns_txt', 'admin_attestation']);
 export const challengeStatus = pgEnum('challenge_status', [
   'pending',
   'verified',
   'expired',
   'failed',
   'superseded',
+  'revoked',
 ]);
 
 export const assetType = pgEnum('asset_type', ['apex', 'subdomain']);

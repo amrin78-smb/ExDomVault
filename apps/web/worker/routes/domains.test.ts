@@ -2,6 +2,7 @@
 import { schema } from '@exdomainvault/database';
 import { createTestDatabase, type TestDatabase } from '@exdomainvault/database/testing';
 import {
+  bulkAuthoriseResponseSchema,
   createChallengeResponseSchema,
   domainDetailResponseSchema,
   domainListResponseSchema,
@@ -287,13 +288,11 @@ describe('GET and PATCH /domains/:id', () => {
     );
   });
 
-  it('does not enable monitoring before verification', async () => {
+  it('allows passive monitoring on unverified domains', async () => {
     const domain = await addDomain('example.com');
-    await expectError(
-      await call('admin', 'PATCH', `/domains/${domain.id}`, { monitoringEnabled: true }),
-      409,
-      'conflict',
-    );
+    const res = await call('admin', 'PATCH', `/domains/${domain.id}`, { monitoringEnabled: true });
+    expect(res.status).toBe(200);
+    expect(domainDetailResponseSchema.parse(await res.json()).domain.monitoringEnabled).toBe(true);
   });
 });
 
@@ -365,10 +364,7 @@ describe('DNS TXT verification', () => {
     await expectError(await call('admin', 'POST', `/domains/${domain.id}/verification`), 409, 'conflict');
     await expectError(await call('admin', 'POST', `/domains/${domain.id}/verify`), 409, 'conflict');
 
-    // Monitoring may now be enabled.
-    const patched = await call('admin', 'PATCH', `/domains/${domain.id}`, { monitoringEnabled: true });
-    expect(patched.status).toBe(200);
-    expect(await auditActions()).toContain('domain.monitoring_enabled');
+    expect(result.domain).toMatchObject({ verificationMethod: 'dns_txt', verificationExpiresAt: null });
   });
 
   it('reports a missing record, a wrong value and DNS errors without verifying', async () => {
@@ -501,6 +497,7 @@ describe('CSV import', () => {
     const result = importConfirmResponseSchema.parse(await res.json());
     expect(result.created.map((d) => d.fqdn).sort()).toEqual(['alpha.com', 'bravo.org', 'echo.com']);
     expect(result.skipped).toBe(4);
+    expect(result.authorised).toBe(0);
 
     const actions = await auditActions();
     expect(actions.filter((a) => a === 'domain.created')).toHaveLength(4);
@@ -538,5 +535,188 @@ describe('CSV import', () => {
       await (await call('admin', 'POST', '/domains/import/preview', { csv: big })).json(),
     );
     expect(preview.fileErrors[0]).toContain('more than 1000 rows');
+  });
+});
+
+describe('administrator authorisation', () => {
+  const auth = {
+    reason: 'Owned by the group; DNS is managed by the registrar',
+    reference: 'CSC-7740752',
+    reviewBy: '2027-10-22',
+  };
+
+  it('authorises a domain with an audited, labelled attestation', async () => {
+    const domain = await addDomain('example.com');
+    const res = await call('admin', 'POST', `/domains/${domain.id}/authorise`, auth);
+    expect(res.status).toBe(200);
+    const body = domainDetailResponseSchema.parse(await res.json());
+    expect(body.domain).toMatchObject({
+      verificationStatus: 'verified',
+      verificationMethod: 'admin_attestation',
+      verifiedAt: clock.toISOString(),
+      verificationExpiresAt: '2027-10-22T23:59:59.999Z',
+    });
+    expect(body.verification).toMatchObject({
+      method: 'admin_attestation',
+      status: 'verified',
+      recordName: null,
+      reason: auth.reason,
+      reference: auth.reference,
+    });
+    const [audit] = await t.db
+      .select()
+      .from(schema.auditLogs)
+      .where(eq(schema.auditLogs.action, 'domain.authorised'));
+    expect(audit?.metadata).toMatchObject({
+      method: 'admin_attestation',
+      reason: auth.reason,
+      reference: auth.reference,
+      source: 'manual',
+    });
+    // Nothing else is granted.
+    expect(await t.db.select().from(schema.assets)).toEqual([]);
+  });
+
+  it('supersedes a pending DNS challenge and refuses an already verified domain', async () => {
+    const domain = await addDomain('example.com');
+    await call('admin', 'POST', `/domains/${domain.id}/verification`);
+    expect((await call('admin', 'POST', `/domains/${domain.id}/authorise`, auth)).status).toBe(200);
+    const statuses = (await t.db.select().from(schema.domainVerifications)).map((r) => [r.method, r.status]);
+    expect(statuses).toContainEqual(['dns_txt', 'superseded']);
+    await expectError(await call('admin', 'POST', `/domains/${domain.id}/authorise`, auth), 409, 'conflict');
+    await expectError(await call('admin', 'POST', `/domains/${domain.id}/verify`), 409, 'conflict');
+  });
+
+  it.each([
+    [{ ...auth, reason: 'too short' }, 'reason'],
+    [{ ...auth, reviewBy: '2026-10-21' }, 'reviewBy'],
+    [{ ...auth, reviewBy: '2028-11-01' }, 'reviewBy'],
+    [{ ...auth, reviewBy: '22/10/2027' }, 'reviewBy'],
+    [{ reason: auth.reason }, 'reviewBy'],
+  ])('validates %j', async (body, field) => {
+    const domain = await addDomain('example.com');
+    const err = await expectError(
+      await call('admin', 'POST', `/domains/${domain.id}/authorise`, body),
+      400,
+      'validation_failed',
+    );
+    expect(err.details?.map((d) => d.path)).toContain(field);
+  });
+
+  it('is limited to roles with domains:verify', async () => {
+    const domain = await addDomain('example.com');
+    for (const role of ['analyst', 'viewer', 'asset_owner'] as const) {
+      await expectError(await call(role, 'POST', `/domains/${domain.id}/authorise`, auth), 403, 'forbidden');
+      await expectError(
+        await call(role, 'POST', '/domains/authorise', { ...auth, domainIds: [domain.id] }),
+        403,
+        'forbidden',
+      );
+      await expectError(
+        await call(role, 'POST', `/domains/${domain.id}/revoke`, { reason: 'No longer ours, sold' }),
+        403,
+        'forbidden',
+      );
+    }
+  });
+
+  it('authorises in bulk, skipping verified and unknown domains', async () => {
+    const a = await addDomain('alpha.com');
+    const b = await addDomain('bravo.com');
+    await call('admin', 'POST', `/domains/${b.id}/authorise`, auth);
+    const missing = crypto.randomUUID();
+    const res = await call('admin', 'POST', '/domains/authorise', { ...auth, domainIds: [a.id, b.id, missing] });
+    expect(res.status).toBe(200);
+    const body = bulkAuthoriseResponseSchema.parse(await res.json());
+    expect(body.authorised).toEqual([{ id: a.id, fqdn: 'alpha.com' }]);
+    expect(body.skipped).toEqual([
+      { id: b.id, fqdn: 'bravo.com', reason: 'already_verified' },
+      { id: missing, fqdn: null, reason: 'not_found' },
+    ]);
+  });
+
+  it('lapses on the review date, audited as a system action', async () => {
+    const domain = await addDomain('example.com');
+    await call('admin', 'POST', `/domains/${domain.id}/authorise`, { ...auth, reviewBy: '2026-11-01' });
+
+    clock = new Date('2026-11-01T23:59:59.000Z');
+    let detail = domainDetailResponseSchema.parse(await (await call('viewer', 'GET', `/domains/${domain.id}`)).json());
+    expect(detail.domain.verificationStatus).toBe('verified');
+
+    clock = new Date('2026-11-02T00:00:00.000Z');
+    const list = domainListResponseSchema.parse(await (await call('viewer', 'GET', '/domains')).json());
+    expect(list.items[0]).toMatchObject({ verificationStatus: 'unverified', verificationMethod: null });
+    detail = domainDetailResponseSchema.parse(await (await call('viewer', 'GET', `/domains/${domain.id}`)).json());
+    expect(detail.verification).toMatchObject({ status: 'expired', failureReason: 'review_date_passed' });
+    expect(await auditActions()).toContain('domain.authorisation_lapsed');
+  });
+
+  it('revokes either method with a reason, after which DNS verification can start again', async () => {
+    const domain = await addDomain('example.com');
+    await call('admin', 'POST', `/domains/${domain.id}/authorise`, auth);
+    await expectError(
+      await call('admin', 'POST', `/domains/${domain.id}/revoke`, { reason: 'short' }),
+      400,
+      'validation_failed',
+    );
+    const res = await call('admin', 'POST', `/domains/${domain.id}/revoke`, { reason: 'Domain was transferred out' });
+    expect(res.status).toBe(200);
+    const body = domainDetailResponseSchema.parse(await res.json());
+    expect(body.domain).toMatchObject({ verificationStatus: 'revoked', verificationMethod: null, verifiedAt: null });
+    expect(body.verification?.status).toBe('revoked');
+    const [audit] = await t.db
+      .select()
+      .from(schema.auditLogs)
+      .where(eq(schema.auditLogs.action, 'domain.verification_revoked'));
+    expect(audit?.metadata).toMatchObject({ reason: 'Domain was transferred out', previousMethod: 'admin_attestation' });
+
+    await expectError(
+      await call('admin', 'POST', `/domains/${domain.id}/revoke`, { reason: 'Domain was transferred out' }),
+      409,
+      'conflict',
+    );
+    expect((await call('admin', 'POST', `/domains/${domain.id}/verification`)).status).toBe(201);
+  });
+
+  it('can authorise every domain created by an import, in the same transaction', async () => {
+    await addDomain('existing.com');
+    const csv = 'domain\nalpha.com\nexisting.com\nbravo.org';
+    const preview = importPreviewResponseSchema.parse(
+      await (await call('admin', 'POST', '/domains/import/preview', { csv })).json(),
+    );
+    const res = await call('admin', 'POST', '/domains/import', {
+      csv,
+      digest: preview.digest,
+      authorisation: auth,
+    });
+    expect(res.status).toBe(201);
+    expect(importConfirmResponseSchema.parse(await res.json())).toMatchObject({ skipped: 1, authorised: 2 });
+    const rows = await t.db.select().from(schema.domains).orderBy(schema.domains.fqdn);
+    expect(rows.map((r) => [r.fqdn, r.verificationMethod])).toEqual([
+      ['alpha.com', 'admin_attestation'],
+      ['bravo.org', 'admin_attestation'],
+      ['existing.com', null],
+    ]);
+    const sources = (await t.db.select().from(schema.auditLogs).where(eq(schema.auditLogs.action, 'domain.authorised'))).map(
+      (a) => a.metadata.source,
+    );
+    expect(sources).toEqual(['import', 'import']);
+  });
+
+  it('rolls back the whole import when the authorisation is invalid', async () => {
+    const csv = 'domain\nalpha.com';
+    const preview = importPreviewResponseSchema.parse(
+      await (await call('admin', 'POST', '/domains/import/preview', { csv })).json(),
+    );
+    await expectError(
+      await call('admin', 'POST', '/domains/import', {
+        csv,
+        digest: preview.digest,
+        authorisation: { ...auth, reviewBy: '2020-01-01' },
+      }),
+      400,
+      'validation_failed',
+    );
+    expect(await t.db.select().from(schema.domains)).toEqual([]);
   });
 });

@@ -61,7 +61,10 @@ export function DomainDetailPage() {
           </p>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <VerificationBadge status={domain.verificationStatus} />
+          <VerificationBadge
+            status={domain.verificationStatus}
+            method={domain.verificationMethod}
+          />
           <CriticalityLabel criticality={domain.criticality} />
           <span className="text-xs text-slate-500">Added {formatDate(domain.createdAt)}</span>
         </div>

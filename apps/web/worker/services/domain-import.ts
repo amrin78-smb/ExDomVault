@@ -2,6 +2,7 @@ import { schema, type Database } from '@exdomainvault/database';
 import {
   CRITICALITIES,
   IMPORT_MAX_ROWS,
+  type AuthorisationInput,
   type Criticality,
   type ImportConfirmResponse,
   type ImportPreviewResponse,
@@ -11,7 +12,8 @@ import { normaliseDomain } from '@exdomainvault/shared/hostname';
 import { inArray } from 'drizzle-orm';
 import { CsvError, parseCsv } from '../lib/csv.ts';
 import { ApiError } from '../lib/errors.ts';
-import { writeAudit } from './audit.ts';
+import { writeAudit, writeAuditMany } from './audit.ts';
+import { authoriseWithin, prepareAuthorisation } from './domain-authorisation.ts';
 import type { Actor } from './domains.ts';
 import { sha256Hex } from './domain-verification.ts';
 
@@ -152,7 +154,10 @@ export async function confirmImport(
   csv: string,
   digest: string,
   actor: Actor,
+  opts: { authorisation?: AuthorisationInput; now: Date },
 ): Promise<ImportConfirmResponse> {
+  // Validate the authorisation (review date) before touching anything.
+  const auth = opts.authorisation ? prepareAuthorisation(opts.authorisation, opts.now) : null;
   const preview = await previewImport(db, csv);
   if (preview.digest !== digest) {
     throw new ApiError(400, 'bad_request', 'The file changed after it was previewed. Preview it again.');
@@ -168,7 +173,7 @@ export async function confirmImport(
       ? [{ fqdn: r.fqdn, criticality: r.criticality, businessOwner: r.businessOwner }]
       : [],
   );
-  if (valid.length === 0) return { created: [], skipped: preview.rows.length };
+  if (valid.length === 0) return { created: [], skipped: preview.rows.length, authorised: 0 };
 
   return db.transaction(async (tx) => {
     // ON CONFLICT DO NOTHING: a domain registered between preview and confirm is skipped, not an error.
@@ -185,17 +190,18 @@ export async function confirmImport(
       .onConflictDoNothing({ target: domains.fqdn })
       .returning({ id: domains.id, fqdn: domains.fqdn, criticality: domains.criticality });
 
-    for (const d of created) {
-      await writeAudit(tx as unknown as Database, {
-        actorType: 'user',
+    await writeAuditMany(
+      tx as unknown as Database,
+      created.map((d) => ({
+        actorType: 'user' as const,
         actorUserId: actor.userId,
         action: 'domain.created',
         resourceType: 'domain',
         resourceId: d.id,
         requestId: actor.requestId,
         metadata: { fqdn: d.fqdn, criticality: d.criticality, source: 'import', importDigest: digest },
-      });
-    }
+      })),
+    );
     await writeAudit(tx as unknown as Database, {
       actorType: 'user',
       actorUserId: actor.userId,
@@ -203,12 +209,24 @@ export async function confirmImport(
       resourceType: 'domain_import',
       resourceId: digest,
       requestId: actor.requestId,
-      metadata: { rows: preview.rows.length, created: created.length },
+      metadata: { rows: preview.rows.length, created: created.length, authorised: auth !== null },
     });
+
+    const authorised = auth
+      ? await authoriseWithin(
+          tx as unknown as Database,
+          created.map((d) => d.id),
+          auth,
+          actor,
+          opts.now,
+          'import',
+        )
+      : null;
 
     return {
       created: created.map(({ id, fqdn }) => ({ id, fqdn })),
       skipped: preview.rows.length - created.length,
+      authorised: authorised?.authorised.length ?? 0,
     };
   });
 }

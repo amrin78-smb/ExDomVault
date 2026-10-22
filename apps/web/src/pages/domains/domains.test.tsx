@@ -21,6 +21,8 @@ const domain = (overrides: Partial<Domain> = {}): Domain => ({
   businessOwner: 'Platform team',
   verificationStatus: 'unverified',
   verifiedAt: null,
+  verificationMethod: null,
+  verificationExpiresAt: null,
   monitoringEnabled: false,
   createdAt: '2026-10-22T10:00:00.000Z',
   updatedAt: '2026-10-22T10:00:00.000Z',
@@ -108,7 +110,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('Domains list', () => {
   it('lists domains with status and links to detail', async () => {
     stubApi('admin', {
-      'GET /api/v1/domains?pageSize=25': listOf([
+      'GET /api/v1/domains': listOf([
         domain(),
         domain({
           id: crypto.randomUUID(),
@@ -130,7 +132,7 @@ describe('Domains list', () => {
   });
 
   it('hides add and import actions from roles without domains:write', async () => {
-    stubApi('analyst', { 'GET /api/v1/domains?pageSize=25': listOf([]) });
+    stubApi('analyst', { 'GET /api/v1/domains': listOf([]) });
     renderAt('/domains');
     expect(await screen.findByText('No domains yet')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Add domain/ })).not.toBeInTheDocument();
@@ -139,19 +141,19 @@ describe('Domains list', () => {
 
   it('applies filters through the query string', async () => {
     const calls = stubApi('viewer', {
-      'GET /api/v1/domains?pageSize=25': listOf([domain()]),
-      'GET /api/v1/domains?pageSize=25&criticality=critical': listOf([]),
+      'GET /api/v1/domains': listOf([domain()]),
+      'GET /api/v1/domains?criticality=critical': listOf([]),
     });
     renderAt('/domains');
     await screen.findByRole('link', { name: 'example.com' });
     await userEvent.selectOptions(screen.getByLabelText('Criticality'), 'critical');
     expect(await screen.findByText('No domains match these filters')).toBeInTheDocument();
-    expect(calls.map((c) => c.path)).toContain('/api/v1/domains?pageSize=25&criticality=critical');
+    expect(calls.map((c) => c.path)).toContain('/api/v1/domains?criticality=critical');
   });
 
   it('adds a domain and opens it', async () => {
     const calls = stubApi('admin', {
-      'GET /api/v1/domains?pageSize=25': listOf([]),
+      'GET /api/v1/domains': listOf([]),
       'POST /api/v1/domains': () => ({
         status: 201,
         body: { domain: domain(), verification: null },
@@ -180,7 +182,7 @@ describe('Domains list', () => {
 
   it('shows the server explanation when a domain is rejected', async () => {
     stubApi('admin', {
-      'GET /api/v1/domains?pageSize=25': listOf([]),
+      'GET /api/v1/domains': listOf([]),
       'POST /api/v1/domains': () => ({
         status: 400,
         body: {
@@ -207,12 +209,63 @@ describe('Domains list', () => {
   });
 });
 
+describe('Bulk authorisation', () => {
+  it('authorises selected domains and reloads the list', async () => {
+    const second = domain({ id: crypto.randomUUID(), fqdn: 'example.org' });
+    let authorised = false;
+    const calls = stubApi('admin', {
+      'GET /api/v1/domains': () =>
+        listOf(
+          authorised
+            ? [
+                domain({
+                  verificationStatus: 'verified',
+                  verifiedAt: '2026-10-22T12:00:00.000Z',
+                  verificationMethod: 'admin_attestation',
+                  verificationExpiresAt: '2027-10-22T23:59:59.999Z',
+                }),
+                second,
+              ]
+            : [domain(), second],
+        )(),
+      'POST /api/v1/domains/authorise': () => {
+        authorised = true;
+        return {
+          status: 200,
+          body: { authorised: [{ id: DOMAIN_ID, fqdn: 'example.com' }], skipped: [] },
+        };
+      },
+    });
+    renderAt('/domains');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Select example.com' }));
+    const form = screen.getByRole('region', { name: /Authorise 1 selected domain/ });
+    await userEvent.type(within(form).getByLabelText('Reason'), 'Group-owned; DNS managed by CSC');
+    await userEvent.click(within(form).getByRole('button', { name: 'Authorise 1 domain' }));
+
+    expect(await screen.findByText(/Authorised 1 domain/)).toBeInTheDocument();
+    expect(await screen.findByText('Authorised (admin)')).toBeInTheDocument();
+    expect(calls.find((c) => c.path === '/api/v1/domains/authorise')?.body).toMatchObject({
+      domainIds: [DOMAIN_ID],
+      reason: 'Group-owned; DNS managed by CSC',
+    });
+  });
+
+  it('offers selection only to roles that can verify', async () => {
+    stubApi('analyst', { 'GET /api/v1/domains': listOf([domain()]) });
+    renderAt('/domains');
+    await screen.findByRole('link', { name: 'example.com' });
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+});
+
 describe('Domain detail', () => {
   const challenge = {
     id: crypto.randomUUID(),
     method: 'dns_txt',
     status: 'pending',
     recordName: '_exdomainvault-challenge.example.com',
+    reason: null,
+    reference: null,
     createdAt: '2026-10-22T10:00:00.000Z',
     expiresAt: '2026-10-25T10:00:00.000Z',
     lastCheckedAt: null,
@@ -249,7 +302,9 @@ describe('Domain detail', () => {
       }),
     });
     renderAt(`/domains/${DOMAIN_ID}`);
-    await userEvent.click(await screen.findByRole('button', { name: 'Start verification' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Verify with DNS TXT record' }),
+    );
 
     expect(await screen.findByText('exdomainvault-verification=secret-token')).toBeInTheDocument();
     expect(screen.getByText(/shown only once/)).toBeInTheDocument();
@@ -306,11 +361,85 @@ describe('Domain detail', () => {
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ monitoringEnabled: true });
   });
 
-  it('does not offer monitoring before verification', async () => {
+  it('offers passive monitoring before verification', async () => {
     stubApi('admin', { [`GET /api/v1/domains/${DOMAIN_ID}`]: detailOf(domain()) });
     renderAt(`/domains/${DOMAIN_ID}`);
-    expect(await screen.findByRole('button', { name: 'Turn on monitoring' })).toBeDisabled();
-    expect(screen.getByText(/can be turned on after the domain is verified/)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Turn on monitoring' })).toBeEnabled();
+    expect(screen.getByText(/Active scanning also requires verification/)).toBeInTheDocument();
+  });
+
+  it('authorises a domain without DNS, with reason, reference and review date', async () => {
+    const calls = stubApi('admin', {
+      [`GET /api/v1/domains/${DOMAIN_ID}`]: detailOf(domain()),
+      [`POST /api/v1/domains/${DOMAIN_ID}/authorise`]: (body) => ({
+        status: 200,
+        body: {
+          domain: domain({
+            verificationStatus: 'verified',
+            verifiedAt: '2026-10-22T12:00:00.000Z',
+            verificationMethod: 'admin_attestation',
+            verificationExpiresAt: '2027-10-22T23:59:59.999Z',
+          }),
+          verification: {
+            ...challenge,
+            method: 'admin_attestation',
+            status: 'verified',
+            recordName: null,
+            reason: (body as { reason: string }).reason,
+            reference: 'CSC portfolio export',
+            verifiedAt: '2026-10-22T12:00:00.000Z',
+          },
+        },
+      }),
+    });
+    renderAt(`/domains/${DOMAIN_ID}`);
+    await userEvent.click(await screen.findByRole('button', { name: 'Authorise without DNS' }));
+    const form = screen.getByRole('form', { name: 'Authorise without DNS' });
+    const submit = within(form).getByRole('button', { name: 'Authorise example.com' });
+    expect(submit).toBeDisabled();
+    await userEvent.type(
+      within(form).getByLabelText('Reason'),
+      'Owned by the group; DNS run by the registrar',
+    );
+    await userEvent.type(within(form).getByLabelText(/Reference/), 'CSC portfolio export');
+    await userEvent.click(submit);
+
+    expect(await screen.findByText(/Authorised by an administrator/)).toBeInTheDocument();
+    expect(screen.getByText('Authorised (admin)')).toBeInTheDocument();
+    expect(screen.getByText('CSC portfolio export')).toBeInTheDocument();
+    const body = calls.find((c) => c.path.endsWith('/authorise'))?.body as Record<string, string>;
+    expect(body).toMatchObject({
+      reason: 'Owned by the group; DNS run by the registrar',
+      reference: 'CSC portfolio export',
+    });
+    expect(body.reviewBy).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('requires a reason before revoking', async () => {
+    const verified = domain({
+      verificationStatus: 'verified',
+      verifiedAt: '2026-10-22T11:00:00.000Z',
+      verificationMethod: 'dns_txt',
+    });
+    const calls = stubApi('admin', {
+      [`GET /api/v1/domains/${DOMAIN_ID}`]: detailOf(verified),
+      [`POST /api/v1/domains/${DOMAIN_ID}/revoke`]: () => ({
+        status: 200,
+        body: { domain: domain({ verificationStatus: 'revoked' }), verification: null },
+      }),
+    });
+    renderAt(`/domains/${DOMAIN_ID}`);
+    expect(await screen.findByText('Verified (DNS)')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Revoke verification' }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Confirm revocation' });
+    const revoke = within(dialog).getByRole('button', { name: 'Revoke' });
+    expect(revoke).toBeDisabled();
+    await userEvent.type(within(dialog).getByRole('textbox'), 'Domain sold to a third party');
+    await userEvent.click(revoke);
+    expect(await screen.findByText(/Verification of this domain was revoked/)).toBeInTheDocument();
+    expect(calls.find((c) => c.path.endsWith('/revoke'))?.body).toEqual({
+      reason: 'Domain sold to a third party',
+    });
   });
 
   it('warns about mixed-script names', async () => {
@@ -383,7 +512,7 @@ describe('Domain import', () => {
       'POST /api/v1/domains/import/preview': () => ({ status: 200, body: preview }),
       'POST /api/v1/domains/import': () => ({
         status: 201,
-        body: { created: [{ id: DOMAIN_ID, fqdn: 'alpha.com' }], skipped: 1 },
+        body: { created: [{ id: DOMAIN_ID, fqdn: 'alpha.com' }], skipped: 1, authorised: 0 },
       }),
     });
     renderAt('/domains/import');

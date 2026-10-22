@@ -34,6 +34,8 @@ export function toDomainDto(row: DomainRow): Domain {
     businessOwner: row.businessOwner,
     verificationStatus: row.verificationStatus,
     verifiedAt: iso(row.verifiedAt),
+    verificationMethod: row.verificationMethod,
+    verificationExpiresAt: iso(row.verificationExpiresAt),
     monitoringEnabled: row.monitoringEnabled,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -163,16 +165,6 @@ export async function updateDomain(
   return db.transaction(async (tx) => {
     const [current] = await tx.select().from(domains).where(eq(domains.id, id)).for('update');
     if (!current) throw new ApiError(404, 'not_found', 'The requested resource was not found.');
-
-    if (patch.monitoringEnabled === true && !current.monitoringEnabled) {
-      if (current.verificationStatus !== 'verified') {
-        throw new ApiError(
-          409,
-          'conflict',
-          'Monitoring can only be enabled after the domain has been verified.',
-        );
-      }
-    }
 
     const changes: Record<string, { from: unknown; to: unknown }> = {};
     const set: Partial<typeof domains.$inferInsert> = {};

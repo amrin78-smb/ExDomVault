@@ -26,6 +26,7 @@ Where a detail is unspecified, choose a secure default, record the decision in `
 
 - `netlify.toml` in the design's repo layout is an error — the app deploys to Cloudflare Workers. Use `wrangler.jsonc` instead; do not add Netlify config.
 - Documentation set is the union of both documents: `architecture.md`, `threat-model.md`, `database-schema.md`, `api-specification.md`, `scan-safety.md`, `advisory-rules.md`, `deployment.md`, `home-worker-setup.md`, `troubleshooting.md`.
+- Domain verification (DNS TXT **or** audited administrator authorisation with a review date) gates **active scanning only**; passive monitoring is allowed for every domain (owner decision, 2026-10-22).
 - Recurrence of a resolved finding: reopen the same finding (same fingerprint) and append a status-history entry with `reason = recurrence`, unless the design later specifies linked findings.
 
 ## Hard rules (never violate)

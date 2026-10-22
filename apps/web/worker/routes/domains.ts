@@ -1,5 +1,9 @@
 import {
+  authorisationSchema,
+  bulkAuthoriseRequestSchema,
   createDomainRequestSchema,
+  hasPermission,
+  revokeRequestSchema,
   domainListQuerySchema,
   importConfirmRequestSchema,
   importPreviewRequestSchema,
@@ -8,11 +12,14 @@ import {
   type DomainDetailResponse,
   type VerifyDomainResponse,
 } from '@exdomainvault/shared';
+import type { Database } from '@exdomainvault/database';
 import { Hono, type Context } from 'hono';
 import { createDohResolver, type TxtResolver } from '../lib/doh.ts';
 import { parseJsonBody, parseQuery, uuidParam } from '../lib/validation.ts';
 import { requirePermission } from '../middleware/auth.ts';
+import { authoriseDomains, revokeDomain } from '../services/domain-authorisation.ts';
 import { confirmImport, previewImport } from '../services/domain-import.ts';
+import { ApiError } from '../lib/errors.ts';
 import {
   checkChallenge,
   createChallenge,
@@ -42,6 +49,15 @@ const actorOf = (c: Context<AppBindings>): Actor => ({
   requestId: c.get('requestId'),
 });
 
+async function detailOf(db: Database, id: string): Promise<DomainDetailResponse> {
+  const row = await getDomainRow(db, id);
+  const challenge = await latestChallenge(db, id);
+  return {
+    domain: toDomainDto(row),
+    verification: challenge ? toChallengeDto(challenge, row.fqdn) : null,
+  };
+}
+
 export function domainRoutes(deps: DomainRouteDeps = {}) {
   const resolveTxt = deps.resolveTxt ?? createDohResolver();
   const now = deps.now ?? (() => new Date());
@@ -67,11 +83,29 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
       return c.json(await previewImport(db, csv));
     })
     .post('/import', requirePermission('domains:write'), async (c) => {
-      const { csv, digest } = await parseJsonBody(c, importConfirmRequestSchema);
+      const { csv, digest, authorisation } = await parseJsonBody(c, importConfirmRequestSchema);
+      if (authorisation && !hasPermission(c.get('user').role, 'domains:verify')) {
+        throw new ApiError(403, 'forbidden', 'You do not have permission to authorise domains.');
+      }
       const db = await c.get('db')();
-      const result = await confirmImport(db, csv, digest, actorOf(c));
+      const result = await confirmImport(db, csv, digest, actorOf(c), {
+        authorisation,
+        now: now(),
+      });
       c.get('logger').info('domains_imported', { created: result.created.length, skipped: result.skipped });
       return c.json(result, 201);
+    })
+    .post('/authorise', requirePermission('domains:verify'), async (c) => {
+      const { domainIds, ...auth } = await parseJsonBody(c, bulkAuthoriseRequestSchema);
+      const db = await c.get('db')();
+      const ids = domainIds.map((id) => id.toLowerCase());
+      await Promise.all(ids.map((id) => expireStaleChallenges(db, now(), id)));
+      const result = await authoriseDomains(db, ids, auth, actorOf(c), now(), 'bulk');
+      c.get('logger').info('domains_authorised', {
+        authorised: result.authorised.length,
+        skipped: result.skipped.length,
+      });
+      return c.json(result);
     })
     .get('/:id', requirePermission('domains:read'), async (c) => {
       const id = uuidParam(c, 'id');
@@ -103,6 +137,29 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
       const res: CreateChallengeResponse = await createChallenge(db, id, actorOf(c), now());
       c.get('logger').info('domain_verification_started', { domainId: id, challengeId: res.challenge.id });
       return c.json(res, 201);
+    })
+    .post('/:id/authorise', requirePermission('domains:verify'), async (c) => {
+      const id = uuidParam(c, 'id');
+      const auth = await parseJsonBody(c, authorisationSchema);
+      const db = await c.get('db')();
+      await expireStaleChallenges(db, now(), id);
+      const result = await authoriseDomains(db, [id], auth, actorOf(c), now(), 'manual');
+      const skipped = result.skipped[0];
+      if (skipped?.reason === 'not_found') {
+        throw new ApiError(404, 'not_found', 'The requested resource was not found.');
+      }
+      if (skipped?.reason === 'already_verified') {
+        throw new ApiError(409, 'conflict', 'This domain is already verified.');
+      }
+      return c.json(await detailOf(db, id));
+    })
+    .post('/:id/revoke', requirePermission('domains:verify'), async (c) => {
+      const id = uuidParam(c, 'id');
+      const { reason } = await parseJsonBody(c, revokeRequestSchema);
+      const db = await c.get('db')();
+      await expireStaleChallenges(db, now(), id);
+      await revokeDomain(db, id, reason, actorOf(c));
+      return c.json(await detailOf(db, id));
     })
     .post('/:id/verify', requirePermission('domains:verify'), async (c) => {
       const id = uuidParam(c, 'id');

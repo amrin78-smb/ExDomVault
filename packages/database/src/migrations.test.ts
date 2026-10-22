@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   assetIps,
   assets,
+  domainVerifications,
   domains,
   findings,
   scanJobs,
@@ -114,9 +115,68 @@ describe('constraints', () => {
   it('requires verified_at exactly when a domain is verified', async () => {
     expect(
       await violation(() =>
-        t.db.insert(domains).values({ fqdn: 'verified.example', verificationStatus: 'verified' }),
+        t.db.insert(domains).values({
+          fqdn: 'verified.example',
+          verificationStatus: 'verified',
+          verificationMethod: 'dns_txt',
+        }),
       ),
     ).toBe('domains_verified_at_consistent');
+  });
+
+  it('requires a verification method exactly when verified, and a review date for attestations', async () => {
+    const verifiedAt = new Date();
+    expect(
+      await violation(() =>
+        t.db
+          .insert(domains)
+          .values({ fqdn: 'nomethod.example', verificationStatus: 'verified', verifiedAt }),
+      ),
+    ).toBe('domains_verification_method_consistent');
+    expect(
+      await violation(() =>
+        t.db.insert(domains).values({
+          fqdn: 'attested.example',
+          verificationStatus: 'verified',
+          verifiedAt,
+          verificationMethod: 'admin_attestation',
+        }),
+      ),
+    ).toBe('domains_attestation_has_review_date');
+    expect(
+      await violation(() =>
+        t.db.insert(domains).values({
+          fqdn: 'dns.example',
+          verificationStatus: 'verified',
+          verifiedAt,
+          verificationMethod: 'dns_txt',
+          verificationExpiresAt: new Date(Date.now() + 86_400_000),
+        }),
+      ),
+    ).toBe('domains_attestation_has_review_date');
+  });
+
+  it('requires a hash for DNS challenges and a reason for attestations', async () => {
+    const [d] = await t.db.insert(domains).values({ fqdn: 'challenge.example' }).returning();
+    const base = { domainId: d!.id, expiresAt: new Date(Date.now() + 3_600_000) };
+    expect(
+      await violation(() =>
+        t.db.insert(domainVerifications).values({ ...base, method: 'dns_txt' }),
+      ),
+    ).toBe('domain_verifications_method_fields');
+    expect(
+      await violation(() =>
+        t.db
+          .insert(domainVerifications)
+          .values({ ...base, method: 'admin_attestation', challengeHash: 'x' }),
+      ),
+    ).toBe('domain_verifications_method_fields');
+    await t.db.insert(domainVerifications).values({
+      ...base,
+      method: 'admin_attestation',
+      reason: 'Registered by Group IT',
+      status: 'verified',
+    });
   });
 
   it('allows only one non-resolved finding per fingerprint', async () => {
@@ -201,5 +261,38 @@ describe('constraints', () => {
         }),
       ),
     ).toBe('scan_jobs_lease_when_active');
+  });
+});
+
+describe('0001_domain_authorisation', () => {
+  it('backfills domains verified before the migration as DNS-verified', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const { PGlite } = await import('@electric-sql/pglite');
+    const { MIGRATIONS_FOLDER } = await import('./testing.ts');
+    const file = (prefix: string) => {
+      const name = readdirSync(MIGRATIONS_FOLDER).find((f) => f.startsWith(prefix));
+      return readFileSync(`${MIGRATIONS_FOLDER}/${name}`, 'utf8').replaceAll(
+        '--> statement-breakpoint',
+        '',
+      );
+    };
+    const pg = new PGlite();
+    try {
+      await pg.exec(file('0000_'));
+      await pg.exec(
+        "INSERT INTO domains (fqdn, verification_status, verified_at) VALUES ('old.example', 'verified', now()), ('new.example', 'unverified', NULL)",
+      );
+      // One multi-statement exec runs in a single implicit transaction, like the migrator.
+      await pg.exec(file('0001_'));
+      const { rows } = await pg.query<{ fqdn: string; verification_method: string | null }>(
+        'SELECT fqdn, verification_method FROM domains ORDER BY fqdn',
+      );
+      expect(rows).toEqual([
+        { fqdn: 'new.example', verification_method: null },
+        { fqdn: 'old.example', verification_method: 'dns_txt' },
+      ]);
+    } finally {
+      await pg.close();
+    }
   });
 });

@@ -1,4 +1,5 @@
 import {
+  bulkAuthoriseResponseSchema,
   createChallengeResponseSchema,
   domainDetailResponseSchema,
   domainListResponseSchema,
@@ -8,6 +9,8 @@ import {
   importPreviewResponseSchema,
   meResponseSchema,
   verifyDomainResponseSchema,
+  type AuthorisationInput,
+  type BulkAuthoriseResponse,
   type CreateChallengeResponse,
   type CreateDomainRequest,
   type DomainDetailResponse,
@@ -129,7 +132,27 @@ export const api = {
       sendJson('POST', `${domainPath(id)}/verify`, verifyDomainResponseSchema),
     previewImport: (csv: string): Promise<ImportPreviewResponse> =>
       sendJson('POST', '/api/v1/domains/import/preview', importPreviewResponseSchema, { csv }),
-    confirmImport: (csv: string, digest: string): Promise<ImportConfirmResponse> =>
-      sendJson('POST', '/api/v1/domains/import', importConfirmResponseSchema, { csv, digest }),
+    confirmImport: (
+      csv: string,
+      digest: string,
+      authorisation?: AuthorisationInput,
+    ): Promise<ImportConfirmResponse> =>
+      sendJson('POST', '/api/v1/domains/import', importConfirmResponseSchema, {
+        csv,
+        digest,
+        ...(authorisation ? { authorisation } : {}),
+      }),
+    authorise: (id: string, body: AuthorisationInput): Promise<DomainDetailResponse> =>
+      sendJson('POST', `${domainPath(id)}/authorise`, domainDetailResponseSchema, body),
+    authoriseMany: (
+      domainIds: string[],
+      body: AuthorisationInput,
+    ): Promise<BulkAuthoriseResponse> =>
+      sendJson('POST', '/api/v1/domains/authorise', bulkAuthoriseResponseSchema, {
+        domainIds,
+        ...body,
+      }),
+    revoke: (id: string, reason: string): Promise<DomainDetailResponse> =>
+      sendJson('POST', `${domainPath(id)}/revoke`, domainDetailResponseSchema, { reason }),
   },
 };

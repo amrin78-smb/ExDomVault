@@ -125,7 +125,12 @@ All domain endpoints use the `Domain` object:
   and Cyrillic — possible homograph).
 - `registrationDataStatus`: `unknown` (not collected yet), `available`, `redacted`, `unavailable`.
   Registration fields stay `null` until RDAP collection exists.
-- `verificationStatus`: `unverified` → `pending` (challenge issued) → `verified`; `revoked` is reserved.
+- `verificationStatus`: `unverified` → `pending` (DNS challenge issued) → `verified`; `revoked` after an
+  administrator revokes it. `verificationMethod` says how a verified domain was authorised: `dns_txt`
+  (DNS proof) or `admin_attestation` (administrator authorisation, with `verificationExpiresAt` = its
+  review date). The UI labels these "Verified (DNS)" and "Authorised (admin)".
+- **What verification gates:** only active scanning (later milestones). Passive monitoring (public DNS,
+  certificates, CT logs, registration data) is allowed for every domain, verified or not.
 
 ### Domain name rules
 
@@ -163,7 +168,7 @@ recent one. The challenge value is never returned here. Malformed or unknown ids
 ### `PATCH /api/v1/domains/:id` — `domains:write`
 
 Body: any of `criticality`, `businessOwner` (string or null; empty clears), `monitoringEnabled`; at
-least one. Enabling monitoring on a domain that is not verified → `409`. Audited `domain.updated` (with
+least one. Monitoring can be turned on for any domain (it is passive). Audited `domain.updated` (with
 `{ changes: { field: { from, to } } }`) and `domain.monitoring_enabled` / `domain.monitoring_disabled`.
 
 ### Verification (DNS TXT) — `domains:verify`
@@ -226,6 +231,27 @@ already verified or no challenge has been issued.
 **Verification grants nothing else.** It does not create or approve assets, IP addresses or scan
 scope; hosting, CDN and cloud infrastructure need separate approval (later milestones).
 
+### Administrator authorisation — `domains:verify`
+
+For domains the organisation owns but whose DNS it cannot edit (e.g. registrar-managed zones). Body
+(`Authorisation`): `{ "reason": string (10–500), "reference"?: string|null (≤200), "reviewBy":
+"YYYY-MM-DD" }`. The review date must be in the future and within 24 months; the authorisation lapses at
+the end of that day (UTC).
+
+- `POST /api/v1/domains/:id/authorise` — body `Authorisation`. Supersedes a pending DNS challenge.
+  Returns the domain detail; the `verification` is the attestation (`method: admin_attestation`,
+  `reason`, `reference`, `recordName: null`). `409` if already verified.
+- `POST /api/v1/domains/authorise` — body `Authorisation` + `domainIds` (1–500 unique UUIDs).
+  `{ "authorised": [{ id, fqdn }], "skipped": [{ id, fqdn, reason: already_verified|not_found }] }`.
+  Set-based (a fixed number of statements), one transaction.
+- `POST /api/v1/domains/:id/revoke` — body `{ "reason": string (10–500) }`. Only for verified
+  domains (`409` otherwise), either method. Domain becomes `revoked`; its verification record
+  `revoked`. A new DNS challenge or authorisation can follow.
+
+Audited per domain: `domain.authorised` (reason, reference, reviewBy, `source`: manual/bulk/import),
+`domain.verification_revoked` (reason, previous method), and `domain.authorisation_lapsed` (system,
+when the review date passes; applied lazily like challenge expiry).
+
 ### CSV import — `domains:write`
 
 Header row required (case-insensitive): `domain` (or `fqdn`, required), `criticality`,
@@ -236,8 +262,12 @@ Header row required (case-insensitive): `domain` (or `fqdn`, required), `critica
 `businessOwner`, `status` (`valid`, `invalid`, `duplicate_in_file`, `already_registered`), `errors[]`,
 `warnings[]`. `digest` is the SHA-256 of the CSV text.
 
-`POST /api/v1/domains/import` — body `{ "csv": string, "digest": string }`. The digest must match the
+`POST /api/v1/domains/import` — body `{ "csv": string, "digest": string, "authorisation"?:
+Authorisation }`. The digest must match the
 CSV (`400` otherwise, so only a previewed file is imported); rows are re-validated and only `valid` rows
 are inserted, in one transaction (`ON CONFLICT DO NOTHING` for names registered meanwhile). `201
-{ "created": [{ id, fqdn }], "skipped": n }`. Audited `domain.created` per domain (`source: import`)
-plus `domain.import_completed`.
+{ "created": [{ id, fqdn }], "skipped": n, "authorised": n }`. With `authorisation` (requires
+`domains:verify` as well), every created domain is authorised in the same transaction; an invalid
+authorisation rejects the whole import. Audited `domain.created` per domain (`source: import`), plus
+`domain.authorised` per domain when authorising, plus `domain.import_completed`. 339 rows with
+authorisation take about 1.4 s against Neon.

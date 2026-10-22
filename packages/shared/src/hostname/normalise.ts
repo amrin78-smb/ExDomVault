@@ -1,5 +1,8 @@
-// Trailing slash selects the npm package rather than Node's deprecated built-in module.
-import { toUnicode } from 'punycode/';
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference -- ambient types for an untyped package file, needed by every consuming tsconfig
+/// <reference path="./punycode.d.ts" />
+// The explicit ES-module file selects the npm package (not Node's deprecated built-in) and loads
+// under plain Node ESM as well as bundlers.
+import punycode from 'punycode/punycode.es6.js';
 import { parse } from 'tldts';
 
 /**
@@ -149,7 +152,7 @@ export function normaliseDomain(input: string): NormalisedDomain {
     );
   }
 
-  const unicode = labels.map((l) => (l.startsWith('xn--') ? toUnicode(l) : l)).join('.');
+  const unicode = labels.map((l) => (l.startsWith('xn--') ? punycode.toUnicode(l) : l)).join('.');
   const warnings: DomainWarning[] = [];
   if (hasNonAscii || unicode !== host) warnings.push('idn');
   if (unicode.split('.').some(hasMixedScripts)) warnings.push('mixed_script');
@@ -160,7 +163,7 @@ export function normaliseDomain(input: string): NormalisedDomain {
 /** True when an `xn--` label decodes and re-encodes to itself (rejects malformed punycode). */
 function isValidALabel(label: string): boolean {
   try {
-    const decoded = toUnicode(label);
+    const decoded = punycode.toUnicode(label);
     if (decoded === label) return false;
     return new URL(`http://${decoded}`).hostname === label;
   } catch {

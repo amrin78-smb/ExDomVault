@@ -39,7 +39,9 @@ export function toChallengeDto(row: ChallengeRow, fqdn: string): VerificationCha
     id: row.id,
     method: row.method,
     status: row.status,
-    recordName: challengeRecordName(fqdn),
+    recordName: row.method === 'dns_txt' ? challengeRecordName(fqdn) : null,
+    reason: row.reason,
+    reference: row.reference,
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
     lastCheckedAt: iso(row.lastCheckedAt),
@@ -85,8 +87,10 @@ export async function matchesChallenge(records: string[], challengeHash: string)
 }
 
 /**
- * Marks pending challenges past their expiry as expired and returns their domains to `unverified`
- * (audited as a system action). Called before any read or change that depends on challenge state.
+ * Applies time-based expiry, audited as system actions. Called before any read or change that
+ * depends on verification state:
+ *  - pending DNS challenges past their expiry become `expired` (domain back to `unverified`);
+ *  - administrator authorisations past their review date lapse (domain back to `unverified`).
  */
 export async function expireStaleChallenges(
   db: Database,
@@ -94,6 +98,15 @@ export async function expireStaleChallenges(
   domainId?: string,
 ): Promise<number> {
   return db.transaction(async (tx) => {
+    const audit = (action: string, resourceId: string, metadata: Record<string, unknown>) =>
+      writeAudit(tx as unknown as Database, {
+        actorType: 'system',
+        action,
+        resourceType: 'domain',
+        resourceId,
+        metadata,
+      });
+
     const expired = await tx
       .update(domainVerifications)
       .set({ status: 'expired', failureReason: 'expired' })
@@ -105,30 +118,60 @@ export async function expireStaleChallenges(
         ),
       )
       .returning({ id: domainVerifications.id, domainId: domainVerifications.domainId });
-    if (expired.length === 0) return 0;
+    if (expired.length > 0) {
+      await tx
+        .update(domains)
+        .set({ verificationStatus: 'unverified' })
+        .where(
+          and(
+            inArray(
+              domains.id,
+              expired.map((e) => e.domainId),
+            ),
+            eq(domains.verificationStatus, 'pending'),
+          ),
+        );
+      for (const e of expired) {
+        await audit('domain.verification_expired', e.domainId, { challengeId: e.id });
+      }
+    }
 
-    await tx
+    const lapsed = await tx
       .update(domains)
-      .set({ verificationStatus: 'unverified' })
+      .set({
+        verificationStatus: 'unverified',
+        verifiedAt: null,
+        verificationMethod: null,
+        verificationExpiresAt: null,
+      })
       .where(
         and(
-          inArray(
-            domains.id,
-            expired.map((e) => e.domainId),
-          ),
-          eq(domains.verificationStatus, 'pending'),
+          eq(domains.verificationStatus, 'verified'),
+          eq(domains.verificationMethod, 'admin_attestation'),
+          lte(domains.verificationExpiresAt, now),
+          domainId ? eq(domains.id, domainId) : undefined,
         ),
-      );
-    for (const e of expired) {
-      await writeAudit(tx as unknown as Database, {
-        actorType: 'system',
-        action: 'domain.verification_expired',
-        resourceType: 'domain',
-        resourceId: e.domainId,
-        metadata: { challengeId: e.id },
-      });
+      )
+      .returning({ id: domains.id, fqdn: domains.fqdn });
+    if (lapsed.length > 0) {
+      await tx
+        .update(domainVerifications)
+        .set({ status: 'expired', failureReason: 'review_date_passed' })
+        .where(
+          and(
+            inArray(
+              domainVerifications.domainId,
+              lapsed.map((l) => l.id),
+            ),
+            eq(domainVerifications.method, 'admin_attestation'),
+            eq(domainVerifications.status, 'verified'),
+          ),
+        );
+      for (const l of lapsed) {
+        await audit('domain.authorisation_lapsed', l.id, { fqdn: l.fqdn });
+      }
     }
-    return expired.length;
+    return expired.length + lapsed.length;
   });
 }
 
@@ -248,7 +291,7 @@ export async function checkChallenge(
   }
 
   const challenge = await latestChallenge(db, domainId);
-  if (!challenge || challenge.status !== 'pending') {
+  if (!challenge || challenge.status !== 'pending' || challenge.method !== 'dns_txt') {
     if (challenge?.status === 'expired') {
       return { outcome: 'expired', message: OUTCOME_MESSAGES.expired, domain, challenge };
     }
@@ -282,7 +325,7 @@ export async function checkChallenge(
     outcome = 'dns_error';
   } else if (lookup.status === 'nxdomain' || lookup.records.length === 0) {
     outcome = 'record_not_found';
-  } else if (await matchesChallenge(lookup.records, challenge.challengeHash)) {
+  } else if (await matchesChallenge(lookup.records, challenge.challengeHash ?? '')) {
     outcome = 'verified';
   } else {
     outcome = 'value_mismatch';
@@ -329,7 +372,12 @@ export async function checkChallenge(
     const updatedDomain = firstRow(
       await tx
         .update(domains)
-        .set({ verificationStatus: 'verified', verifiedAt: now })
+        .set({
+          verificationStatus: 'verified',
+          verifiedAt: now,
+          verificationMethod: 'dns_txt',
+          verificationExpiresAt: null,
+        })
         .where(eq(domains.id, domainId))
         .returning(),
     );

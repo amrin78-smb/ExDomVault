@@ -123,18 +123,12 @@ export function DomainSettingsCard({
               Monitoring is {domain.monitoringEnabled ? 'on' : 'off'}
             </p>
             <p className="text-xs text-slate-500">
-              {domain.verificationStatus === 'verified'
-                ? 'When on, this domain is included in scheduled monitoring once scanning is available.'
-                : 'Monitoring can be turned on after the domain is verified.'}
+              Passive monitoring of public DNS, certificates and registration data, once collection
+              is available. Active scanning also requires verification.
             </p>
           </div>
           {canWrite && !confirmMonitoring && (
-            <Button
-              onClick={() => setConfirmMonitoring(true)}
-              disabled={
-                busy || (!domain.monitoringEnabled && domain.verificationStatus !== 'verified')
-              }
-            >
+            <Button onClick={() => setConfirmMonitoring(true)} disabled={busy}>
               {domain.monitoringEnabled ? 'Turn off monitoring' : 'Turn on monitoring'}
             </Button>
           )}
@@ -148,7 +142,7 @@ export function DomainSettingsCard({
             <p className="text-slate-700">
               {domain.monitoringEnabled
                 ? `Stop monitoring ${domain.fqdn}? Scheduled checks for this domain will stop.`
-                : `Start monitoring ${domain.fqdn}? It will be included in scheduled checks within its approved scope.`}
+                : `Start monitoring ${domain.fqdn}? Public DNS, certificate and registration data will be collected on a schedule.`}
             </p>
             <div className="mt-3 flex gap-2">
               <Button
