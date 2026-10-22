@@ -4,19 +4,19 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Milestone status
 
-| #   | Milestone                                  | Status      | Notes                                 |
-| --- | ------------------------------------------ | ----------- | ------------------------------------- |
-| 1   | Repository foundation                      | done        |                                       |
-| 2   | Database and authentication                | done        | Deployed; production migrated         |
-| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)      |
-| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)      |
-| 5   | Python worker                              | done        | Deployed; worker live on this host    |
-| 6   | Scanning and target safety (security gate) | done        | Gate PASSED; enabling in prod pending |
-| 7   | Deterministic rules engine                 | not started |                                       |
-| 8   | Finding lifecycle                          | not started |                                       |
-| 9   | Passive subdomain discovery                | not started |                                       |
-| 10  | Frontend integration                       | not started |                                       |
-| 11  | Production hardening                       | not started |                                       |
+| #   | Milestone                                  | Status      | Notes                                   |
+| --- | ------------------------------------------ | ----------- | --------------------------------------- |
+| 1   | Repository foundation                      | done        |                                         |
+| 2   | Database and authentication                | done        | Deployed; production migrated           |
+| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
+| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
+| 5   | Python worker                              | done        | Deployed; worker live on this host      |
+| 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
+| 7   | Deterministic rules engine                 | not started |                                         |
+| 8   | Finding lifecycle                          | not started |                                         |
+| 9   | Passive subdomain discovery                | not started |                                         |
+| 10  | Frontend integration                       | not started |                                         |
+| 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
 
@@ -252,6 +252,6 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 - Red team, worker: GATE PASS (no Critical/High); Medium RT-1 (redirect to arbitrary ports), RT-2 (redirect to unapproved hosts), RT-5 (home network self-exposure) fixed, Lows fixed. Server: GATE FAIL → fixed: High F1 (in-flight jobs ignored kill switch/revocation), Medium F2–F4, Lows F5–F7.
 - **End to end (real worker → local workerd → Neon `dev`, active scanning enabled locally only):** quick scan of `armoric.com` — every decision logged; TLS/HTTP connected only to the validated CSC addresses; the HTTP `301` to `meralliance.com` refused (`redirect_out_of_scope`); port 443 unanswered → recorded as `timeout` with evidence. Standard scan — port probes refused for both addresses (`network_not_approved` → `no_allowed_address`), Nmap never started. Local flag and test data removed afterwards.
 
-**Not yet done:** production migration `0003`, deploy, and enabling active scanning (owner approval); `tls_configuration` accepted but not run.
+**Production (owner-approved 2026-10-22):** Neon `production` migrated with `0003` (app role has privileges on `approved_networks`), deployed `2bad1d5c-e888-47eb-8308-141f455f9ece` with `ACTIVE_SCANNING_ENABLED=true`. The worker on the scan host still needs upgrading and `EXDV_ACTIVE_SCANNING_ENABLED=true` (owner, `docs/home-worker-setup.md` step 15) before active jobs run. `tls_configuration` accepted but not run.
 
 **Next:** Milestone 7 — deterministic rules engine.

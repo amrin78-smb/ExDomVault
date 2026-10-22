@@ -45,9 +45,10 @@
     "AUTH_PROVIDER": "cloudflare_access",
     "ACCESS_TEAM_DOMAIN": "fragrant-grass-4d8f.cloudflareaccess.com",
     "ACCESS_AUD": "e777f0cfe2a4f69ed8221bbbfd3fb02b0bf297b4cfc1d0247df9d5f080683b41",
-    // Jobs with active (target-contacting) scan profiles are refused until the Milestone 6 scope
-    // validator is complete. Passive monitoring jobs are unaffected.
-    "ACTIVE_SCANNING_ENABLED": "false",
+    // Active (target-contacting) scan profiles. Enabled 2026-10-22 by the owner after the
+    // Milestone 6 security gate passed (docs/progress.md). Set to "false" to stop all active
+    // scanning: new jobs are refused and in-flight jobs are cancelled at their next heartbeat.
+    "ACTIVE_SCANNING_ENABLED": "true",
     // BOOTSTRAP_ADMIN_EMAILS (comma-separated emails that become administrators on first sign-in)
     // is a Worker secret in production so it is not committed: `wrangler secret put`.
   },
