@@ -34,14 +34,13 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 _Things only the owner can do (Cloudflare account, Neon project, Access app, secrets). Add exact steps as they arise._
 
-- [ ] **Install Python venv support on the scan host** (this machine): `sudo apt install -y python3.12-venv`. Needed for `npm run worker:install`. Until then the worker can only be tested in CI.
+- [x] ~~Install Python venv support on the scan host~~ — done 2026-10-22; `npm run worker:install` / `worker:lint` / `worker:test` verified locally (18 pass).
 - [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
 
 ## Known limitations
 
 - No database, authentication, or real data — health reports `degraded` by design.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
-- `worker:install` fails on this host until `python3.12-venv` is installed (see Operator actions).
 - No deploy workflow; nothing has been deployed.
 
 ## Session log
