@@ -157,4 +157,4 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Checks:** lint pass · typecheck pass · build pass · `db:check` pass, no drift · `npm test` 18 files / 235 tests pass (+ constraint and backfill migration tests, authorisation API incl. review-date validation, RBAC, bulk skip rules, lapse at end of review day, revoke, import+authorise and rollback, UI flows) · Neon `dev` migrated (`0001`) · rehearsal on `dev`: full 339-row portfolio import with authorisation → 339 created/authorised, 1.4 s, audit rows per domain.
 
-**Production:** not migrated or deployed yet — needs the owner's go-ahead (`0001` must run before deploying this code).
+**Production (owner-approved):** Neon `production` migrated with `0001` (existing `thaiunion.com` unchanged; `exdomainvault_app` has privileges on the new columns), then deployed as version `5d9dae9a-0ec1-45d8-8b3e-226db24a33e5`. Unauthenticated requests, including a forged-token POST to `/domains/authorise`, → 302 to Access.
