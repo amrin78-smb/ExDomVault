@@ -8,6 +8,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit, writeAuditMany } from './audit.ts';
 import type { Actor, DomainRow } from './domains.ts';
+import { stopActiveJobsForDomains } from './scans.ts';
 
 const { domains, domainVerifications } = schema;
 
@@ -168,6 +169,7 @@ export async function revokeDomain(
   id: string,
   reason: string,
   actor: Actor,
+  now: Date = new Date(),
 ): Promise<DomainRow> {
   return db.transaction(async (tx) => {
     const [domain] = await tx.select().from(domains).where(eq(domains.id, id)).for('update');
@@ -202,6 +204,14 @@ export async function revokeDomain(
       requestId: actor.requestId,
       metadata: { fqdn: domain.fqdn, reason, previousMethod: domain.verificationMethod },
     });
+    // Active scanning is no longer allowed: stop the domain's queued and in-flight active jobs.
+    await stopActiveJobsForDomains(
+      tx as unknown as Database,
+      [id],
+      'domain_not_authorised',
+      actor,
+      now,
+    );
     if (!updated) throw new Error('Expected the revoked domain row');
     return updated;
   });

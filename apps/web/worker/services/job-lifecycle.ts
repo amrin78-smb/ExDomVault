@@ -4,8 +4,9 @@ import {
   type ClaimedJob,
   type Observation,
   type ScanTargetStatus,
+  type ScopeSnapshot,
 } from '@exdomainvault/shared';
-import { and, asc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
 import { activeNetworkCidrs, intersectNetworks } from './networks.ts';
@@ -17,7 +18,7 @@ import {
 } from './observations.ts';
 import { domainAuthorisedForActive, type ScanJobRow, type ScanPolicy } from './scans.ts';
 
-const { domains, scanJobResults, scanJobs, scanJobTargets } = schema;
+const { assets, domains, scanJobResults, scanJobs, scanJobTargets } = schema;
 
 /**
  * Durable job lifecycle (design §5.6, §13). PostgreSQL is the only source of truth:
@@ -78,7 +79,7 @@ export async function claimJob(
       if (!job) return { kind: 'none' as const };
 
       const snapshot = scopeSnapshotSchema.safeParse(job.scopeSnapshot);
-      const refusal = snapshot.success
+      let refusal = snapshot.success
         ? await claimRefusal(
             tx as unknown as Database,
             job,
@@ -88,6 +89,12 @@ export async function claimJob(
             policy,
           )
         : 'invalid_snapshot';
+      // Active jobs contact hosts: a target whose asset approval was withdrawn while the job waited
+      // (rejected, suspended, deleted) is skipped, never dispatched.
+      if (!refusal && snapshot.success && snapshot.data.profile.config.active) {
+        const remaining = await skipUnapprovedTargets(tx as unknown as Database, job.id, now);
+        if (remaining === 0) refusal = 'no_approved_targets';
+      }
       if (refusal || !snapshot.success) {
         await tx
           .update(scanJobs)
@@ -162,6 +169,85 @@ export async function claimJob(
 }
 
 /**
+ * Marks the job's unfinished targets whose asset is no longer `approved` as skipped
+ * (`asset_not_approved`). Returns how many unfinished targets remain.
+ */
+async function skipUnapprovedTargets(tx: Database, jobId: string, now: Date): Promise<number> {
+  const open = await tx
+    .select({ id: scanJobTargets.id, assetStatus: assets.verificationStatus })
+    .from(scanJobTargets)
+    .leftJoin(assets, eq(assets.id, scanJobTargets.assetId))
+    .where(
+      and(eq(scanJobTargets.scanJobId, jobId), notInArray(scanJobTargets.status, TERMINAL_TARGET)),
+    );
+  const withdrawn = open.filter((t) => t.assetStatus !== 'approved').map((t) => t.id);
+  if (withdrawn.length > 0) {
+    await tx
+      .update(scanJobTargets)
+      .set({ status: 'skipped', errorCode: 'asset_not_approved', completedAt: now })
+      .where(inArray(scanJobTargets.id, withdrawn));
+  }
+  return open.length - withdrawn.length;
+}
+
+/**
+ * Re-runs the claim-time authorisation check for a job a worker already holds. Returns the refusal
+ * reason, or null while the job may continue.
+ */
+async function heldJobRefusal(
+  tx: Database,
+  job: ScanJobRow,
+  now: Date,
+  policy: ScanPolicy,
+): Promise<{ refusal: string | null; snapshot: ScopeSnapshot | null }> {
+  const parsed = scopeSnapshotSchema.safeParse(job.scopeSnapshot);
+  if (!parsed.success) return { refusal: 'invalid_snapshot', snapshot: null };
+  const refusal = await claimRefusal(
+    tx,
+    job,
+    parsed.data.profile.config.active,
+    parsed.data.trigger,
+    now,
+    policy,
+  );
+  return { refusal, snapshot: parsed.data };
+}
+
+/** Flags a held job for cancellation because it is no longer authorised (idempotent, audited). */
+async function requestCancelUnauthorised(
+  tx: Database,
+  job: ScanJobRow,
+  reason: string,
+  now: Date,
+): Promise<void> {
+  if (job.cancelRequestedAt !== null) return;
+  const updated = await tx
+    .update(scanJobs)
+    .set({ cancelRequestedAt: now })
+    .where(and(eq(scanJobs.id, job.id), isNull(scanJobs.cancelRequestedAt)))
+    .returning({ id: scanJobs.id });
+  if (updated.length === 0) return;
+  await writeAudit(tx, {
+    actorType: 'system',
+    action: 'scan.cancel_requested',
+    resourceType: 'scan_job',
+    resourceId: job.id,
+    metadata: { reason, profile: job.profile, status: job.status },
+  });
+}
+
+/** The networks a held job may still probe (snapshot ∩ currently active; empty when refused). */
+async function effectiveNetworks(
+  tx: Database,
+  snapshot: ScopeSnapshot | null,
+  refused: boolean,
+  now: Date,
+): Promise<string[]> {
+  if (refused || !snapshot || snapshot.approvedNetworks.length === 0) return [];
+  return intersectNetworks(snapshot.approvedNetworks, await activeNetworkCidrs(tx, now));
+}
+
+/**
  * Jobs are re-checked at claim time, because things change while they wait: active jobs need the
  * domain to still be authorised (verification may have lapsed or been revoked); scheduled jobs need
  * monitoring to still be on.
@@ -215,9 +301,15 @@ export async function heartbeat(
     progress?: { completedTargets: number; totalTargets: number; message?: string };
   },
   now: Date,
-): Promise<{ leaseExpiresAt: string; cancelRequested: boolean }> {
+  policy: ScanPolicy,
+): Promise<{ leaseExpiresAt: string; cancelRequested: boolean; approvedNetworks: string[] }> {
   return db.transaction(async (tx) => {
-    const job = await lockOwnedJob(tx as unknown as Database, worker, req.jobId, req.attempt);
+    const t = tx as unknown as Database;
+    const job = await lockOwnedJob(t, worker, req.jobId, req.attempt);
+    // Authorisation can be withdrawn mid-job (kill switch, domain revoked or lapsed, monitoring
+    // off): the worker is told to stop at its next heartbeat.
+    const { refusal, snapshot } = await heldJobRefusal(t, job, now, policy);
+    if (refusal) await requestCancelUnauthorised(t, job, refusal, now);
     const leaseExpiresAt = leaseUntil(now);
     await tx
       .update(scanJobs)
@@ -229,7 +321,8 @@ export async function heartbeat(
       .where(eq(scanJobs.id, job.id));
     return {
       leaseExpiresAt: leaseExpiresAt.toISOString(),
-      cancelRequested: job.cancelRequestedAt !== null,
+      cancelRequested: job.cancelRequestedAt !== null || refusal !== null,
+      approvedNetworks: await effectiveNetworks(t, snapshot, refusal !== null, now),
     };
   });
 }
@@ -255,18 +348,49 @@ export async function submitResults(
   worker: WorkerIdentity,
   req: ResultsSubmission,
   now: Date,
+  policy: ScanPolicy,
 ): Promise<{ accepted: boolean; status: string }> {
-  const { accepted, status } = await submitResultsDetailed(db, worker, req, now);
+  const { accepted, status } = await submitResultsDetailed(db, worker, req, now, policy);
   return { accepted, status };
 }
 
-/** As `submitResults`, also returning how many observations were stored (for logging). */
+const ACTIVE_KINDS: ReadonlySet<Observation['kind']> = new Set(['tls', 'http', 'port']);
+
+/**
+ * As `submitResults`, also returning how many observations were stored (for logging).
+ *
+ * A job that is no longer authorised (see `claimRefusal`) is flagged for cancellation, and a
+ * submission carrying active (tls/http/port) evidence for it is refused with 409 as a whole.
+ * Status-only and passive (dns/registration) submissions are still accepted so the job can wind down.
+ */
 export async function submitResultsDetailed(
   db: Database,
   worker: WorkerIdentity,
   req: ResultsSubmission,
   now: Date,
+  policy: ScanPolicy,
 ): Promise<{ accepted: boolean; status: string; observations: ObservationCounts }> {
+  const outcome = await submitResultsTx(db, worker, req, now, policy);
+  if (outcome === 'unauthorised') {
+    // Thrown after commit so the cancellation request recorded above persists.
+    throw new ApiError(
+      409,
+      'conflict',
+      'This job is no longer authorised for active checks; its active evidence was not accepted.',
+    );
+  }
+  return outcome;
+}
+
+async function submitResultsTx(
+  db: Database,
+  worker: WorkerIdentity,
+  req: ResultsSubmission,
+  now: Date,
+  policy: ScanPolicy,
+): Promise<
+  { accepted: boolean; status: string; observations: ObservationCounts } | 'unauthorised'
+> {
   const none: ObservationCounts = EMPTY_OBSERVATION_COUNTS;
   return db.transaction(async (tx) => {
     const t = tx as unknown as Database;
@@ -291,6 +415,13 @@ export async function submitResultsDetailed(
     }
 
     const job = await lockOwnedJob(t, worker, req.jobId, req.attempt);
+    const observations = req.observations ?? [];
+
+    const { refusal } = await heldJobRefusal(t, job, now, policy);
+    if (refusal) {
+      await requestCancelUnauthorised(t, job, refusal, now);
+      if (observations.some((o) => ACTIVE_KINDS.has(o.kind))) return 'unauthorised' as const;
+    }
 
     // Only targets in this job's immutable snapshot can be reported on.
     const ids = [...new Set(req.targets.map((x) => x.targetId))];
@@ -301,7 +432,6 @@ export async function submitResultsDetailed(
         'Each target may be reported once per submission.',
       );
     }
-    const observations = req.observations ?? [];
     const referenced = [...new Set([...ids, ...observations.map((o) => o.targetId)])];
     const targetsById = new Map<string, JobTargetRef>();
     if (referenced.length > 0) {

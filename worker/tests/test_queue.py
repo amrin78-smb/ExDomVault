@@ -3,6 +3,7 @@
 import base64
 import copy
 import hashlib
+import ipaddress
 import json
 import re
 import threading
@@ -20,6 +21,7 @@ from app.health import HealthReporter
 from app.queue import Worker
 from app.rdap_checks import BOOTSTRAP_URL, RdapClient
 from app.scope import ScopeError
+from app.self_protection import SelfProtection
 
 from .conftest import KEY_ID
 from .test_port_checks import host, nmap_xml, port
@@ -37,6 +39,8 @@ JOB_ID = "6f1f8f7e-1d1b-4d55-8a0e-0d3f6a1b2c3d"
 APEX_ID = "11111111-1111-4111-8111-111111111111"
 WWW_ID = "22222222-2222-4222-8222-222222222222"
 GONE_ID = "33333333-3333-4333-8333-333333333333"
+#: Synthetic "public egress address" reported by the fake self-protection detector.
+EGRESS_V4 = ipaddress.IPv4Address("198.51.100.77")
 ISO_Z = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$")
 
 PASSIVE_CONFIG = {
@@ -172,7 +176,7 @@ class FakeResolver:
 def setup(valid_env, tmp_path):
     def build(
         job, *, resolver=None, heartbeat_interval=None, rdap_routes=None, env=None,
-        policy_factory=None,
+        policy_factory=None, self_protection=None,
     ):  # fmt: skip
         key = Ed25519PrivateKey.generate()
         api = FakeApi(key, job)
@@ -196,14 +200,22 @@ def setup(valid_env, tmp_path):
 
         resolver = resolver or FakeResolver()
         extra = {} if policy_factory is None else {"policy_factory": policy_factory}
+        config = load_config({**valid_env, **(env or {})})
+        # Never detect the real host's addresses or query a real resolver in tests.
+        protection = self_protection or SelfProtection(
+            configured_deny=config.deny_networks,
+            local_reader=lambda: [],
+            egress_detector=lambda: [EGRESS_V4],
+        )
         worker = Worker(
-            load_config({**valid_env, **(env or {})}),
+            config,
             client,
             resolver_factory=lambda _timeout: resolver,
             rdap_client=RdapClient(transport=httpx.MockTransport(rdap_handler)),
             health=HealthReporter(str(tmp_path / "health.json"), "home-worker-01"),
             heartbeat_interval=heartbeat_interval,
             sleep=lambda _s: None,
+            self_protection=protection,
             **extra,
         )
         return worker, api, resolver, rdap_seen
@@ -528,7 +540,7 @@ def active(setup, valid_env, tmp_path, monkeypatch):
     calls = {"tls": [], "http": [], "nmap": [], "factory": []}
     der = make_cert(sans=("example.com", "*.example.com"))
 
-    def fake_tls(policy, hostname, address, port, *, timeout, tier="web"):
+    def fake_tls(policy, hostname, address, port, *, timeout, tier="web", **_kw):
         calls["tls"].append((hostname, str(address), port))
         return tls_result(der, address=str(address))
 
@@ -553,7 +565,7 @@ def active(setup, valid_env, tmp_path, monkeypatch):
     monkeypatch.setattr(net, "http_get", fake_http)
     monkeypatch.setattr(port_checks, "run_nmap", fake_nmap)
 
-    def build(job, *, policy=None, env=None, factory_error=None):
+    def build(job, *, policy=None, env=None, factory_error=None, self_protection=None):
         policy = policy or FakePolicy({"web": WEB_ADDRESSES})
 
         def factory(**kwargs):
@@ -571,6 +583,7 @@ def active(setup, valid_env, tmp_path, monkeypatch):
                 **(env or {}),
             },
             policy_factory=factory,
+            self_protection=self_protection,
         )
         worker.run_once()
         results = api.endpoint_calls("results")
@@ -595,7 +608,7 @@ def test_quick_job_runs_web_checks(active):
 
     (factory_kwargs,) = calls["factory"]
     assert factory_kwargs["job_id"] == JOB_ID
-    assert factory_kwargs["deny_networks"] == ()
+    assert factory_kwargs["deny_networks"] == (f"{EGRESS_V4}/32",)
     assert factory_kwargs["active_scanning_enabled"] is True
     assert factory_kwargs["target_hostnames"] == [
         "example.com", "www.example.com", "gone.example.com",
@@ -754,3 +767,115 @@ def test_active_profile_refused_when_worker_disables_active_scanning(active):
     assert failure["errorCode"] == "active_scanning_disabled"
     assert failure["retryable"] is False
     assert calls["factory"] == [] and calls["tls"] == []
+
+
+# -- home-network self-protection and heartbeat scope shrink ------------------------------------
+
+
+def test_unknown_egress_address_fails_connecting_checks_closed(active):
+    build, calls = active
+    protection = SelfProtection(local_reader=lambda: [], egress_detector=lambda: [])
+    api, targets, observations, _ = build(
+        make_job(STANDARD_CONFIG, profile="standard"), self_protection=protection
+    )
+    assert calls["tls"] == [] and calls["http"] == [] and calls["nmap"] == []
+    assert {o["kind"] for o in observations} <= {"dns", "registration"}
+    assert targets[WWW_ID]["errorCode"] == "egress_ip_unknown"
+    assert api.endpoint_calls("results")[-1]["complete"] is True
+
+
+def test_unknown_egress_address_is_tolerated_with_an_explicit_deny_list(active):
+    build, calls = active
+    protection = SelfProtection(
+        configured_deny=("198.51.100.0/24",), local_reader=lambda: [], egress_detector=lambda: []
+    )
+    build(make_job(QUICK_CONFIG, profile="quick"), self_protection=protection,
+          env={"EXDV_DENY_NETWORKS": "198.51.100.0/24"})  # fmt: skip
+    assert calls["tls"] and calls["http"]
+    (kwargs,) = calls["factory"]
+    assert kwargs["deny_networks"] == ("198.51.100.0/24",)
+
+
+def test_local_and_egress_networks_join_the_deny_list(active):
+    build, calls = active
+    protection = SelfProtection(
+        configured_deny=("192.0.2.0/24",),
+        local_reader=lambda: [
+            ipaddress.ip_network("10.0.3.1/32"), ipaddress.ip_network("2001:470:1:2::/64"),
+        ],
+        egress_detector=lambda: [EGRESS_V4, ipaddress.ip_address("2001:470:1:2::99")],
+    )  # fmt: skip
+    build(make_job(QUICK_CONFIG, profile="quick"), self_protection=protection)
+    (kwargs,) = calls["factory"]
+    assert kwargs["deny_networks"] == (
+        "192.0.2.0/24", "10.0.3.1/32", "2001:470:1:2::/64", f"{EGRESS_V4}/32",
+    )  # fmt: skip
+
+
+def test_self_protection_is_not_consulted_while_active_scanning_is_disabled(setup):
+    def boom():
+        raise AssertionError("must not detect addresses when active scanning is off")
+
+    protection = SelfProtection(local_reader=boom, egress_detector=boom)
+    worker, api, _, _ = setup(make_job(), self_protection=protection)
+    worker.shutdown.set()
+    worker.run_forever()
+    worker.shutdown.clear()
+    worker.run_once()
+    assert "failures" not in [e for e, _ in api.calls]
+
+
+def test_heartbeat_approved_networks_shrink_the_running_policy(setup, monkeypatch, tmp_path):
+    from app.policy import ScopePolicy
+
+    nmap = tmp_path / "nmap"
+    nmap.write_text("#!/bin/sh\nexit 1\n")
+    nmap.chmod(0o755)
+    runs = []
+    monkeypatch.setattr(port_checks, "run_nmap", lambda argv, **_kw: runs.append(argv) or b"")
+    config = {**STANDARD_CONFIG, "checks": ["dns", "tcp_ports"], "tcpPorts": [22]}
+    job = make_job(config, profile="standard")
+    job["snapshot"]["approvedNetworks"] = ["93.184.216.0/24"]
+    built = []
+
+    def factory(**kwargs):
+        built.append(ScopePolicy.from_job(**kwargs))
+        return built[-1]
+
+    class Resolver(FakeResolver):
+        def query(self, name, rdtype, lifetime):
+            if rdtype == "A" and name == "www.example.com":
+                return DnsAnswer(60, ["93.184.216.34"], name)
+            return super().query(name, rdtype, lifetime)
+
+    worker, api, _, _ = setup(
+        job, resolver=Resolver(), policy_factory=factory,
+        env={"EXDV_ACTIVE_SCANNING_ENABLED": "true", "EXDV_PROFILES": "standard",
+             "EXDV_NMAP_PATH": str(nmap)},
+    )  # fmt: skip
+    # The first heartbeat (sent before any check) no longer lists the job's network; networks the
+    # job never had must not be added.
+    api.heartbeat_responses.append(
+        {"leaseExpiresAt": "2026-10-22T10:10:00.000Z", "cancelRequested": False,
+         "approvedNetworks": ["94.0.0.0/8", "198.51.100.0/24"]}
+    )  # fmt: skip
+    worker.run_once()
+    assert built[0].approved_networks == (ipaddress.ip_network("93.184.216.0/24"),)
+    assert runs == [], "network check ran on a revoked network"
+    targets = {t["targetId"]: t for r in api.endpoint_calls("results") for t in r["targets"]}
+    assert targets[WWW_ID]["errorCode"] == "no_allowed_address"
+
+
+def test_heartbeat_without_approved_networks_keeps_the_policy(setup):
+    from app.policy import ScopePolicy
+    from app.queue import PolicyHolder
+
+    policy = ScopePolicy(
+        job_id="j", domain="example.com",
+        approved_networks=(ipaddress.ip_network("93.184.216.0/24"),),
+    )  # fmt: skip
+    holder = PolicyHolder(policy)
+    holder.shrink_approved_networks(["93.184.216.128/25", "10.0.0.0/8", "bad", None])
+    assert holder.current.approved_networks == (ipaddress.ip_network("93.184.216.128/25"),)
+    holder.shrink_approved_networks("93.184.216.0/24")  # not a list: nothing approved
+    assert holder.current.approved_networks == ()

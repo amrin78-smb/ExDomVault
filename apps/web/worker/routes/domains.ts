@@ -175,7 +175,7 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
       const { reason } = await parseJsonBody(c, revokeRequestSchema);
       const db = await c.get('db')();
       await expireStaleChallenges(db, now(), id);
-      await revokeDomain(db, id, reason, actorOf(c));
+      await revokeDomain(db, id, reason, actorOf(c), now());
       return c.json(await detailOf(db, id));
     })
     .post('/:id/scans', requirePermission('scans:request'), async (c) => {

@@ -10,6 +10,7 @@ import { firstRow } from '../lib/db.ts';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
 import type { Actor, DomainRow } from './domains.ts';
+import { stopActiveJobsForDomains } from './scans.ts';
 
 const { domains, domainVerifications } = schema;
 
@@ -170,6 +171,13 @@ export async function expireStaleChallenges(
       for (const l of lapsed) {
         await audit('domain.authorisation_lapsed', l.id, { fqdn: l.fqdn });
       }
+      await stopActiveJobsForDomains(
+        tx as unknown as Database,
+        lapsed.map((l) => l.id),
+        'domain_not_authorised',
+        null,
+        now,
+      );
     }
     return expired.length + lapsed.length;
   });

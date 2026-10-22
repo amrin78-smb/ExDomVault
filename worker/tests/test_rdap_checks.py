@@ -1,9 +1,11 @@
 import json
 
+import dns.resolver
 import httpx
 import pytest
 
 from app.checks import CheckContext, RateLimiter
+from app.dns_checks import DnsAnswer
 from app.rdap_checks import (
     BOOTSTRAP_URL,
     RdapClient,
@@ -70,7 +72,34 @@ def ctx():
     )
 
 
-def client_for(routes: dict[str, httpx.Response | Exception], seen: list[str] | None = None):
+class RedirectResolver:
+    """Fake resolver for RDAP redirect vetting: name -> list of A/AAAA values (or exception)."""
+
+    def __init__(self, records=None):
+        self.records = {
+            "rdap.other.test": ["93.184.216.34"],
+            "rdap.registry.test": ["2606:4700:4700::1111"],
+            **(records or {}),
+        }
+        self.calls = []
+
+    def query(self, name, rdtype, lifetime):
+        self.calls.append((name, rdtype))
+        value = self.records.get(name, [])
+        if isinstance(value, Exception):
+            raise value
+        family = [v for v in value if (":" in v) == (rdtype == "AAAA")]
+        return DnsAnswer(60, family, name)
+
+
+_DEFAULT = object()
+
+
+def client_for(
+    routes: dict[str, httpx.Response | Exception],
+    seen: list[str] | None = None,
+    resolver=_DEFAULT,
+):
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         if seen is not None:
@@ -82,7 +111,9 @@ def client_for(routes: dict[str, httpx.Response | Exception], seen: list[str] | 
             raise result
         return result
 
-    return RdapClient(transport=httpx.MockTransport(handler))
+    if resolver is _DEFAULT:
+        resolver = RedirectResolver()
+    return RdapClient(transport=httpx.MockTransport(handler), resolver=resolver)
 
 
 def run(client, fqdn="example.com"):
@@ -259,3 +290,51 @@ def test_invalid_documents(doc):
         }
     )
     assert run(client)["resultStatus"] == "error"
+
+
+@pytest.mark.parametrize(
+    ("location", "records", "reason"),
+    [
+        ("https://internal.registry.test/d", {"internal.registry.test": ["10.0.0.5"]},
+         "redirect_prohibited_address"),
+        ("https://mixed.registry.test/d",
+         {"mixed.registry.test": ["93.184.216.34", "::ffff:127.0.0.1"]},
+         "redirect_prohibited_address"),
+        ("https://meta.registry.test/d", {"meta.registry.test": ["169.254.169.254"]},
+         "redirect_prohibited_address"),
+        ("https://127.0.0.1/d", {}, "redirect_prohibited_address"),
+        ("https://[::1]/d", {}, "redirect_prohibited_address"),
+        ("https://2130706433/d", {}, "redirect_invalid_host"),
+        ("https://empty.registry.test/d", {}, "redirect_unresolvable"),
+        ("https://gone.registry.test/d", {"gone.registry.test": dns.resolver.NXDOMAIN()},
+         "redirect_resolution_failed"),
+        ("http://rdap.other.test/d", {}, "non_https_url"),
+    ],
+)  # fmt: skip
+def test_redirect_targets_must_resolve_to_public_addresses(location, records, reason):
+    domain_url = "https://rdap.registry.test/com/v1/domain/example.com"
+    seen: list[str] = []
+    client = client_for(
+        {
+            BOOTSTRAP_URL: httpx.Response(200, json=BOOTSTRAP),
+            domain_url: httpx.Response(302, headers={"Location": location}),
+        },
+        seen,
+        resolver=RedirectResolver(records),
+    )
+    obs = run(client)
+    assert obs["resultStatus"] == "error"
+    assert obs["evidence"]["error"] == reason
+    assert seen == [BOOTSTRAP_URL, domain_url]  # the redirect target was never requested
+
+
+def test_redirects_are_refused_without_a_resolver():
+    domain_url = "https://rdap.registry.test/com/v1/domain/example.com"
+    client = client_for(
+        {
+            BOOTSTRAP_URL: httpx.Response(200, json=BOOTSTRAP),
+            domain_url: httpx.Response(302, headers={"Location": "https://rdap.other.test/d"}),
+        },
+        resolver=None,
+    )
+    assert run(client)["evidence"]["error"] == "redirect_unverifiable"

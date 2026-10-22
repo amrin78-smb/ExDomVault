@@ -30,12 +30,12 @@ import ipaddress
 import logging
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from app.dns_checks import DnsResolver
 from app.logging_config import get_logger, log_event
-from app.scope import ScopeError, normalise_hostname
+from app.scope import ScopeError, assert_registrable_domain, normalise_hostname
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
@@ -265,7 +265,12 @@ def _clean_cname(value: str) -> str:
 @dataclass(frozen=True)
 class ScopePolicy:
     """Per-job scope: the job's domain, target hostnames, approved networks, the operator's deny
-    list and whether active scanning is enabled. Immutable once built."""
+    list and whether active scanning is enabled. Immutable once built (a heartbeat that shrinks the
+    approved networks produces a new policy, see :meth:`with_approved_networks_shrunk`).
+
+    ``target_hostnames`` is the approved target list: the job's claimed targets plus every in-domain
+    hostname listed in the scope snapshot's ``targets``. HTTP redirects are followed only to these
+    names (CT-log discoveries and other unapproved names under the domain are never contacted)."""
 
     job_id: str
     domain: str
@@ -276,10 +281,9 @@ class ScopePolicy:
     active_scanning_enabled: bool = False
 
     def __post_init__(self) -> None:
-        try:
-            object.__setattr__(self, "domain", normalise_hostname(self.domain))
-        except ScopeError as exc:
-            raise ScopeError(SCOPE_REJECTED, "The job's domain is not a valid name.") from exc
+        # A single label, an .arpa name or a public suffix would put unrelated parties' names in
+        # scope: refused (scope_rejected) even if the server snapshot says otherwise.
+        object.__setattr__(self, "domain", assert_registrable_domain(self.domain))
         if self.active_scanning_enabled is not True:
             object.__setattr__(self, "active_scanning_enabled", False)
 
@@ -347,13 +351,13 @@ class ScopePolicy:
         )
 
         snapshot_targets = snapshot.get("targets")
-        listed: set[str] | None = None
+        listed: dict[str, None] | None = None
         if isinstance(snapshot_targets, list):
-            listed = set()
+            listed = {}
             for item in snapshot_targets:
                 name = item.get("hostname") if isinstance(item, Mapping) else None
                 try:
-                    listed.add(normalise_hostname(name))  # type: ignore[arg-type]
+                    listed[normalise_hostname(name)] = None  # type: ignore[arg-type]
                 except ScopeError:
                     continue
         hosts: list[str] = []
@@ -365,8 +369,42 @@ class ScopePolicy:
             if listed is not None and host not in listed:
                 raise ScopeError(SCOPE_REJECTED, "A target is not in the job's scope snapshot.")
             hosts.append(host)
+        # Approved targets = claimed targets + in-domain snapshot targets (redirect allow-list).
+        for name in listed or ():
+            if name == policy.domain or name.endswith("." + policy.domain):
+                hosts.append(name)
         object.__setattr__(policy, "target_hostnames", tuple(dict.fromkeys(hosts)))
         return policy
+
+    def with_approved_networks_shrunk(self, networks: Any) -> ScopePolicy:
+        """A copy whose approved networks are the intersection of the current ones with
+        ``networks`` (the server's current effective list, from a heartbeat). It can only shrink:
+        a network not covered by a currently approved one is never added, and a malformed value
+        (not a list) or entry counts as nothing approved."""
+        current: list[IPNetwork] = []
+        for raw in networks if isinstance(networks, list | tuple) else []:
+            try:
+                network = parse_network(raw)
+            except ValueError:
+                continue
+            if network.prefixlen >= MIN_APPROVED_PREFIX[network.version]:
+                current.append(network)
+        kept: list[IPNetwork] = []
+        for old in self.approved_networks:
+            for new in current:
+                if old.version != new.version:
+                    continue
+                if old.subnet_of(new):  # type: ignore[arg-type]
+                    kept.append(old)
+                elif new.subnet_of(old):  # type: ignore[arg-type]
+                    kept.append(new)
+        shrunk = tuple(dict.fromkeys(kept))
+        if shrunk != self.approved_networks:
+            log_event(
+                _LOG, logging.WARNING, "approved_networks_shrunk",
+                jobId=self.job_id, before=len(self.approved_networks), after=len(shrunk),
+            )  # fmt: skip
+        return replace(self, approved_networks=shrunk)
 
     # ----------------------------------------------------------------------------------------
 

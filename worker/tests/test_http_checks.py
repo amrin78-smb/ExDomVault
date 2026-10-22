@@ -2,11 +2,12 @@
 
 import ipaddress
 import json
+import time
 
 import pytest
 
 from app import http_checks, net
-from app.checks import CheckFailed
+from app.checks import CheckFailed, CheckStopped
 from app.scope import ScopeError
 
 from .test_tls_checks import TARGET_ID, FakePolicy, assert_http_schema, make_ctx
@@ -285,3 +286,25 @@ def test_unexpected_os_errors_are_check_failures(gets):
     with pytest.raises(CheckFailed) as err:
         run()
     assert err.value.code == "http_timeout"
+
+
+def test_target_budget_and_stop_signal_are_passed_to_http_get(monkeypatch):
+    seen = []
+    stop = {"now": False}
+
+    def fake(policy, url, resolver, *, timeout, tier="web", deadline=None, should_stop=None):
+        seen.append((deadline, should_stop))
+        stop["now"] = True  # the job is cancelled while the request runs
+        return result(hop(url, status=None, decision="error", error="timeout"))
+
+    monkeypatch.setattr(net, "http_get", fake)
+    before = time.monotonic()
+    with pytest.raises(CheckStopped):
+        http_checks.check_http(
+            FakePolicy(), None, TARGET_ID, "www.example.com",
+            make_ctx(remaining=30.0, should_stop=lambda: stop["now"]), [].append,
+            include_headers=True,
+        )  # fmt: skip
+    ((deadline, should_stop),) = seen
+    assert before + 29 < deadline <= time.monotonic() + 30
+    assert should_stop() is True

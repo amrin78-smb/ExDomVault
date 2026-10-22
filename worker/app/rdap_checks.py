@@ -3,8 +3,16 @@
 Only the IANA bootstrap service and the registry's RDAP server are contacted, never the target.
 The registry base URL comes from the IANA DNS bootstrap file
 (``https://data.iana.org/rdap/dns.json``), cached in memory for 24 hours. Requests use HTTPS only,
-bounded timeouts, a 1 MB response cap, and follow at most 3 redirects, each of which must stay on
-HTTPS. The result is one ``registration`` observation (``docs/worker-protocol.md``).
+bounded timeouts, a 1 MB response cap, and follow at most 3 redirects. Before a redirect is
+followed its target must be HTTPS with a valid host name or a public IP literal, and every address
+the host resolves to (A and AAAA, through the worker's configured resolver) must pass
+:func:`app.policy.address_prohibited_reason`; otherwise the fetch stops (``non_https_url``,
+``redirect_invalid_host``, ``redirect_prohibited_address``, ``redirect_unresolvable``,
+``redirect_resolution_failed``, or ``redirect_unverifiable`` when no resolver is configured). This
+keeps a registry redirect from steering the worker at loopback/LAN/metadata addresses. httpx then
+resolves the name again itself, so this is a pre-check rather than pinning (acceptable for a
+passive fetch from registry servers; the systemd unit's ``IPAddressDeny`` also blocks those ranges).
+The result is one ``registration`` observation (``docs/worker-protocol.md``).
 """
 
 from __future__ import annotations
@@ -22,6 +30,9 @@ import httpx
 
 from app.checks import CHECKER_VERSION, CheckContext, utc_now_iso
 from app.client import USER_AGENT
+from app.dns_checks import DnsResolver
+from app.policy import address_prohibited_reason, parse_address
+from app.scope import ScopeError, normalise_hostname
 
 BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
 BOOTSTRAP_TTL_SECONDS = 24 * 3600
@@ -54,7 +65,9 @@ class RdapClient:
         *,
         transport: httpx.BaseTransport | None = None,
         clock: Callable[[], float] = time.monotonic,
+        resolver: DnsResolver | None = None,
     ) -> None:
+        self._resolver = resolver
         self._http = httpx.Client(
             headers={"User-Agent": USER_AGENT},
             follow_redirects=False,
@@ -89,6 +102,7 @@ class RdapClient:
                         if not location:
                             raise RdapError("redirect_without_location", http_status=status)
                         url = urljoin(url, location)
+                        self._check_redirect_target(url, ctx)
                         continue
                     if status == 404:
                         raise RdapNotFound
@@ -108,6 +122,49 @@ class RdapClient:
             except ValueError:
                 raise RdapError("invalid_json", http_status=200) from None
         raise RdapError("too_many_redirects")
+
+    def _check_redirect_target(self, url: str, ctx: CheckContext) -> None:
+        """Raises RdapError unless ``url`` is HTTPS and its host is (or resolves only to) public
+        addresses. See the module docstring."""
+        try:
+            parts = urlsplit(url)
+            host = parts.hostname
+        except ValueError:
+            raise RdapError("redirect_invalid_host") from None
+        if parts.scheme != "https":
+            raise RdapError("non_https_url")
+        if not host:
+            raise RdapError("redirect_invalid_host")
+        if ":" in host or host.replace(".", "").isdigit():
+            try:
+                literal = parse_address(host)
+            except ScopeError:
+                raise RdapError("redirect_invalid_host") from None
+            if address_prohibited_reason(literal) is not None:
+                raise RdapError("redirect_prohibited_address")
+            return
+        try:
+            name = normalise_hostname(host)
+        except ScopeError:
+            raise RdapError("redirect_invalid_host") from None
+        if self._resolver is None:
+            raise RdapError("redirect_unverifiable")
+        lifetime = max(0.1, min(ctx.read_seconds, ctx.remaining()))
+        addresses = []
+        for rdtype in ("A", "AAAA"):
+            try:
+                answer = self._resolver.query(name, rdtype, lifetime)
+            except Exception:  # NXDOMAIN, timeout, any resolver failure: stop
+                raise RdapError("redirect_resolution_failed") from None
+            for value in answer.values:
+                try:
+                    addresses.append(parse_address(str(value).strip()))
+                except ScopeError:
+                    raise RdapError("redirect_prohibited_address") from None
+        if not addresses:
+            raise RdapError("redirect_unresolvable")
+        if any(address_prohibited_reason(a) is not None for a in addresses):
+            raise RdapError("redirect_prohibited_address")
 
     def base_urls_for(self, fqdn: str, ctx: CheckContext) -> list[str]:
         """Registry RDAP base URLs (HTTPS only) for the longest matching TLD/suffix entry."""

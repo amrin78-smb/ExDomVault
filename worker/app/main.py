@@ -49,7 +49,8 @@ def build_worker(config: WorkerConfig, shutdown: threading.Event) -> Worker:
         config,
         api,
         resolver_factory=resolver_factory,
-        rdap_client=RdapClient(),
+        # The resolver vets RDAP redirect targets (never loopback/LAN/metadata addresses).
+        rdap_client=RdapClient(resolver=resolver_factory(5.0)),
         health=HealthReporter(config.health_file, config.worker_id),
         shutdown=shutdown,
     )

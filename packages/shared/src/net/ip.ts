@@ -10,6 +10,8 @@
  * Anything that does not parse is treated as prohibited by `isProhibitedAddress` (fail closed).
  */
 
+import { PROHIBITED_RANGES } from './prohibited-ranges.ts';
+
 export type IpVersion = 4 | 6;
 
 export interface ParsedIp {
@@ -192,42 +194,7 @@ export function cidrContains(cidr: string, ip: string): boolean {
 }
 
 /** Ranges that are never valid scan destinations (non-public, special-purpose or embedding). */
-export const PROHIBITED_RANGES: readonly { cidr: string; label: string }[] = [
-  // IPv4
-  { cidr: '0.0.0.0/8', label: 'unspecified / "this network"' },
-  { cidr: '10.0.0.0/8', label: 'private (RFC 1918)' },
-  { cidr: '100.64.0.0/10', label: 'carrier-grade NAT' },
-  { cidr: '127.0.0.0/8', label: 'loopback' },
-  { cidr: '169.254.0.0/16', label: 'link-local' },
-  { cidr: '172.16.0.0/12', label: 'private (RFC 1918)' },
-  { cidr: '192.0.0.0/24', label: 'IETF protocol assignments' },
-  { cidr: '192.0.2.0/24', label: 'documentation' },
-  { cidr: '192.88.99.0/24', label: '6to4 relay anycast (deprecated)' },
-  { cidr: '192.168.0.0/16', label: 'private (RFC 1918)' },
-  { cidr: '198.18.0.0/15', label: 'benchmarking' },
-  { cidr: '198.51.100.0/24', label: 'documentation' },
-  { cidr: '203.0.113.0/24', label: 'documentation' },
-  { cidr: '224.0.0.0/4', label: 'multicast' },
-  { cidr: '240.0.0.0/4', label: 'reserved (incl. broadcast)' },
-  // IPv6
-  { cidr: '::/128', label: 'unspecified' },
-  { cidr: '::1/128', label: 'loopback' },
-  { cidr: '::/96', label: 'IPv4-compatible' },
-  { cidr: '::ffff:0:0/96', label: 'IPv4-mapped' },
-  { cidr: '64:ff9b::/96', label: 'NAT64' },
-  { cidr: '64:ff9b:1::/48', label: 'NAT64 (local use)' },
-  { cidr: '100::/64', label: 'discard-only' },
-  { cidr: '2001::/32', label: 'Teredo' },
-  { cidr: '2001:2::/48', label: 'benchmarking' },
-  { cidr: '2001:10::/28', label: 'ORCHID' },
-  { cidr: '2001:20::/28', label: 'ORCHIDv2' },
-  { cidr: '2001:db8::/32', label: 'documentation' },
-  { cidr: '2002::/16', label: '6to4' },
-  { cidr: 'fc00::/7', label: 'unique local' },
-  { cidr: 'fe80::/10', label: 'link-local' },
-  { cidr: 'fec0::/10', label: 'site-local (deprecated)' },
-  { cidr: 'ff00::/8', label: 'multicast' },
-];
+export { PROHIBITED_RANGES, type ProhibitedRange } from './prohibited-ranges.ts';
 
 const PROHIBITED = PROHIBITED_RANGES.map((r) => parseCidr(r.cidr) as ParsedCidr);
 /** Only global unicast space (2000::/3) is ever public IPv6; everything else is reserved. */

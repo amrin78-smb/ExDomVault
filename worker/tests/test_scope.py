@@ -4,6 +4,7 @@ from app.scope import (
     NETWORK_CHECKS,
     ScopeError,
     assert_passive_allowed,
+    assert_registrable_domain,
     name_within_domain,
     normalise_hostname,
     validate_job_targets,
@@ -69,3 +70,24 @@ def test_validate_job_targets():
     assert err.value.code == "scope_rejected"
     with pytest.raises(ScopeError):
         validate_job_targets("example.com", ["bad host.example.com"], ["bad host.example.com"])
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["com", "localhost", "arpa", "in-addr.arpa", "1.0.0.127.in-addr.arpa", "ip6.arpa", "co.uk",
+     "CO.UK.", "github.io", "workers.dev", "pages.dev", "herokuapp.com", "com.au",
+     "s3.amazonaws.com"],
+)  # fmt: skip
+def test_public_suffix_and_single_label_domains_are_refused(domain):
+    with pytest.raises(ScopeError) as err:
+        assert_registrable_domain(domain)
+    assert err.value.code == "scope_rejected"
+    with pytest.raises(ScopeError):
+        validate_job_targets(domain, [], [])
+
+
+@pytest.mark.parametrize(
+    "domain", ["example.com", "example.co.uk", "me.github.io", "a.workers.dev"]
+)
+def test_registrable_domains_are_accepted(domain):
+    assert assert_registrable_domain(domain) == domain

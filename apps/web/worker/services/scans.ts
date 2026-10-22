@@ -11,7 +11,7 @@ import {
   type ScopeSnapshot,
 } from '@exdomainvault/shared';
 import { isWithinDomain } from '@exdomainvault/shared/hostname';
-import { and, asc, count, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { firstRow } from '../lib/db.ts';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
@@ -456,4 +456,67 @@ export async function cancelScan(db: Database, id: string, actor: Actor, now: Da
       throw new ApiError(409, 'conflict', 'This scan has already finished.');
     }
   });
+}
+
+/** Jobs whose snapshot profile is active (contacts target hosts). */
+const isActiveJob = sql`(${scanJobs.scopeSnapshot} #>> '{profile,config,active}') = 'true'`;
+
+/**
+ * Stops the given domains' active jobs because their authorisation was withdrawn (revoked or
+ * lapsed). Must run in the same transaction as the withdrawal. Queued jobs are cancelled outright;
+ * claimed/running jobs are flagged so the worker stops at its next heartbeat (and its active
+ * evidence is refused from now on). Passive jobs are unaffected. Returns the jobs touched.
+ */
+export async function stopActiveJobsForDomains(
+  tx: Database,
+  domainIds: readonly string[],
+  reason: string,
+  actor: Actor | null,
+  now: Date,
+): Promise<number> {
+  if (domainIds.length === 0) return 0;
+  const forDomains = and(inArray(scanJobs.domainId, [...domainIds]), isActiveJob);
+  const cancelled = await tx
+    .update(scanJobs)
+    .set({ status: 'cancelled', completedAt: now, cancelRequestedAt: now, errorCode: reason })
+    .where(and(forDomains, eq(scanJobs.status, 'queued')))
+    .returning({ id: scanJobs.id, profile: scanJobs.profile });
+  if (cancelled.length > 0) {
+    await tx
+      .update(scanJobTargets)
+      .set({ status: 'skipped', errorCode: reason, completedAt: now })
+      .where(
+        and(
+          inArray(
+            scanJobTargets.scanJobId,
+            cancelled.map((j) => j.id),
+          ),
+          or(eq(scanJobTargets.status, 'pending'), eq(scanJobTargets.status, 'running')),
+        ),
+      );
+  }
+  const flagged = await tx
+    .update(scanJobs)
+    .set({ cancelRequestedAt: now })
+    .where(
+      and(
+        forDomains,
+        inArray(scanJobs.status, ['claimed', 'running']),
+        isNull(scanJobs.cancelRequestedAt),
+      ),
+    )
+    .returning({ id: scanJobs.id, profile: scanJobs.profile });
+  const audit = (action: string, j: { id: string; profile: string }) =>
+    writeAudit(tx, {
+      actorType: actor ? 'user' : 'system',
+      actorUserId: actor?.userId,
+      action,
+      resourceType: 'scan_job',
+      resourceId: j.id,
+      requestId: actor?.requestId,
+      metadata: { reason, profile: j.profile },
+    });
+  for (const j of cancelled) await audit('scan.cancelled', j);
+  for (const j of flagged) await audit('scan.cancel_requested', j);
+  return cancelled.length + flagged.length;
 }

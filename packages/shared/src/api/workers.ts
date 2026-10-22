@@ -137,8 +137,17 @@ export const heartbeatRequestSchema = z.strictObject({
 
 export const heartbeatResponseSchema = z.object({
   leaseExpiresAt: isoDateTime,
-  /** The job was cancelled by a user: stop work and report a failure with `cancelled`. */
+  /**
+   * Stop work and report a failure with `cancelled`: a user cancelled the job, or it is no longer
+   * authorised (active scanning switched off, domain authorisation revoked or lapsed, monitoring
+   * turned off for a scheduled job).
+   */
   cancelRequested: z.boolean(),
+  /**
+   * Networks the job may still probe right now (its snapshot ∩ currently active approvals); the
+   * worker shrinks its scope to this list. Empty for passive or no-longer-authorised jobs.
+   */
+  approvedNetworks: z.array(z.string()),
 });
 
 export const resultsRequestSchema = z.strictObject({

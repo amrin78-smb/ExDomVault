@@ -240,13 +240,36 @@ def test_run_returns_stdout_with_minimal_env_and_rlimits():
             "print(resource.getrlimit(resource.RLIMIT_NOFILE)[1] <= 1024); "
             "print(resource.getrlimit(resource.RLIMIT_AS)[0] <= 512 * 1024 * 1024); "
             "print(resource.getrlimit(resource.RLIMIT_CORE)); "
-            "print(os.getsid(0) == os.getpid())"
+            "print(os.getpgid(0) == os.getpid())"
         ),
         timeout=20,
     )
     lines = out.decode().split("\n")
     assert lines[0] in ("['PATH']", "['LC_CTYPE', 'PATH']")
     assert lines[1:5] == ["True", "True", "(0, 0)", "True"]
+
+
+def test_rlimits_are_applied_without_preexec_fn(monkeypatch):
+    """preexec_fn is unsafe in a multi-threaded process; the limits come from an exec stub."""
+    seen = {}
+    real_popen = port_checks.subprocess.Popen
+
+    def spy(argv, **kwargs):
+        seen["argv"], seen["kwargs"] = argv, kwargs
+        return real_popen(argv, **kwargs)
+
+    monkeypatch.setattr(port_checks.subprocess, "Popen", spy)
+    target = py("print('ok')")
+    assert run_nmap(target, timeout=20) == b"ok\n"
+    assert "preexec_fn" not in seen["kwargs"]
+    assert seen["kwargs"]["process_group"] == 0 and seen["kwargs"]["shell"] is False
+    assert seen["argv"][:3] == [sys.executable, "-I", "-S"]
+    assert seen["argv"][-len(target) :] == target  # the target argv is passed through unchanged
+
+
+def test_limited_argv_requires_an_absolute_program():
+    with pytest.raises(ValueError):
+        port_checks.limited_argv(["nmap", "-sT"], 10)
 
 
 def test_oversized_output_kills_the_process():

@@ -44,12 +44,18 @@ export function internalWorkerRoutes(deps: { now?: () => Date } = {}) {
     .post('/heartbeat', async (c) => {
       const body = await parseJsonBody(c, heartbeatRequestSchema, WORKER_MAX_BODY_BYTES);
       const db = await c.get('db')();
-      return c.json(await heartbeat(db, c.get('worker'), body, now()));
+      return c.json(
+        await heartbeat(db, c.get('worker'), body, now(), {
+          activeScanningEnabled: c.get('config').activeScanningEnabled,
+        }),
+      );
     })
     .post('/results', async (c) => {
       const body = await parseJsonBody(c, resultsRequestSchema, WORKER_MAX_BODY_BYTES);
       const db = await c.get('db')();
-      const res = await submitResultsDetailed(db, c.get('worker'), body, now());
+      const res = await submitResultsDetailed(db, c.get('worker'), body, now(), {
+        activeScanningEnabled: c.get('config').activeScanningEnabled,
+      });
       c.get('logger').info('job_results', {
         jobId: body.jobId,
         accepted: res.accepted,

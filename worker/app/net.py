@@ -14,7 +14,16 @@ Contract (implemented by the safety core; used by tls_checks and http_checks):
 * :func:`http_get` — never raises for target-side problems: every hop (including refused ones) is
   recorded in :class:`HttpResult`. Requests are written by hand (HTTP/1.1, ``Connection: close``)
   on the pinned socket; response headers are bounded by :data:`MAX_HEADER_BYTES` and the body by
-  ``max_body_bytes``; each hop has an overall deadline so a slow-drip server cannot hold the worker.
+  ``max_body_bytes``. One overall deadline covers every hop (at most ``2 x timeout`` from the start,
+  further capped by the caller's ``deadline``, i.e. the target's remaining budget) so neither a
+  slow-drip server nor a chain of slow redirects can hold the worker; ``should_stop`` is checked
+  between hops.
+* Redirects are followed only when the new URL (a) passes ``policy.assert_hostname``
+  (``redirect_out_of_scope`` otherwise), (b) names the first hop's host or one of
+  ``policy.target_hostnames``, the job's approved targets (``redirect_not_approved_target``
+  otherwise: unapproved names under the domain are neither resolved nor contacted), and (c) uses
+  the scheme's default port (80/443) or the first URL's explicit port (``port_not_allowed``
+  otherwise: a web-tier redirect must not become a probe of an arbitrary port).
 
 Test seam: :func:`_verifying_context` builds the certificate-verifying TLS context (system trust
 store). Tests replace it with ``monkeypatch`` to trust a throwaway CA; production has no switch.
@@ -26,6 +35,7 @@ import re
 import socket
 import ssl
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from urllib.parse import urljoin, urlsplit
 
@@ -52,6 +62,9 @@ USER_AGENT = "ExDomainVault-Worker/1 (+authorised external exposure monitoring)"
 FOLLOWED = "followed"
 FINAL = "final"
 REDIRECT_OUT_OF_SCOPE = "redirect_out_of_scope"
+REDIRECT_NOT_APPROVED_TARGET = "redirect_not_approved_target"
+PORT_NOT_ALLOWED = "port_not_allowed"
+STOPPED = "stopped"
 SCHEME_NOT_ALLOWED = "scheme_not_allowed"
 TOO_MANY_REDIRECTS = "too_many_redirects"
 INVALID_URL = "invalid_url"
@@ -75,6 +88,13 @@ def _check_timeout(timeout: float) -> float:
     if isinstance(timeout, bool) or not isinstance(timeout, int | float) or not timeout > 0:
         raise ValueError("timeout must be a positive number of seconds")
     return float(min(timeout, MAX_TIMEOUT_SECONDS))
+
+
+def _bounded_timeout(seconds: float, deadline: float | None) -> float:
+    """``seconds`` capped by the time left until ``deadline`` (never below 10 ms)."""
+    if deadline is None:
+        return seconds
+    return max(0.01, min(seconds, deadline - time.monotonic()))
 
 
 def connect_tcp(
@@ -139,12 +159,18 @@ def tls_handshake(
     *,
     timeout: float,
     tier: Tier = "web",
+    deadline: float | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> TlsResult:
     """One TLS handshake to the pinned address with SNI = ``hostname``. Captures the leaf
     certificate even if verification fails (a second, non-verifying handshake to the same pinned
-    address is acceptable for that). Sends no application data."""
+    address is acceptable for that). Sends no application data.
+
+    ``deadline`` (``time.monotonic()`` value, e.g. the target's budget) bounds both handshakes;
+    the second one is skipped when the deadline has passed or ``should_stop()`` is true."""
     host = policy.assert_hostname(hostname)
     ip = policy.assert_destination(address, tier=tier)
+    timeout = _bounded_timeout(_check_timeout(timeout), deadline)
     sock = connect_tcp(policy, ip, port, timeout=timeout, tier=tier)
     try:
         with _verifying_context().wrap_socket(sock, server_hostname=host) as tls:
@@ -171,9 +197,13 @@ def tls_handshake(
         sock.close()
 
     # Verification failed: read the certificate over a second, non-verifying handshake to the same
-    # pinned (and re-validated) address.
+    # pinned (and re-validated) address, if the budget allows.
+    if (should_stop is not None and should_stop()) or (
+        deadline is not None and deadline - time.monotonic() <= 0
+    ):
+        return TlsResult(ip, port, None, None, verified=False, verify_error=verify_error)
     try:
-        sock = connect_tcp(policy, ip, port, timeout=timeout, tier=tier)
+        sock = connect_tcp(policy, ip, port, timeout=_bounded_timeout(timeout, deadline), tier=tier)
     except OSError:
         return TlsResult(ip, port, None, None, verified=False, verify_error=verify_error)
     try:
@@ -206,9 +236,9 @@ class HttpHop:
     status: int | None
     #: Lower-cased response headers (bounded); empty when not connected.
     headers: dict[str, str] = field(default_factory=dict)
-    #: ``followed``, ``final``, or a refusal code (``redirect_out_of_scope``,
-    #: ``scheme_not_allowed``, ``too_many_redirects``, ``prohibited_address``,
-    #: ``no_allowed_address``,
+    #: ``followed``, ``final``, ``stopped``, or a refusal code (``redirect_out_of_scope``,
+    #: ``redirect_not_approved_target``, ``port_not_allowed``, ``scheme_not_allowed``,
+    #: ``too_many_redirects``, ``prohibited_address``, ``no_allowed_address``,
     #: ``cname_out_of_scope``, ``cname_chain_invalid``, ``out_of_scope_host``, ``invalid_url``,
     #: ``error``).
     decision: str = "final"
@@ -385,9 +415,12 @@ def _exchange(
     timeout: float,
     max_body_bytes: int,
     tier: Tier,
+    deadline: float,
 ) -> tuple[int, dict[str, str], int]:
-    deadline = time.monotonic() + 2 * timeout
-    sock: socket.socket = connect_tcp(policy, address, target.port, timeout=timeout, tier=tier)
+    connect_timeout = _bounded_timeout(timeout, deadline)
+    sock: socket.socket = connect_tcp(
+        policy, address, target.port, timeout=connect_timeout, tier=tier
+    )
     try:
         if target.scheme == "https":
             sock.settimeout(max(0.01, deadline - time.monotonic()))
@@ -420,19 +453,30 @@ def http_get(
     max_redirects: int = MAX_REDIRECTS,
     max_body_bytes: int = MAX_BODY_BYTES,
     tier: Tier = "web",
+    deadline: float | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> HttpResult:
     """GET ``url`` (http/https only) without automatic redirects. For each hop: validate the host
-    with ``policy.assert_hostname`` (refuse ``redirect_out_of_scope`` without connecting), resolve
-    through ``policy.resolve``, connect to the first allowed address (pinned), send Host / SNI =
-    hostname, read at most ``max_body_bytes`` of body, and follow ``Location`` only while within
-    the cap."""
+    with ``policy.assert_hostname`` (refuse ``redirect_out_of_scope`` without connecting), for a
+    redirect also require an approved target host (``redirect_not_approved_target``) and an allowed
+    port (``port_not_allowed``), resolve through ``policy.resolve``, connect to the first allowed
+    address (pinned), send Host / SNI = hostname, read at most ``max_body_bytes`` of body, and
+    follow ``Location`` only while within the cap.
+
+    The whole call (all hops) ends by ``min(start + 2 x timeout, deadline)``; ``deadline`` is a
+    ``time.monotonic()`` value (the caller's remaining target budget). ``should_stop`` is checked
+    before every hop; a stop is recorded as a ``stopped`` hop."""
     seconds = _check_timeout(timeout)
+    overall = time.monotonic() + 2 * seconds
+    if deadline is not None:
+        overall = min(overall, float(deadline))
     redirects_left = max(0, min(int(max_redirects), MAX_REDIRECTS))
     body_limit = max(0, min(int(max_body_bytes), MAX_BODY_BYTES))
     hops: list[HttpHop] = []
     visited: set[str] = set()
     current = url
     is_redirect = False
+    origin: _Url | None = None
 
     def refused(hop_url: str, decision: str, error: str | None = None) -> HttpResult:
         hops.append(
@@ -442,6 +486,8 @@ def http_get(
         return HttpResult(hops=tuple(hops))
 
     while True:
+        if should_stop is not None and should_stop():
+            return refused(current, STOPPED)
         parsed = _parse_url(current)
         if isinstance(parsed, str):
             return refused(current, parsed)
@@ -450,8 +496,23 @@ def http_get(
         except ScopeError:
             return refused(current, REDIRECT_OUT_OF_SCOPE if is_redirect else OUT_OF_SCOPE_HOST)
         parsed = replace(parsed, host=host)  # normalised (lower-case, no trailing dot)
+        if origin is None:
+            origin = parsed
+        else:
+            if host != origin.host and host not in policy.target_hostnames:
+                return refused(current, REDIRECT_NOT_APPROVED_TARGET)
+            allowed_ports = {_DEFAULT_PORTS[parsed.scheme]}
+            if origin.explicit_port:
+                allowed_ports.add(origin.port)
+            if parsed.port not in allowed_ports:
+                return refused(current, PORT_NOT_ALLOWED)
+        remaining = overall - time.monotonic()
+        if remaining <= 0:
+            return refused(current, ERROR, "timeout")
         try:
-            resolved = policy.resolve(host, resolver, tier=tier, lifetime=seconds)
+            resolved = policy.resolve(
+                host, resolver, tier=tier, lifetime=max(0.01, min(seconds, remaining))
+            )
         except ScopeError as exc:
             return refused(current, exc.code)
         except Exception as exc:  # DNS failures
@@ -460,8 +521,9 @@ def http_get(
         visited.add(current)
         try:
             status, headers, body = _exchange(
-                policy, parsed, address, timeout=seconds, max_body_bytes=body_limit, tier=tier
-            )
+                policy, parsed, address, timeout=seconds, max_body_bytes=body_limit, tier=tier,
+                deadline=min(overall, time.monotonic() + 2 * seconds),
+            )  # fmt: skip
         except ScopeError as exc:
             return refused(current, exc.code)
         except _HttpError as exc:
@@ -492,6 +554,9 @@ __all__ = [
     "MAX_BODY_BYTES",
     "MAX_HEADER_BYTES",
     "MAX_REDIRECTS",
+    "PORT_NOT_ALLOWED",
+    "REDIRECT_NOT_APPROVED_TARGET",
+    "STOPPED",
     "HttpHop",
     "HttpResult",
     "TlsResult",

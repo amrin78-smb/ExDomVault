@@ -8,6 +8,7 @@ import hashlib
 import ipaddress
 import json
 import re
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -328,7 +329,7 @@ def handshakes(monkeypatch):
     behaviour = {}
     der = make_cert()
 
-    def fake(policy, hostname, address, port, *, timeout, tier="web"):
+    def fake(policy, hostname, address, port, *, timeout, tier="web", **_kw):
         calls.append((hostname, str(address), port, tier, timeout))
         action = behaviour.get(str(address))
         if isinstance(action, BaseException):
@@ -419,3 +420,23 @@ def test_empty_address_list_fails_closed(handshakes):
             policy, None, TARGET_ID, "www.example.com", make_ctx(), [].append
         )
     assert err.value.code == "no_allowed_address"
+
+
+def test_tls_check_passes_the_target_budget_and_stop_signal(monkeypatch):
+    seen = []
+
+    def fake(policy, hostname, address, port, *, timeout, tier="web", deadline, should_stop):
+        seen.append((deadline, should_stop))
+        raise TimeoutError
+
+    monkeypatch.setattr(net, "tls_handshake", fake)
+    policy = FakePolicy({"web": {"www.example.com": ["198.51.100.7"]}})
+    stop = lambda: False  # noqa: E731
+    before = time.monotonic()
+    tls_checks.check_tls_certificate(
+        policy, None, TARGET_ID, "www.example.com", make_ctx(remaining=20.0, should_stop=stop),
+        [].append,
+    )  # fmt: skip
+    ((deadline, should_stop),) = seen
+    assert before + 19 < deadline <= time.monotonic() + 20
+    assert should_stop is stop

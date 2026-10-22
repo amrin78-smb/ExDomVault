@@ -5,8 +5,24 @@ HTTPS and never listens on a port. The protocol and every configuration variable
 [`docs/worker-protocol.md`](../docs/worker-protocol.md); production installation is in
 [`docs/home-worker-setup.md`](../docs/home-worker-setup.md).
 
-Active network scanning is hard-coded off until the Milestone 6 scope validator is complete. Only the
-passive checks (`dns`, `rdap`) run.
+By default only the passive checks (`dns`, `rdap`) run. Active checks (TLS certificate, HTTP
+availability/headers, TCP ports via Nmap) run only with `EXDV_ACTIVE_SCANNING_ENABLED=true`, and every
+connection goes through the scope validator (`app/policy.py`, `app/net.py`):
+
+- Destinations are resolved, validated against the prohibited ranges and the deny list, pinned, and
+  revalidated immediately before connecting; CNAME hops must stay inside the job's domain.
+- HTTP redirects are followed only to the job's approved target hostnames, on the scheme's default
+  port or the first URL's port, within one overall deadline (the target's remaining budget).
+- Job domains that are a single label, under `.arpa`, or a common public suffix are refused (backstop;
+  the server enforces the full Public Suffix List).
+- Home-network self-protection (`app/self_protection.py`): while active scanning is enabled, the host's
+  own interface addresses (IPv6 as /64) and its public egress address (a `whoami.cloudflare` CHAOS TXT
+  query to 1.1.1.1) are added to every job's deny list at start-up and hourly. If the egress address is
+  unknown and `EXDV_DENY_NETWORKS` is empty, web/network checks fail with `egress_ip_unknown`.
+- A heartbeat response carrying `approvedNetworks` shrinks the running job's approved networks
+  (intersection; never widened).
+- Nmap runs from a fixed argv template with rlimits and its own process group; `-sV` runs only Nmap's
+  `version`-category NSE scripts (see `app/port_checks.py`).
 
 ## Set up and test
 

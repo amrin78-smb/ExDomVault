@@ -21,10 +21,23 @@ integers) and validated IP addresses — never user input, never a shell::
 - IPv4 and IPv6 addresses are scanned in separate runs (Nmap needs ``-6`` and cannot mix them);
   at most :data:`MAX_ADDRESSES` addresses per target.
 
-The process runs with ``shell=False``, ``stdin`` closed, ``env`` = ``PATH`` only, a new session
-(the whole process group is killed on timeout, overflow or cancellation), stdout capped at 2 MB,
-stderr capped at 64 KB, a wall-clock timeout of ``<T> + 30`` s, and rlimits (address space 512 MB,
-CPU seconds = the wall-clock timeout, 1024 file descriptors, no core dumps).
+The process runs with ``shell=False``, ``stdin`` closed, ``env`` = ``PATH`` only, its own process
+group (``process_group=0``; the whole group is killed on timeout, overflow or cancellation), stdout
+capped at 2 MB, stderr capped at 64 KB, a wall-clock timeout of ``<T> + 30`` s, and rlimits
+(address space 512 MB, CPU seconds = the wall-clock timeout, 1024 file descriptors, no core dumps).
+The rlimits are applied without ``preexec_fn`` (unsafe in this multi-threaded worker: the forked
+child could deadlock on a lock held by another thread): a fixed, isolated Python stub
+(``python -I -S -c <constant code>``) calls ``setrlimit`` with integer values computed in the
+parent and then ``execv``s the Nmap argv unchanged, so the limits are in force before Nmap's first
+instruction and no shell is involved.
+
+Service identification (``-sV --version-light``): besides Nmap's probe database (light intensity),
+``-sV`` also runs the NSE scripts of the ``version`` category; no other category can run because the
+template has no ``--script``/``-sC``/``-A``. With the installed Nmap 7.94 that is 46 scripts
+(``nmap --script-help version``); none is in the ``intrusive``, ``exploit``, ``brute``, ``dos``,
+``malware`` or ``external`` categories. They are protocol-specific version/banner probes (e.g.
+``http-server-header``, ``fingerprint-strings``, ``rpc-grind``); the only one also tagged ``vuln``
+(``wdb-version``) has a UDP-only port rule and cannot run under this TCP connect scan.
 
 The XML report is parsed with ``xml.etree.ElementTree`` after refusing any entity declaration and
 any document type other than Nmap's own bare ``<!DOCTYPE nmaprun>`` (no internal subset, no
@@ -47,6 +60,7 @@ import resource
 import selectors
 import signal
 import subprocess
+import sys
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable
@@ -150,20 +164,33 @@ def _clamped_limit(which: int, wanted: int) -> tuple[int, int]:
     return (value, value)
 
 
-def _resource_limiter(cpu_seconds: int) -> Callable[[], None]:
-    # Computed in the parent so the child only makes setrlimit calls between fork and exec.
+def _rlimit_values(cpu_seconds: int) -> list[tuple[int, int, int]]:
+    """(resource, soft, hard) integers, computed in the parent."""
     limits = [
         (resource.RLIMIT_AS, _clamped_limit(resource.RLIMIT_AS, RLIMIT_AS_BYTES)),
         (resource.RLIMIT_CPU, _clamped_limit(resource.RLIMIT_CPU, cpu_seconds)),
         (resource.RLIMIT_NOFILE, _clamped_limit(resource.RLIMIT_NOFILE, RLIMIT_NOFILE_COUNT)),
         (resource.RLIMIT_CORE, (0, 0)),
     ]
+    return [(int(which), int(soft), int(hard)) for which, (soft, hard) in limits]
 
-    def apply() -> None:
-        for which, value in limits:
-            resource.setrlimit(which, value)
 
-    return apply
+# Constant stub; only integers are interpolated into it. The target argv follows as sys.argv[1:].
+_RLIMIT_STUB = (
+    "import os, resource, sys\n"
+    "for which, soft, hard in {limits!r}:\n"
+    "    resource.setrlimit(which, (soft, hard))\n"
+    "os.execv(sys.argv[1], sys.argv[1:])\n"
+)
+
+
+def limited_argv(argv: list[str], cpu_seconds: int) -> list[str]:
+    """``argv`` wrapped so it starts with the rlimits in force (see the module docstring).
+    ``argv[0]`` must be an absolute path (``execv`` does no PATH search)."""
+    if not argv or not os.path.isabs(argv[0]):
+        raise ValueError("argv[0] must be an absolute path")
+    code = _RLIMIT_STUB.format(limits=_rlimit_values(cpu_seconds))
+    return [sys.executable, "-I", "-S", "-c", code, *argv]
 
 
 def _kill_group(proc: subprocess.Popen[bytes]) -> None:
@@ -182,15 +209,14 @@ def run_nmap(
     """Runs ``argv`` (never through a shell) and returns its stdout. Raises CheckFailed
     (``nmap_timeout``, ``nmap_output_too_large``, ``nmap_failed``) or CheckStopped."""
     proc = subprocess.Popen(  # noqa: S603 - fixed argv template, shell=False
-        argv,
+        limited_argv(argv, int(timeout) + 1),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         shell=False,
         env=dict(NMAP_ENV),
         close_fds=True,
-        start_new_session=True,
-        preexec_fn=_resource_limiter(int(timeout) + 1),  # setrlimit calls only
+        process_group=0,  # own process group: killpg reaches every descendant
     )
     assert proc.stdout is not None and proc.stderr is not None  # noqa: S101 - PIPE requested
     out = bytearray()

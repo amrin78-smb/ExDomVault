@@ -63,6 +63,10 @@ EXDV_ENVIRONMENT=production
 EXDV_POLL_INTERVAL_SECONDS=30
 EXDV_PROFILES=passive
 EXDV_LOG_LEVEL=INFO
+# Active scanning (TLS/HTTP/port checks) stays off until explicitly set to true.
+EXDV_ACTIVE_SCANNING_ENABLED=false
+# Networks never to contact (comma-separated CIDRs), e.g. this home's static public IP/32 and IPv6 /64.
+#EXDV_DENY_NETWORKS=
 EOF
   )
 fi

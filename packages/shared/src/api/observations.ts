@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidHostname } from '../hostname/labels.ts';
 
 /**
  * Observations submitted by the worker with job results (design §5.8), and the read model the UI
@@ -30,9 +31,18 @@ export const dnsRecordTypeSchema = z.enum(DNS_RECORD_TYPES);
 export type DnsRecordType = z.infer<typeof dnsRecordTypeSchema>;
 
 /** Small, structured, non-secret supporting data (resolver used, error class, raw RDAP status...). */
+export const MAX_EVIDENCE_BYTES = 16_384;
+// Present in every target runtime (Workers, browsers, Node); declared because this package compiles
+// without DOM or Node typings.
+declare const TextEncoder: new () => { encode(input: string): Uint8Array };
+const utf8 = new TextEncoder();
 const evidenceSchema = z
   .record(z.string().max(64), z.unknown())
-  .refine((v) => JSON.stringify(v).length <= 16_384, 'Evidence must be at most 16 KB.')
+  // Measured in UTF-8 bytes (what is stored), not UTF-16 code units.
+  .refine(
+    (v) => utf8.encode(JSON.stringify(v)).length <= MAX_EVIDENCE_BYTES,
+    'Evidence must be at most 16 KB.',
+  )
   .default({});
 
 const observationBase = {
@@ -44,17 +54,28 @@ const observationBase = {
   evidence: evidenceSchema,
 };
 
+const HOSTNAME_MESSAGE =
+  'Hostnames must be lowercase A-labels (1–63 letters, digits or inner hyphens each) without a trailing dot.';
+
+/** A host that may be connected to: LDH labels only. */
 const hostnameSchema = z
   .string()
   .min(1)
   .max(253)
-  .regex(/^[a-z0-9_.-]+$/, 'Hostnames must be lowercase A-labels without a trailing dot.');
+  .refine((v) => isValidHostname(v), HOSTNAME_MESSAGE);
+
+/** A DNS query name: as `hostnameSchema`, plus leading service labels such as `_dmarc`. */
+const dnsQueryNameSchema = z
+  .string()
+  .min(1)
+  .max(253)
+  .refine((v) => isValidHostname(v, { allowServiceLabels: true }), HOSTNAME_MESSAGE);
 
 export const dnsObservationSchema = z.strictObject({
   kind: z.literal('dns'),
   ...observationBase,
   /** Name queried: the target or a name beneath the job's domain (e.g. `_dmarc.example.com`). */
-  hostname: hostnameSchema,
+  hostname: dnsQueryNameSchema,
   recordType: dnsRecordTypeSchema,
   ttl: z.int().min(0).max(2_147_483_647).nullable(),
   /** Presentation-format record data, sorted. Empty when the name/type has no records. */
@@ -81,9 +102,18 @@ const ipAddressSchema = z.union([z.ipv4(), z.ipv6()]);
 
 const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
+/** The TLS check that produced an observation (a profile must list it). */
+export const TLS_OBSERVATION_CHECKS = ['tls_certificate', 'tls_configuration'] as const;
+
 export const tlsObservationSchema = z.strictObject({
   kind: z.literal('tls'),
   ...observationBase,
+  /**
+   * `tls_certificate` (web tier) inspects the certificate a hostname serves; `tls_configuration`
+   * (network tier) probes protocol support, so its address must lie in an approved network.
+   */
+  check: z.enum(TLS_OBSERVATION_CHECKS).default('tls_certificate'),
+  /** SNI hostname; must be the target's own hostname. */
   hostname: hostnameSchema,
   /** The validated address the connection was pinned to. */
   ipAddress: ipAddressSchema,
@@ -103,7 +133,7 @@ export type TlsObservation = z.infer<typeof tlsObservationSchema>;
 export const httpObservationSchema = z.strictObject({
   kind: z.literal('http'),
   ...observationBase,
-  /** First URL requested (`http(s)://<hostname>[:port]/`). */
+  /** First URL requested (`http(s)://<hostname>[:port]/`); the host must be the target's hostname. */
   url: z.string().max(2048),
   ipAddress: ipAddressSchema,
   statusCode: z.int().min(100).max(599).nullable(),

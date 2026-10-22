@@ -4,6 +4,14 @@
 // under plain Node ESM as well as bundlers.
 import punycode from 'punycode/punycode.es6.js';
 import { parse } from 'tldts';
+import { hasEmptyLabel, LDH_LABEL_RE } from './labels.ts';
+
+export {
+  hasEmptyLabel,
+  isValidHostname,
+  LDH_LABEL_RE,
+  type HostnameSyntaxOptions,
+} from './labels.ts';
 
 /**
  * Domain-name normalisation and boundary checks shared by the API (and, later, scope validation).
@@ -58,7 +66,7 @@ declare const URL: new (input: string) => { hostname: string };
 
 const MAX_INPUT_LENGTH = 1024;
 const MAX_NAME_LENGTH = 253;
-const LDH_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
+const LDH_LABEL = LDH_LABEL_RE;
 /** ASCII is restricted to letters, digits, hyphen and dot before the URL parser sees the input, so
  * percent-encoding, numeric IP shorthands (`0x7f.1`), userinfo, ports and paths never reach it. */
 const ALLOWED_ASCII = /^[a-z0-9.-]$/i;
@@ -208,5 +216,7 @@ function hasMixedScripts(label: string): boolean {
  */
 export function isWithinDomain(hostname: string, domain: string): boolean {
   if (hostname === '' || domain === '') return false;
+  // Malformed names (`.example.com`, `www..example.com`) are never inside anything.
+  if (hasEmptyLabel(hostname) || hasEmptyLabel(domain)) return false;
   return hostname === domain || hostname.endsWith(`.${domain}`);
 }

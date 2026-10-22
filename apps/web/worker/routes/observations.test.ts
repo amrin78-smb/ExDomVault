@@ -5,6 +5,7 @@ import {
   claimResponseSchema,
   domainObservationsResponseSchema,
   errorResponseSchema,
+  heartbeatResponseSchema,
   scanJobDetailResponseSchema,
   workerCredentialCreatedResponseSchema,
   type ClaimedJob,
@@ -142,6 +143,9 @@ const regObs = (targetId: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const ACTIVE_ON = { ACTIVE_SCANNING_ENABLED: 'true' };
+
+// Active evidence is only accepted while active scanning is enabled (checked on every submission).
 const submit = (s: Setup, resultId: string, observations: unknown[], complete = false) =>
   workerCall(
     h,
@@ -149,7 +153,7 @@ const submit = (s: Setup, resultId: string, observations: unknown[], complete = 
     s.w.keyId,
     'results',
     { jobId: s.job.id, attempt: s.job.attempt, resultId, targets: [], observations, complete },
-    { now: clock },
+    { now: clock, envExtra: ACTIVE_ON },
   );
 
 const counts = async () => ({
@@ -364,8 +368,6 @@ describe('GET /domains/:id/observations', () => {
 });
 
 // --- Active observations (Milestone 6) ----------------------------------------------------------
-
-const ACTIVE_ON = { ACTIVE_SCANNING_ENABLED: 'true' };
 
 /** Verified example.com with www approved, 8.8.8.0/24 approved, an active scan claimed. */
 async function setupActive(profile = 'standard'): Promise<Setup> {
@@ -630,5 +632,225 @@ describe('GET /domains/:id/observations (active)', () => {
       ['8.8.8.8', 443, 'open', 'https'],
     ]);
     expect(body.ports[1]!.evidence).toMatchObject({ method: 'nmap-sT' });
+  });
+});
+
+// --- Red-team follow-up: scope re-validation (F1, F2, F3, F5, F7, I2) ----------------------------
+
+const heartbeatCall = (s: Setup, env: Record<string, string> = ACTIVE_ON) =>
+  workerCall(
+    h,
+    s.w.key,
+    s.w.keyId,
+    'heartbeat',
+    { jobId: s.job.id, attempt: s.job.attempt },
+    { now: clock, envExtra: env },
+  );
+
+const jobRow = async (id: string) =>
+  (await t.db.select().from(schema.scanJobs).where(eq(schema.scanJobs.id, id)))[0]!;
+
+describe('held jobs are re-authorised on heartbeat and results', () => {
+  it('heartbeat returns the effective approved networks', async () => {
+    const s = await setupActive();
+    const res = await heartbeatCall(s);
+    expect(heartbeatResponseSchema.parse(await res.json())).toMatchObject({
+      cancelRequested: false,
+      approvedNetworks: ['8.8.8.0/24'],
+    });
+  });
+
+  it('kill switch off: heartbeat asks to cancel, records it, and returns no networks', async () => {
+    const s = await setupActive();
+    const body = heartbeatResponseSchema.parse(await (await heartbeatCall(s, {})).json());
+    expect(body).toMatchObject({ cancelRequested: true, approvedNetworks: [] });
+    expect((await jobRow(s.job.id)).cancelRequestedAt).not.toBeNull();
+    // Switching it back on does not un-cancel the job.
+    expect(heartbeatResponseSchema.parse(await (await heartbeatCall(s)).json())).toMatchObject({
+      cancelRequested: true,
+    });
+  });
+
+  it('after revocation, active evidence is refused (409) but status-only updates still land', async () => {
+    const s = await setupActive();
+    const rev = await call('admin', 'POST', `/domains/${s.domainId}/revoke`, {
+      reason: 'We sold this domain last week',
+    });
+    expect(rev.status).toBe(200);
+    expect((await jobRow(s.job.id)).cancelRequestedAt).not.toBeNull();
+    await expectError(await submit(s, 'result-0001', [tlsObs(s.www)]), 409, 'conflict');
+    expect(await activeCounts()).toEqual({ tls: 0, http: 0, port: 0, results: 0 });
+    const statusOnly = await workerCall(
+      h,
+      s.w.key,
+      s.w.keyId,
+      'results',
+      {
+        jobId: s.job.id,
+        attempt: s.job.attempt,
+        resultId: 'result-0002',
+        targets: [{ targetId: s.www, status: 'skipped', errorCode: 'cancelled' }],
+        observations: [],
+        complete: false,
+      },
+      { now: clock, envExtra: ACTIVE_ON },
+    );
+    expect(statusOnly.status).toBe(200);
+  });
+
+  it('revoking a domain cancels its queued active jobs but leaves passive jobs alone', async () => {
+    const [d] = await t.db
+      .insert(schema.domains)
+      .values({
+        fqdn: 'example.com',
+        verificationStatus: 'verified',
+        verifiedAt: clock,
+        verificationMethod: 'dns_txt',
+      })
+      .returning();
+    const req = async (profile: string) => {
+      const res = await userCall(
+        h,
+        t,
+        'analyst',
+        'POST',
+        `/domains/${d!.id}/scans`,
+        { profile },
+        ACTIVE_ON,
+      );
+      expect(res.status).toBe(202);
+      return scanJobDetailResponseSchema.parse(await res.json()).job.id;
+    };
+    const active = await req('quick');
+    const passive = await req('passive');
+    await call('admin', 'POST', `/domains/${d!.id}/revoke`, { reason: 'Sold the domain' });
+    expect(await jobRow(active)).toMatchObject({
+      status: 'cancelled',
+      errorCode: 'domain_not_authorised',
+    });
+    expect((await jobRow(passive)).status).toBe('queued');
+  });
+
+  it('an administrator authorisation lapsing flags in-flight active jobs', async () => {
+    const s = await setupActive();
+    await t.db
+      .update(schema.domains)
+      .set({
+        verificationMethod: 'admin_attestation',
+        verificationExpiresAt: new Date(clock.getTime() + 60_000),
+      })
+      .where(eq(schema.domains.id, s.domainId));
+    clock = new Date(clock.getTime() + 120_000);
+    const { expireStaleChallenges } = await import('../services/domain-verification.ts');
+    await expireStaleChallenges(t.db, clock);
+    expect((await jobRow(s.job.id)).cancelRequestedAt).not.toBeNull();
+    const audits = await t.db
+      .select()
+      .from(schema.auditLogs)
+      .where(eq(schema.auditLogs.resourceId, s.job.id));
+    expect(audits.map((a) => a.action)).toContain('scan.cancel_requested');
+  });
+
+  it('a job whose every target lost approval is refused at claim', async () => {
+    const [d] = await t.db
+      .insert(schema.domains)
+      .values({
+        fqdn: 'example.com',
+        verificationStatus: 'verified',
+        verifiedAt: clock,
+        verificationMethod: 'dns_txt',
+      })
+      .returning();
+    const res = await userCall(
+      h,
+      t,
+      'analyst',
+      'POST',
+      `/domains/${d!.id}/scans`,
+      { profile: 'quick' },
+      ACTIVE_ON,
+    );
+    const jobId = scanJobDetailResponseSchema.parse(await res.json()).job.id;
+    await t.db
+      .update(schema.assets)
+      .set({ verificationStatus: 'suspended' })
+      .where(eq(schema.assets.domainId, d!.id));
+    const key = await generateWorkerKey();
+    const reg = await call('admin', 'POST', '/workers', {
+      name: 'f2-worker',
+      publicKey: key.publicKey,
+    });
+    const keyId = workerCredentialCreatedResponseSchema.parse(await reg.json()).credentialId;
+    const claimed = await workerCall(
+      h,
+      key,
+      keyId,
+      'claim',
+      {},
+      {
+        now: clock,
+        envExtra: ACTIVE_ON,
+      },
+    );
+    expect(claimResponseSchema.parse(await claimed.json()).job).toBeNull();
+    expect(await jobRow(jobId)).toMatchObject({
+      status: 'cancelled',
+      errorCode: 'no_approved_targets',
+    });
+    const targets = await t.db
+      .select()
+      .from(schema.scanJobTargets)
+      .where(eq(schema.scanJobTargets.scanJobId, jobId));
+    expect(targets.map((x) => [x.status, x.errorCode])).toEqual([
+      ['skipped', 'asset_not_approved'],
+    ]);
+  });
+});
+
+describe('observation scope details', () => {
+  it('tls_configuration evidence must be inside an approved network and is labelled', async () => {
+    const s = await setupActive('deep');
+    await expectError(
+      await submit(s, 'result-0001', [
+        tlsObs(s.www, { check: 'tls_configuration', ipAddress: '8.8.4.4' }),
+      ]),
+      400,
+      'validation_failed',
+    );
+    expect(
+      (
+        await submit(s, 'result-0002', [
+          tlsObs(s.www, { check: 'tls_configuration', ipAddress: '8.8.8.8' }),
+          tlsObs(s.apex, { hostname: 'example.com', ipAddress: '8.8.4.4' }),
+        ])
+      ).status,
+    ).toBe(200);
+    const rows = await t.db.select().from(schema.tlsObservations);
+    expect(rows.map((r) => (r.evidence as { check?: string }).check).sort()).toEqual([
+      'tls_certificate',
+      'tls_configuration',
+    ]);
+  });
+
+  it('tls_configuration evidence is refused on a profile without that check', async () => {
+    const s = await setupActive('standard');
+    await expectError(
+      await submit(s, 'result-0001', [
+        tlsObs(s.www, { check: 'tls_configuration', ipAddress: '8.8.8.8' }),
+      ]),
+      400,
+      'validation_failed',
+    );
+  });
+
+  it('the evidence cap counts UTF-8 bytes', async () => {
+    const s = await setupActive();
+    // 6,000 three-byte characters: 18 KB in UTF-8, 6,000 UTF-16 code units.
+    const evidence = { note: '€'.repeat(6000) };
+    await expectError(
+      await submit(s, 'result-0001', [tlsObs(s.www, { evidence })]),
+      400,
+      'validation_failed',
+    );
   });
 });

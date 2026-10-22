@@ -938,3 +938,15 @@ def test_no_flag_permits_loopback():
     source = inspect.getsource(policy_module)
     for word in ("allow_loopback", "allow_private", "EXDV_ALLOW", "os.environ", "getenv"):
         assert word not in source
+
+
+def test_heartbeat_shrink_is_an_intersection_that_never_widens():
+    policy = make_policy(approved=["93.184.216.0/24", "2606:4700::/32"])
+    same = policy.with_approved_networks_shrunk(["93.0.0.0/8", "2606:4700::/32"])
+    assert [str(n) for n in same.approved_networks] == ["93.184.216.0/24", "2606:4700::/32"]
+    narrower = policy.with_approved_networks_shrunk(["93.184.216.0/28", "94.0.0.0/8"])
+    assert [str(n) for n in narrower.approved_networks] == ["93.184.216.0/28"]
+    assert policy.with_approved_networks_shrunk([]).approved_networks == ()
+    assert policy.with_approved_networks_shrunk(None).approved_networks == ()
+    assert policy.with_approved_networks_shrunk(["0.0.0.0/0"]).approved_networks == ()
+    assert narrower.domain == policy.domain and narrower.job_id == policy.job_id

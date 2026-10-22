@@ -13,6 +13,15 @@ a check failure (``CheckFailed``) is recorded as the target's ``errorCode`` with
 job. While active scanning is disabled in the worker configuration, a job whose profile is active
 or lists a connecting check is refused with ``active_scanning_disabled`` before any check runs.
 
+Home-network self-protection (``app.self_protection``): while active scanning is enabled, the
+worker's local interface networks and detected public egress addresses are added to every job's
+deny list (refreshed at start-up and hourly). When the egress address is unknown and
+``EXDV_DENY_NETWORKS`` is empty, web/network checks are refused with ``egress_ip_unknown``.
+
+Heartbeat scope shrink: when a heartbeat response carries ``approvedNetworks`` (the server's current
+effective list), the running job's policy is replaced by one whose approved networks are the
+intersection with it (never widened) before any further check starts.
+
 Target status: ``succeeded`` when at least one observation is ``success``/``partial`` (with the
 first refusal/failure code, if any, as ``errorCode``); otherwise ``failed`` with the first
 refusal/failure code (or ``checks_failed``); ``skipped`` when nothing applied.
@@ -46,6 +55,7 @@ from app.scope import (
     normalise_hostname,
     validate_job_targets,
 )
+from app.self_protection import SelfProtection
 from app.tls_checks import check_tls_certificate
 
 AUTH_BACKOFF_SECONDS = 300
@@ -171,11 +181,30 @@ class TargetResult:
     observations: list[dict[str, Any]] = field(default_factory=list)
 
 
+class PolicyHolder:
+    """The running job's current ScopePolicy. A heartbeat may shrink its approved networks (never
+    widen them); checks read :attr:`current` immediately before they start."""
+
+    def __init__(self, policy: ScopePolicy) -> None:
+        self._policy = policy
+        self._lock = threading.Lock()
+
+    @property
+    def current(self) -> ScopePolicy:
+        with self._lock:
+            return self._policy
+
+    def shrink_approved_networks(self, networks: Any) -> None:
+        with self._lock:
+            self._policy = self._policy.with_approved_networks_shrunk(networks)
+
+
 class JobControl:
     """Stop signals for one job: user cancellation, lost lease, or worker shutdown."""
 
-    def __init__(self, shutdown: threading.Event) -> None:
+    def __init__(self, shutdown: threading.Event, policy: PolicyHolder | None = None) -> None:
         self.shutdown = shutdown
+        self.policy = policy
         self.cancelled = threading.Event()
         self.lease_lost = threading.Event()
         self.aborted = threading.Event()
@@ -205,6 +234,7 @@ class Worker:
         sleep: Callable[[float], None] = time.sleep,
         logger: logging.Logger | None = None,
         policy_factory: PolicyFactory = ScopePolicy.from_job,
+        self_protection: SelfProtection | None = None,
     ) -> None:
         self._config = config
         self._api = api
@@ -217,6 +247,9 @@ class Worker:
         self._sleep = sleep
         self._log = logger or get_logger("queue")
         self._policy_factory = policy_factory
+        self._self_protection = self_protection or SelfProtection(
+            configured_deny=config.deny_networks
+        )
         self._completed = 0
         self._total = 0
 
@@ -229,6 +262,7 @@ class Worker:
             activeScanningEnabled=self._config.active_scanning_enabled,
         )  # fmt: skip
         while not self.shutdown.is_set():
+            self._refresh_self_protection()  # start-up, then hourly
             try:
                 outcome = self.run_once()
             except Exception as exc:  # never let the loop die on a bug
@@ -243,6 +277,10 @@ class Worker:
         self._health.update(status="stopped")
         log_event(self._log, logging.INFO, "worker_stopped")
         return 0
+
+    def _refresh_self_protection(self) -> None:
+        if self._config.active_scanning_enabled is True:
+            self._self_protection.maybe_refresh()
 
     def run_once(self) -> str:
         """One claim cycle. Returns ``idle``, ``job``, ``error`` or ``auth_error``."""
@@ -330,23 +368,26 @@ class Worker:
         if refusal is not None:
             self._report_failure(spec.id, spec.attempt, *refusal)
             return
-        policy: ScopePolicy | None = None
+        holder: PolicyHolder | None = None
         if spec.active_checks:
+            self._refresh_self_protection()
             try:
                 policy = self._policy_factory(
                     job_id=spec.id,
                     snapshot=spec.snapshot,
                     target_hostnames=[t.hostname for t in spec.targets],
-                    deny_networks=self._config.deny_networks,
+                    # Operator deny list + this host's own and egress networks.
+                    deny_networks=self._self_protection.deny_networks(),
                     active_scanning_enabled=self._config.active_scanning_enabled,
                 )
             except ScopeError as exc:
                 self._report_failure(spec.id, spec.attempt, exc.code, str(exc), False)
                 return
+            holder = PolicyHolder(policy)
 
-        control = JobControl(self.shutdown)
+        control = JobControl(self.shutdown, holder)
         try:
-            self._run_job(spec, control, policy)
+            self._run_job(spec, control, holder)
         except LeaseLost:
             control.lease_lost.set()
             log_event(self._log, logging.WARNING, "lease_lost", jobId=spec.id)
@@ -377,6 +418,8 @@ class Worker:
             )  # fmt: skip
             return
         self._health.update(polled=True)
+        if control.policy is not None and "approvedNetworks" in response:
+            control.policy.shrink_approved_networks(response.get("approvedNetworks"))
         if response.get("cancelRequested") is True and not control.cancelled.is_set():
             log_event(self._log, logging.INFO, "job_cancel_requested", jobId=spec.id)
             control.cancelled.set()
@@ -391,7 +434,7 @@ class Worker:
                 return
 
     def _run_job(
-        self, spec: JobSpec, control: JobControl, policy: ScopePolicy | None = None
+        self, spec: JobSpec, control: JobControl, policy: PolicyHolder | None = None
     ) -> None:
         self._completed = 0
         self._total = len(spec.targets)
@@ -439,7 +482,7 @@ class Worker:
         spec: JobSpec,
         control: JobControl,
         uploader: ResultUploader,
-        policy: ScopePolicy | None = None,
+        policy: PolicyHolder | None = None,
     ) -> None:
         limiter = RateLimiter(spec.rate_per_second, monotonic=self._monotonic, sleep=self._sleep)
         resolver = self._resolver_factory(spec.connect_seconds)
@@ -451,6 +494,7 @@ class Worker:
             resolver=resolver,
             control=control,
             policy=policy,
+            blocked=self._self_protection.blocking_reason() if policy is not None else None,
             ports=PortScanSettings(
                 ports=spec.tcp_ports,
                 service_identification="service_identification" in spec.checks,
@@ -502,16 +546,28 @@ class Worker:
             monotonic=self._monotonic,
         )
         checks = spec.checks
-        policy = run.policy
+        holder = run.policy
         resolver = run.resolver
 
-        def guarded(names: tuple[str, ...], fn: Callable[[], None]) -> None:
-            """Runs one check; refusals and failures become target error codes."""
+        def guarded(
+            names: tuple[str, ...],
+            fn: Callable[[ScopePolicy | None], None],
+            *,
+            connecting: bool = True,
+        ) -> None:
+            """Runs one check with the job's *current* policy (a heartbeat may have shrunk it);
+            refusals and failures become target error codes."""
             try:
+                policy = holder.current if holder is not None else None
                 if policy is not None:
                     for name in names:
                         policy.assert_check_allowed(name)
-                fn()
+                if connecting:
+                    if policy is None:
+                        raise ScopeError("active_scanning_disabled", "No scope policy for job.")
+                    if run.blocked is not None:
+                        raise ScopeError(run.blocked, "This host's egress address is unknown.")
+                fn(policy)
             except ScopeError as exc:
                 codes.append(exc.code)
                 log_event(
@@ -530,16 +586,21 @@ class Worker:
             if "dns" in checks:
                 guarded(
                     ("dns",),
-                    lambda: check_dns(resolver, target.id, hostname, is_apex, ctx, sink),
+                    lambda _p: check_dns(resolver, target.id, hostname, is_apex, ctx, sink),
+                    connecting=False,
                 )
             if "rdap" in checks and is_apex:
-                guarded(("rdap",), lambda: check_rdap(self._rdap, target.id, hostname, ctx, sink))
-            if policy is not None:
+                guarded(
+                    ("rdap",),
+                    lambda _p: check_rdap(self._rdap, target.id, hostname, ctx, sink),
+                    connecting=False,
+                )
+            if holder is not None:
                 # Web tier: any public address of the in-scope hostname.
                 if "tls_certificate" in checks:
                     guarded(
                         ("tls_certificate",),
-                        lambda: check_tls_certificate(
+                        lambda policy: check_tls_certificate(
                             policy, resolver, target.id, hostname, ctx, sink
                         ),
                     )
@@ -547,7 +608,7 @@ class Worker:
                 if http_names:
                     guarded(
                         http_names,
-                        lambda: check_http(
+                        lambda policy: check_http(
                             policy,
                             resolver,
                             target.id,
@@ -564,7 +625,7 @@ class Worker:
                     )
                     guarded(
                         port_names,
-                        lambda: check_tcp_ports(
+                        lambda policy: check_tcp_ports(
                             policy, resolver, target.id, hostname, ctx, sink, run.ports
                         ),
                     )
@@ -595,8 +656,10 @@ class _TargetRun:
     limiter: RateLimiter
     resolver: DnsResolver
     control: JobControl
-    policy: ScopePolicy | None
+    policy: PolicyHolder | None
     ports: PortScanSettings
+    #: ``egress_ip_unknown`` when web/network checks must fail closed (self-protection).
+    blocked: str | None = None
 
 
 def target_outcome(

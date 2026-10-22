@@ -44,7 +44,9 @@ PUBLIC_V4 = "93.184.216.34"
 PUBLIC_V6 = "2606:4700:4700::1111"
 
 
-def make_policy(*, active: bool = True, approved=(), deny=()) -> ScopePolicy:
+def make_policy(
+    *, active: bool = True, approved=(), deny=(), targets=("www.example.com",)
+) -> ScopePolicy:
     return ScopePolicy.from_job(
         job_id="job-net",
         snapshot={
@@ -52,7 +54,7 @@ def make_policy(*, active: bool = True, approved=(), deny=()) -> ScopePolicy:
             "profile": {"config": {"checks": ["http_headers", "tls_certificate", "tcp_ports"]}},
             "approvedNetworks": list(approved),
         },
-        target_hostnames=["www.example.com"],
+        target_hostnames=list(targets),
         deny_networks=list(deny),
         active_scanning_enabled=active,
     )
@@ -462,7 +464,8 @@ def test_redirect_hop_is_resolved_and_pinned_separately(
 
     monkeypatch.setattr(socket.socket, "connect", connect)
     resolver = zone(www="127.0.0.1", api=PUBLIC_V4)
-    result = http_get(make_policy(), server.url(), resolver, timeout=2)
+    policy = make_policy(targets=("www.example.com", "api.example.com"))
+    result = http_get(policy, server.url(), resolver, timeout=2)
     assert [h.decision for h in result.hops] == ["followed", "error"]
     assert seen == [("127.0.0.1", server.port), (PUBLIC_V4, 80)]
     assert result.last.address == ipaddress.ip_address(PUBLIC_V4)
@@ -548,12 +551,105 @@ def test_redirect_to_in_scope_name_resolving_private(
     server_factory, allow_test_loopback, monkeypatch, private
 ):
     server = server_factory(respond(302, {"Location": "http://internal.example.com/"}))
-    result = http_get(
-        make_policy(), server.url(), zone(www="127.0.0.1", internal=private), timeout=2
-    )
+    policy = make_policy(targets=("www.example.com", "internal.example.com"))
+    result = http_get(policy, server.url(), zone(www="127.0.0.1", internal=private), timeout=2)
     assert [h.decision for h in result.hops] == ["followed", "no_allowed_address"]
     assert result.last.address is None
     assert server.connections == 1
+
+
+def test_redirect_to_unapproved_in_domain_host_is_not_resolved(server_factory, allow_test_loopback):
+    server = server_factory(respond(302, {"Location": "http://pending.example.com/"}))
+    resolver = zone(www="127.0.0.1", pending="127.0.0.1")
+    result = http_get(make_policy(), server.url(), resolver, timeout=2)
+    assert [h.decision for h in result.hops] == ["followed", "redirect_not_approved_target"]
+    assert result.last.address is None
+    assert ("pending.example.com", "A") not in resolver.calls
+    assert server.connections == 1
+
+
+def test_snapshot_targets_are_approved_redirect_hosts(server_factory, allow_test_loopback):
+    policy = ScopePolicy.from_job(
+        job_id="j",
+        snapshot={
+            "domain": {"fqdn": "example.com"},
+            "profile": {"config": {"checks": ["http_headers"]}},
+            "targets": [{"hostname": "www.example.com"}, {"hostname": "API.example.com."}],
+        },
+        target_hostnames=["www.example.com"],
+        deny_networks=[],
+        active_scanning_enabled=True,
+    )
+    assert policy.target_hostnames == ("www.example.com", "api.example.com")
+
+
+@pytest.mark.parametrize(
+    ("location", "decision"),
+    [
+        ("http://www.example.com:8080/", "port_not_allowed"),
+        ("https://www.example.com:80/", "port_not_allowed"),
+        ("http://www.example.com:443/", "port_not_allowed"),
+        ("http://www.example.com:22/", "port_not_allowed"),
+    ],
+)
+def test_redirect_to_other_ports_is_refused(
+    server_factory, allow_test_loopback, location, decision
+):
+    server = server_factory(respond(302, {"Location": location}))
+    result = http_get(make_policy(), server.url(), zone(www="127.0.0.1"), timeout=2)
+    assert [h.decision for h in result.hops] == ["followed", decision]
+    assert result.last.address is None
+    assert server.connections == 1
+
+
+def test_redirect_to_default_port_and_original_port_is_followed(
+    monkeypatch, server_factory, allow_test_loopback
+):
+    seen: list[tuple] = []
+    real_connect = socket.socket.connect
+
+    def connect(sock, address):
+        seen.append(address)
+        if address[0] == "127.0.0.1" and address[1] != 443:
+            return real_connect(sock, address)
+        raise ConnectionRefusedError("test")
+
+    def handler(conn, request):
+        if request_path(request) == "/":
+            respond(302, {"Location": f"http://www.example.com:{server.port}/same"})(conn, request)
+        else:
+            respond(302, {"Location": "https://www.example.com/"})(conn, request)
+
+    server = server_factory(handler)
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    result = http_get(make_policy(), server.url(), zone(www="127.0.0.1"), timeout=2)
+    assert [h.decision for h in result.hops] == ["followed", "followed", "error"]
+    assert seen[-1] == ("127.0.0.1", 443)
+
+
+def test_http_get_stops_between_hops(server_factory, allow_test_loopback):
+    server = server_factory(respond(302, {"Location": "/next"}))
+    calls = []
+
+    def should_stop():
+        calls.append(1)
+        return len(calls) > 1
+
+    result = http_get(
+        make_policy(), server.url(), zone(www="127.0.0.1"), timeout=2, should_stop=should_stop
+    )
+    assert [h.decision for h in result.hops] == ["followed", "stopped"]
+    assert server.connections == 1
+
+
+def test_http_get_respects_the_caller_deadline(server_factory, allow_test_loopback):
+    server = server_factory(respond(302, {"Location": "/next"}))
+    result = http_get(
+        make_policy(), server.url(), zone(www="127.0.0.1"), timeout=2,
+        deadline=time.monotonic() - 1,
+    )  # fmt: skip
+    assert result.last.decision == "error" and result.last.error == "timeout"
+    assert server.connections == 0
 
 
 @pytest.mark.parametrize(
@@ -958,6 +1054,20 @@ def test_tls_handshake_untrusted_still_captures_certificate(
     assert result.protocol is not None
     # Both handshakes went to the same pinned address.
     assert seen == [("127.0.0.1", server.port), ("127.0.0.1", server.port)]
+
+
+def test_tls_handshake_skips_the_second_handshake_when_stopped(
+    server_factory, allow_test_loopback, pki
+):
+    ctx, _der = server_tls(pki)
+    server = server_factory(respond(200), tls=ctx)
+    result = tls_handshake(
+        make_policy(), "www.example.com", LOOPBACK, server.port, timeout=2,
+        should_stop=lambda: True,
+    )  # fmt: skip
+    assert result.verified is False and result.verify_error
+    assert result.certificate_der is None
+    assert server.connections == 1
 
 
 def test_tls_handshake_hostname_mismatch(server_factory, allow_test_loopback, trust_test_ca, pki):

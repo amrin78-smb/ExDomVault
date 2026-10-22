@@ -26,11 +26,12 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
 from app import net
-from app.checks import CHECKER_VERSION, CheckContext, CheckFailed, utc_now_iso
+from app.checks import CHECKER_VERSION, CheckContext, CheckFailed, CheckStopped, utc_now_iso
 from app.dns_checks import DnsResolver
 from app.policy import ScopePolicy
 from app.scope import ScopeError
@@ -158,7 +159,13 @@ def check_http(
         ctx.before_network_call()
         timeout = ctx.bounded(ctx.connect_seconds + ctx.read_seconds)
         try:
-            result = net.http_get(policy, url, resolver, timeout=timeout, tier="web")
+            # One deadline for every hop, capped by the target's remaining budget; the job's stop
+            # signal is checked between hops.
+            result = net.http_get(
+                policy, url, resolver, timeout=timeout, tier="web",
+                deadline=time.monotonic() + max(0.0, ctx.remaining()),
+                should_stop=ctx.should_stop,
+            )  # fmt: skip
         except ScopeError as exc:  # defensive: net reports refusals as hops
             failure = exc
             break
@@ -168,6 +175,8 @@ def check_http(
         except OSError as exc:
             failure = CheckFailed("http_error", type(exc).__name__)
             continue
+        if ctx.should_stop():
+            raise CheckStopped
         observation = build_http_observation(target_id, result, include_headers=include_headers)
         if observation is None:
             # Refused before connecting (policy or DNS): plain HTTP would be refused the same way.

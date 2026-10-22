@@ -27,6 +27,7 @@ as not applicable; the negotiated (highest mutually supported) version is still 
 from __future__ import annotations
 
 import ipaddress
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -174,7 +175,11 @@ def check_tls_certificate(
         ctx.before_network_call()
         timeout = ctx.bounded(ctx.connect_seconds + ctx.read_seconds)
         try:
-            result = net.tls_handshake(policy, hostname, address, TLS_PORT, timeout=timeout)
+            result = net.tls_handshake(
+                policy, hostname, address, TLS_PORT, timeout=timeout,
+                deadline=time.monotonic() + max(0.0, ctx.remaining()),
+                should_stop=ctx.should_stop,
+            )  # fmt: skip
         except ScopeError as exc:  # refused at connect time (e.g. the address changed category)
             refused = exc
             continue

@@ -10,7 +10,7 @@ import {
   parseCidr,
   prohibitedReason,
 } from '@exdomainvault/shared/net';
-import { and, desc, eq, gt, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lte, sql } from 'drizzle-orm';
 import { firstRow } from '../lib/db.ts';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
@@ -28,6 +28,9 @@ const { approvedNetworks, users } = schema;
 export const MIN_PREFIX = { 4: 16, 6: 32 } as const;
 
 type Row = typeof approvedNetworks.$inferSelect;
+
+/** Advisory-lock key serialising network approvals (arbitrary constant, unique to this use). */
+export const NETWORK_APPROVAL_LOCK_KEY = 0x45_44_56_4e; // "EDVN"
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -145,6 +148,10 @@ export async function createNetwork(
   try {
     id = await db.transaction(async (tx) => {
       const t = tx as unknown as Database;
+      // Serialise approvals: the overlap check below reads the active set and then inserts, which two
+      // concurrent transactions could otherwise both pass (the unique index only stops exact
+      // duplicates). A transaction-scoped advisory lock, released at commit/rollback.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${NETWORK_APPROVAL_LOCK_KEY})`);
       // A lapsed (never revoked) approval of the same network still holds the unique slot: close it.
       await tx
         .update(approvedNetworks)

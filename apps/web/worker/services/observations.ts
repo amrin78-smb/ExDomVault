@@ -11,7 +11,7 @@ import {
   type ScopeSnapshot,
   type TlsSnapshot,
 } from '@exdomainvault/shared';
-import { isWithinDomain } from '@exdomainvault/shared/hostname';
+import { isValidHostname, isWithinDomain } from '@exdomainvault/shared/hostname';
 import { canonicalIp, cidrContains, isProhibitedAddress } from '@exdomainvault/shared/net';
 import { and, asc, desc, eq, max } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
@@ -61,8 +61,7 @@ export const EMPTY_OBSERVATION_COUNTS: ObservationCounts = Object.freeze({
 });
 
 /** Checks that may produce each active observation kind (the profile must list one of them). */
-const CHECKS_FOR_KIND: Record<'tls' | 'http' | 'port', readonly ScanCheck[]> = {
-  tls: ['tls_certificate', 'tls_configuration'],
+const CHECKS_FOR_KIND: Record<'http' | 'port', readonly ScanCheck[]> = {
   http: ['http_availability', 'http_headers'],
   port: ['tcp_ports', 'service_identification'],
 };
@@ -70,16 +69,15 @@ const CHECKS_FOR_KIND: Record<'tls' | 'http' | 'port', readonly ScanCheck[]> = {
 /**
  * Strict `http(s)://host[:port][/path]` parser. Deliberately not WHATWG `URL`, which would rewrite
  * alternative encodings (e.g. `http://0x7f.1/` → `127.0.0.1`) instead of rejecting them. No userinfo,
- * no IP literals, lowercase A-label hostnames only.
+ * no IP literals, lowercase LDH A-label hostnames only (each label 1–63 chars, no empty labels).
  */
-const URL_RE =
-  /^(https?):\/\/([a-z0-9_](?:[a-z0-9_.-]{0,251}[a-z0-9_])?)(?::([1-9][0-9]{0,4}))?(\/[\x21-\x7e]*)?$/;
+const URL_RE = /^(https?):\/\/([a-z0-9.-]{1,253})(?::([1-9][0-9]{0,4}))?(\/[\x21-\x7e]*)?$/;
 
 export function parseObservationUrl(
   url: string,
 ): { scheme: 'http' | 'https'; host: string; port: number | null } | null {
   const m = URL_RE.exec(url);
-  if (!m) return null;
+  if (!m || !isValidHostname(m[2] as string)) return null;
   const port = m[3] ? Number(m[3]) : null;
   if (port !== null && port > 65535) return null;
   return { scheme: m[1] as 'http' | 'https', host: m[2] as string, port };
@@ -129,21 +127,27 @@ function validate(
     }
 
     // Active observations: only for an active profile that lists a producing check.
-    if (!config.active || !CHECKS_FOR_KIND[o.kind].some((c) => config.checks.includes(c))) {
+    const producing = o.kind === 'tls' ? [o.check] : CHECKS_FOR_KIND[o.kind];
+    if (!config.active || !producing.some((c) => config.checks.includes(c))) {
       throw invalid(i, 'kind', "This job's scan profile does not include this check.");
     }
     if (isProhibitedAddress(o.ipAddress)) {
       throw invalid(i, 'ipAddress', 'The address is not a public unicast address.');
     }
     if (o.kind === 'tls') {
-      if (!isWithinDomain(o.hostname, snapshotDomainFqdn)) {
-        throw invalid(i, 'hostname', "The hostname is not within this job's domain.");
+      // The SNI name must be the target's own (approved) hostname, not merely any name in the domain.
+      if (o.hostname !== target.targetHostname || !isWithinDomain(o.hostname, snapshotDomainFqdn)) {
+        throw invalid(i, 'hostname', "The hostname is not this observation's target.");
+      }
+      // Protocol probing is network tier: only inside the job's approved networks.
+      if (o.check === 'tls_configuration' && !networks.some((n) => cidrContains(n, o.ipAddress))) {
+        throw invalid(i, 'ipAddress', "The address is outside this job's approved networks.");
       }
     } else if (o.kind === 'http') {
       const url = parseObservationUrl(o.url);
       if (!url) throw invalid(i, 'url', 'The URL is not a plain http(s) URL.');
-      if (!isWithinDomain(url.host, snapshotDomainFqdn)) {
-        throw invalid(i, 'url', "The URL's host is not within this job's domain.");
+      if (url.host !== target.targetHostname || !isWithinDomain(url.host, snapshotDomainFqdn)) {
+        throw invalid(i, 'url', "The URL's host is not this observation's target.");
       }
       if (o.finalUrl !== null && !LOOSE_URL_RE.test(o.finalUrl)) {
         throw invalid(i, 'finalUrl', 'The final URL is not an http(s) URL.');
@@ -173,9 +177,12 @@ export async function ingestObservations(
   now: Date,
 ): Promise<ObservationCounts> {
   if (observations.length === 0) return EMPTY_OBSERVATION_COUNTS;
-  // Port observations are checked against the networks the job may still probe right now.
+  // Network-tier observations are checked against the networks the job may still probe right now.
+  const needsNetworks = observations.some(
+    (o) => o.kind === 'port' || (o.kind === 'tls' && o.check === 'tls_configuration'),
+  );
   const networks =
-    observations.some((o) => o.kind === 'port') && snapshot.approvedNetworks.length > 0
+    needsNetworks && snapshot.approvedNetworks.length > 0
       ? intersectNetworks(snapshot.approvedNetworks, await activeNetworkCidrs(tx, now))
       : [];
   validate(snapshot, networks, targetsById, observations, now);
@@ -234,6 +241,8 @@ export async function ingestObservations(
       ? [
           {
             ...common(o, i),
+            // Which TLS check produced it; server-set, so the worker cannot mislabel it.
+            evidence: { ...o.evidence, check: o.check },
             checker: 'tls',
             hostname: o.hostname,
             ipAddress: ip(o.ipAddress),
