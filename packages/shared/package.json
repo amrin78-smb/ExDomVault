@@ -1,0 +1,16 @@
+{
+  "name": "@exdomainvault/shared",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared API contracts, validation schemas and domain constants",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}

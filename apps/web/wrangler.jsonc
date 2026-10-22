@@ -1,0 +1,27 @@
+/**
+ * ExDomainVault Cloudflare Worker: serves the React SPA as static assets and the /api/v1 API.
+ * Configuration reference: https://developers.cloudflare.com/workers/wrangler/configuration/
+ *
+ * Secrets are never set here. Use `wrangler secret put` for production and `.dev.vars` locally.
+ */
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "exdomainvault",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    // API paths must always reach the Worker, never fall back to index.html.
+    "run_worker_first": ["/api/*"],
+  },
+  "observability": {
+    "enabled": true,
+  },
+  "upload_source_maps": true,
+  "vars": {
+    // Production default. Local development overrides this in .dev.vars.
+    "APP_ENV": "production",
+    "APP_VERSION": "0.1.0",
+  },
+}

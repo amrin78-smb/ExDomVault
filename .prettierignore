@@ -1,0 +1,9 @@
+node_modules
+dist
+.wrangler
+coverage
+worker
+package-lock.json
+apps/web/worker-configuration.d.ts
+docs/design.md
+docs/prompts/00-master-build-prompt.md

@@ -5,6 +5,7 @@ Read `CLAUDE.md`, `docs/progress.md`, and `docs/prompts/00-master-build-prompt.m
 Spec: `docs/design.md` §3.4, §11, §12 (Worker isolation). Milestone definition: master prompt §5, "Milestone 5".
 
 ## Scope
+
 - Package under `worker/app/` with the modules from design §11 (config, client, queue, scope, dns_checks, rdap_checks, discovery, tls_checks, http_checks, port_checks, result_upload, logging_config, main).
 - Pull model: authenticated outbound HTTPS to the internal worker API (HMAC signing matching Milestone 4), claim → heartbeat → submit → report, bounded exponential backoff, graceful shutdown on SIGTERM. No inbound listener.
 - Implement DNS and RDAP checks and result normalisation now. TLS/HTTP/port checks may be implemented, but **all network-connecting checks must route through `scope.py` and remain disabled by config until Milestone 6 passes**.
@@ -14,6 +15,7 @@ Spec: `docs/design.md` §3.4, §11, §12 (Worker isolation). Milestone definitio
 - Write `docs/home-worker-setup.md` (install, venv, systemd, health check, upgrade/restart, credential rotation).
 
 ## Finish
+
 1. Run lint, typecheck, test, build (and `worker:test` if the worker changed). Fix failures; report anything that genuinely cannot run and why.
 2. Update the relevant docs in `docs/` to match what was actually built.
 3. Update `docs/progress.md`: status table, decisions, operator actions, limitations, session log.

@@ -5,6 +5,7 @@ You are the lead architect and senior full-stack/security engineer building ExDo
 Before scaffolding, check current official docs for the Cloudflare React + Vite Workers integration (`@cloudflare/vite-plugin`, `wrangler.jsonc`, static assets) and use the currently supported layout.
 
 ## Scope
+
 1. Monorepo scaffold per design §15 (`apps/web`, `packages/{database,shared,rules}`, `worker/`, `tests/`, `docs/`), adapted to the Cloudflare framework. Pick one package manager (npm workspaces or pnpm) and record it in `CLAUDE.md`.
 2. React + Vite + strict TypeScript + Tailwind frontend served as Worker static assets.
 3. Worker API with a small router (modules, not one file), `/api/v1` base, request-ID middleware, the standard JSON error envelope, and a typed `GET /api/v1/health` whose response schema lives in `packages/shared` (zod).
@@ -19,6 +20,7 @@ Before scaffolding, check current official docs for the Cloudflare React + Vite 
 Do not implement later milestones. Prioritise a clean, tested foundation.
 
 ## Finish
+
 1. Run lint, typecheck, test, build (and `worker:test` if the worker changed). Fix failures; report anything that genuinely cannot run and why.
 2. Update the relevant docs in `docs/` to match what was actually built.
 3. Update `docs/progress.md`: status table, decisions, operator actions, limitations, session log.

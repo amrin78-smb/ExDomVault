@@ -5,6 +5,7 @@ Read `CLAUDE.md`, `docs/progress.md`, and `docs/prompts/00-master-build-prompt.m
 Spec: `docs/design.md` §4 (roles), §5 (data model), §12 (credentials, application security). Milestone definition: master prompt §5, "Milestone 2".
 
 ## Scope
+
 - Drizzle schema for every entity in design §5 (users, domains, domain_verifications, assets, asset_ips, scan_jobs, scan_job_targets, all six observation tables, findings + status history, advisories, audit_logs, worker_registry, scan_profiles, security_rules, notification_preferences, application_settings). UUID PKs, FKs, UTC `timestamptz`, `inet` for IPs, enums as PG enums or check constraints, JSONB evidence plus typed queryable columns.
 - Constraints/indexes: unique normalised `domains.fqdn`, unique `(domain_id, hostname)` on assets, partial unique index on active finding fingerprint, job-claim index on `(status, scheduled_at, priority)`.
 - Versioned SQL migrations (`db:generate`, `db:migrate`) and a migration test against a local/ephemeral Postgres (document how to run it; skip with an explicit message if unavailable).
@@ -15,6 +16,7 @@ Spec: `docs/design.md` §4 (roles), §5 (data model), §12 (credentials, applica
 - Write `docs/database-schema.md`.
 
 ## Finish
+
 1. Run lint, typecheck, test, build (and `worker:test` if the worker changed). Fix failures; report anything that genuinely cannot run and why.
 2. Update the relevant docs in `docs/` to match what was actually built.
 3. Update `docs/progress.md`: status table, decisions, operator actions, limitations, session log.

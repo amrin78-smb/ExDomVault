@@ -1,0 +1,2 @@
+# Runtime dependencies — pinned. Network/scanning libraries are added in Milestone 5.
+# The worker currently uses only the Python standard library.

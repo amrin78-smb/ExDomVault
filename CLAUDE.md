@@ -19,7 +19,8 @@ Where a detail is unspecified, choose a secure default, record the decision in `
 - **Shared contracts:** `packages/shared/` (zod schemas + types used by API and UI).
 - **Rules engine:** `packages/rules/` (pure, deterministic, versioned).
 - **Worker:** Python 3.12+ in `worker/` (dnspython, stdlib ssl, httpx-style client with strict timeouts, Nmap as OS package, pytest), systemd deployment.
-- **Package manager:** one only (decide in Milestone 1, record it here). No Redis, Kubernetes, microservices, or extra databases.
+- **Package manager:** npm workspaces (`apps/web`, `packages/shared`; add packages to root `workspaces` as they gain code). Do not introduce pnpm/yarn. No Redis, Kubernetes, microservices, or extra databases.
+- **Versions in use (Oct 2026):** Vite 8, `@cloudflare/vite-plugin` 1.x, Wrangler 4, React 19, react-router 8, Tailwind 4, Hono 4 (API routing), zod 4, Vitest 5, ESLint 10. TypeScript is pinned to `~6.0` because typescript-eslint does not support TS 7 yet.
 
 ## Spec clarifications (decided)
 
@@ -30,6 +31,7 @@ Where a detail is unspecified, choose a secure default, record the decision in `
 ## Hard rules (never violate)
 
 **Scanning safety**
+
 - No exploit execution, credential brute forcing, destructive tests, or scanning outside verified, approved scope.
 - Active network scanning stays **disabled** until the scope validator (Milestone 6) is implemented and fully tested.
 - Scope validator must: enforce exact DNS label boundaries; reject loopback/private/link-local/multicast/reserved/CGNAT/documentation ranges (incl. IPv4-mapped IPv6 and alternative encodings); validate every resolved address immediately before connecting and pin it; revalidate every redirect and CNAME hop; log every decision.
@@ -38,6 +40,7 @@ Where a detail is unspecified, choose a secure default, record the decision in `
 - Tests never touch live third-party systems — use synthetic targets and mocks.
 
 **Data integrity**
+
 - PostgreSQL is the durable source of job state. Queue messages may be delivered more than once — all handlers idempotent.
 - Job claim is atomic (`FOR UPDATE SKIP LOCKED` or equivalent) with expiring leases, heartbeats, bounded retries.
 - Failed or incomplete scans **never** resolve findings. Only a successful relevant check confirming absence resolves.
@@ -46,6 +49,7 @@ Where a detail is unspecified, choose a secure default, record the decision in `
 - Severity comes only from deterministic rules — no LLM. Keep severity separate from `risk_score`; store risk inputs.
 
 **Security**
+
 - Production auth fails closed. Never trust identity headers unless cryptographically verified (e.g. Cloudflare Access JWT checked against team JWKS + AUD). Dev auth is a separate, explicitly-enabled code path.
 - All authorisation enforced server-side per role (admin, analyst, asset_owner, viewer).
 - Validate all external input with schemas. Errors: `{ error: { code, message, requestId, details? } }` — no stack traces, internal addresses or secrets.
@@ -70,6 +74,25 @@ Deploying, changing Cloudflare/Neon account settings, creating paid resources, r
 
 ## Commands
 
-Fill this in with the real scripts once Milestone 1 creates them. Do not list commands that do not work.
+All from the repo root unless noted.
 
-<!-- e.g. npm run dev | build | lint | typecheck | test | db:generate | db:migrate | worker:install | worker:test -->
+| Command                               | What it does                                                                                                   |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                         | Vite dev server with the Worker running in workerd (needs `apps/web/.dev.vars`, copy from `.dev.vars.example`) |
+| `npm run build`                       | Production build of SPA + Worker into `apps/web/dist/`                                                         |
+| `npm run preview`                     | Build, then serve the production build locally                                                                 |
+| `npm run lint`                        | ESLint + Prettier check (`npm run format` to fix)                                                              |
+| `npm run typecheck`                   | `tsc` across all workspaces                                                                                    |
+| `npm test`                            | Vitest (projects: `web` = React UI in jsdom + Worker API via `app.request()`; `shared`)                        |
+| `npm run cf-typegen`                  | Regenerate `apps/web/worker-configuration.d.ts` after editing `wrangler.jsonc`                                 |
+| `npm run worker:install`              | Create `worker/.venv` and install pinned Python deps (needs `python3.12-venv`)                                 |
+| `npm run worker:lint` / `worker:test` | ruff / pytest for the Python worker                                                                            |
+
+Not yet implemented: `db:generate`, `db:migrate` (Milestone 2).
+
+## Code map
+
+- `apps/web/src/` — React SPA. `routes.tsx`, `components/layout/` (shell, nav), `components/ui/` (shared UI, `SeverityBadge` is the only severity styling), `pages/`, `lib/api.ts` (typed client validated against shared schemas), `lib/fixtures/` (dev-only, stripped from prod builds).
+- `apps/web/worker/` — Worker API. `index.ts` entry, `app.ts` builds the Hono app, `middleware/`, `routes/` (one module per resource), `lib/errors.ts` (`ApiError` + envelope), `lib/logger.ts` (JSON logs with request ID), `config.ts` (validated bindings, fails closed).
+- `packages/shared/src/` — zod schemas + types shared by API and UI (`api/`, `domain/`).
+- `worker/app/` — Python worker (`config.py`, `main.py`); tests in `worker/tests/`.

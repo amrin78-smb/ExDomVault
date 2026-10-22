@@ -1,0 +1,44 @@
+{
+  "name": "exdomainvault",
+  "private": true,
+  "version": "0.1.0",
+  "description": "External Domain Security & Exposure Monitoring",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "workspaces": [
+    "apps/web",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @exdomainvault/web",
+    "build": "npm run build -w @exdomainvault/web",
+    "preview": "npm run preview -w @exdomainvault/web",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cf-typegen": "npm run cf-typegen -w @exdomainvault/web",
+    "worker:install": "python3 -m venv worker/.venv && worker/.venv/bin/pip install --upgrade pip && worker/.venv/bin/pip install -r worker/requirements.txt -r worker/requirements-dev.txt",
+    "worker:lint": "cd worker && .venv/bin/ruff check . && .venv/bin/ruff format --check .",
+    "worker:test": "cd worker && .venv/bin/pytest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261012.1": true,
+    "workerd@1.20261019.1": true
+  }
+}
