@@ -1,8 +1,14 @@
 import { schema, type Database } from '@exdomainvault/database';
-import { scopeSnapshotSchema, type ClaimedJob, type ScanTargetStatus } from '@exdomainvault/shared';
+import {
+  scopeSnapshotSchema,
+  type ClaimedJob,
+  type Observation,
+  type ScanTargetStatus,
+} from '@exdomainvault/shared';
 import { and, asc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
+import { ingestObservations, type JobTargetRef, type ObservationCounts } from './observations.ts';
 import { domainAuthorisedForActive, type ScanJobRow, type ScanPolicy } from './scans.ts';
 
 const { domains, scanJobResults, scanJobs, scanJobTargets } = schema;
@@ -216,22 +222,38 @@ export async function heartbeat(
 
 // --- Results ------------------------------------------------------------------------------------
 
+interface ResultsSubmission {
+  jobId: string;
+  attempt: number;
+  resultId: string;
+  targets: {
+    targetId: string;
+    status: Exclude<ScanTargetStatus, 'pending'>;
+    errorCode?: string;
+  }[];
+  observations?: Observation[];
+  complete: boolean;
+}
+
+/** Applies a result submission; returns the HTTP response body (`{ accepted, status }`). */
 export async function submitResults(
   db: Database,
   worker: WorkerIdentity,
-  req: {
-    jobId: string;
-    attempt: number;
-    resultId: string;
-    targets: {
-      targetId: string;
-      status: Exclude<ScanTargetStatus, 'pending'>;
-      errorCode?: string;
-    }[];
-    complete: boolean;
-  },
+  req: ResultsSubmission,
   now: Date,
 ): Promise<{ accepted: boolean; status: string }> {
+  const { accepted, status } = await submitResultsDetailed(db, worker, req, now);
+  return { accepted, status };
+}
+
+/** As `submitResults`, also returning how many observations were stored (for logging). */
+export async function submitResultsDetailed(
+  db: Database,
+  worker: WorkerIdentity,
+  req: ResultsSubmission,
+  now: Date,
+): Promise<{ accepted: boolean; status: string; observations: ObservationCounts }> {
+  const none: ObservationCounts = { dns: 0, registration: 0 };
   return db.transaction(async (tx) => {
     const t = tx as unknown as Database;
     // Duplicate delivery: already processed, whatever state the job is in now.
@@ -251,7 +273,7 @@ export async function submitResults(
         .select({ status: scanJobs.status })
         .from(scanJobs)
         .where(eq(scanJobs.id, req.jobId));
-      return { accepted: false, status: job?.status ?? 'unknown' };
+      return { accepted: false, status: job?.status ?? 'unknown', observations: none };
     }
 
     const job = await lockOwnedJob(t, worker, req.jobId, req.attempt);
@@ -265,14 +287,22 @@ export async function submitResults(
         'Each target may be reported once per submission.',
       );
     }
-    if (ids.length > 0) {
+    const observations = req.observations ?? [];
+    const referenced = [...new Set([...ids, ...observations.map((o) => o.targetId)])];
+    const targetsById = new Map<string, JobTargetRef>();
+    if (referenced.length > 0) {
       const known = await tx
-        .select({ id: scanJobTargets.id })
+        .select({
+          id: scanJobTargets.id,
+          assetId: scanJobTargets.assetId,
+          targetHostname: scanJobTargets.targetHostname,
+        })
         .from(scanJobTargets)
-        .where(and(eq(scanJobTargets.scanJobId, job.id), inArray(scanJobTargets.id, ids)));
-      if (known.length !== ids.length) {
+        .where(and(eq(scanJobTargets.scanJobId, job.id), inArray(scanJobTargets.id, referenced)));
+      if (known.length !== referenced.length) {
         throw new ApiError(400, 'validation_failed', 'A reported target is not part of this job.');
       }
+      for (const k of known) targetsById.set(k.id, k);
     }
 
     const inserted = await tx
@@ -287,7 +317,24 @@ export async function submitResults(
       })
       .onConflictDoNothing()
       .returning({ id: scanJobResults.id });
-    if (inserted.length === 0) return { accepted: false, status: job.status };
+    if (inserted.length === 0) return { accepted: false, status: job.status, observations: none };
+
+    let counts = none;
+    if (observations.length > 0) {
+      const snapshot = scopeSnapshotSchema.safeParse(job.scopeSnapshot);
+      if (!snapshot.success) {
+        throw new ApiError(409, 'conflict', 'The job scope snapshot is invalid.');
+      }
+      counts = await ingestObservations(
+        t,
+        job,
+        snapshot.data.domain.fqdn,
+        targetsById,
+        observations,
+        req.resultId,
+        now,
+      );
+    }
 
     for (const target of req.targets) {
       const terminal = target.status !== 'running';
@@ -337,7 +384,7 @@ export async function submitResults(
         .set({ status, leaseExpiresAt: leaseUntil(now) })
         .where(eq(scanJobs.id, job.id));
     }
-    return { accepted: true, status };
+    return { accepted: true, status, observations: counts };
   });
 }
 

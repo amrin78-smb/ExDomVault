@@ -93,6 +93,11 @@ Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `re
   such as `_dmarc.<domain>`), `recordType` (`A AAAA CNAME MX NS TXT CAA SOA DS DNSKEY`), `ttl`
   (int or null), `values` (presentation format, sorted, ≤ 100). NXDOMAIN/NODATA → `success` with
   `values: []` and `evidence.rcode`; resolver failure → `error`/`timeout`.
+  Normalisation as implemented: names inside values keep the trailing dot (presentation format, e.g.
+  `10 mx.example.com.`, null MX `0 .`); CNAME/NS/MX/SOA values are lowercased (resolvers may randomise
+  case), TXT/CAA/DS/DNSKEY keep their case. NODATA is `success`, `values: []`,
+  `evidence: { rcode: "NOERROR", noData: true }`. Queried per target: A, AAAA, CNAME; at the apex also
+  MX, NS, TXT, CAA, SOA, DS, DNSKEY and `_dmarc.<apex>` TXT.
 - `registration` (RDAP, apex target only): `registrar`, `registeredAt`, `expiresAt` (ISO or null),
   `nameservers` (lowercase, no trailing dot), `dataStatus` (`available` | `redacted` when the registry
   withholds data | `unavailable` when no RDAP data could be obtained).
@@ -110,7 +115,7 @@ Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `re
 | `EXDV_ENVIRONMENT`           | no       | `production` (default) or `development`                                                                            |
 | `EXDV_POLL_INTERVAL_SECONDS` | no       | idle poll interval, 5–3600, default 30                                                                             |
 | `EXDV_PROFILES`              | no       | comma-separated profiles to claim, default `passive`                                                               |
-| `EXDV_DNS_RESOLVERS`         | no       | comma-separated resolver IPs; default system resolvers                                                             |
+| `EXDV_DNS_RESOLVERS`         | no       | comma-separated resolver IPs; default `1.1.1.1,9.9.9.9` (+ IPv6); `system` = host resolver                         |
 | `EXDV_HEALTH_FILE`           | no       | health JSON path, default `/var/lib/exdomainvault-worker/health.json`                                              |
 | `EXDV_LOG_LEVEL`             | no       | `DEBUG INFO WARNING ERROR`, default `INFO`                                                                         |
 

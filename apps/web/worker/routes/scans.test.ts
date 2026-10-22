@@ -723,13 +723,16 @@ describe('lifecycle edge cases', () => {
     const w = await registerWorker();
     const d = await addDomain('example.com', { monitoring: true });
     await schedulePassiveMonitoring(t.db, clock);
-    await t.db.update(schema.domains).set({ monitoringEnabled: false }).where(eq(schema.domains.id, d.id));
+    await t.db
+      .update(schema.domains)
+      .set({ monitoringEnabled: false })
+      .where(eq(schema.domains.id, d.id));
     expect(await claim(w)).toBeNull();
     const [row] = await t.db.select().from(schema.scanJobs);
     expect(row).toMatchObject({ status: 'cancelled', errorCode: 'monitoring_disabled' });
   });
 
-  it('does not reveal another worker\'s job through a replayed result id', async () => {
+  it("does not reveal another worker's job through a replayed result id", async () => {
     const a = await registerWorker('home-a');
     const b = await registerWorker('home-b');
     const d = await addDomain('example.com');
@@ -742,8 +745,14 @@ describe('lifecycle edge cases', () => {
       targets: [{ targetId: claimed!.targets[0]!.id, status: 'succeeded' }],
       complete: false,
     };
-    expect((await workerCall(h, a.key, a.keyId, 'results', result, { now: clock })).status).toBe(200);
-    await expectError(await workerCall(h, b.key, b.keyId, 'results', result, { now: clock }), 409, 'conflict');
+    expect((await workerCall(h, a.key, a.keyId, 'results', result, { now: clock })).status).toBe(
+      200,
+    );
+    await expectError(
+      await workerCall(h, b.key, b.keyId, 'results', result, { now: clock }),
+      409,
+      'conflict',
+    );
   });
 
   it('never moves a target out of a final status', async () => {
@@ -753,13 +762,20 @@ describe('lifecycle edge cases', () => {
     const claimed = await claim(w);
     const targetId = claimed!.targets[0]!.id;
     const send = (resultId: string, status: string) =>
-      workerCall(h, w.key, w.keyId, 'results', {
-        jobId: job.id,
-        attempt: 1,
-        resultId,
-        targets: [{ targetId, status }],
-        complete: false,
-      }, { now: clock });
+      workerCall(
+        h,
+        w.key,
+        w.keyId,
+        'results',
+        {
+          jobId: job.id,
+          attempt: 1,
+          resultId,
+          targets: [{ targetId, status }],
+          complete: false,
+        },
+        { now: clock },
+      );
     await send('result-0001', 'succeeded');
     await send('result-0002', 'running');
     const [target] = await t.db.select().from(schema.scanJobTargets);

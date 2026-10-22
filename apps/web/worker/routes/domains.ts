@@ -11,6 +11,7 @@ import {
   updateDomainRequestSchema,
   type CreateChallengeResponse,
   type DomainDetailResponse,
+  type DomainObservationsResponse,
   type VerifyDomainResponse,
 } from '@exdomainvault/shared';
 import type { Database } from '@exdomainvault/database';
@@ -19,6 +20,7 @@ import { createDohResolver, type TxtResolver } from '../lib/doh.ts';
 import { parseJsonBody, parseQuery, uuidParam } from '../lib/validation.ts';
 import { requirePermission } from '../middleware/auth.ts';
 import { authoriseDomains, revokeDomain } from '../services/domain-authorisation.ts';
+import { domainObservations } from '../services/observations.ts';
 import { createScan, getScan } from '../services/scans.ts';
 import { confirmImport, previewImport } from '../services/domain-import.ts';
 import { ApiError } from '../lib/errors.ts';
@@ -122,6 +124,13 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         domain: toDomainDto(row),
         verification: challenge ? toChallengeDto(challenge, row.fqdn) : null,
       };
+      return c.json(res);
+    })
+    .get('/:id/observations', requirePermission('domains:read'), async (c) => {
+      const id = uuidParam(c, 'id');
+      const db = await c.get('db')();
+      await getDomainRow(db, id); // 404 for an unknown domain
+      const res: DomainObservationsResponse = await domainObservations(db, id);
       return c.json(res);
     })
     .patch('/:id', requirePermission('domains:write'), async (c) => {

@@ -22,7 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cf-typegen": "npm run cf-typegen -w @exdomainvault/web",
-    "worker:install": "python3 -m venv worker/.venv && worker/.venv/bin/pip install --upgrade pip && worker/.venv/bin/pip install -r worker/requirements.txt -r worker/requirements-dev.txt",
+    "worker:install": "python3 -m venv worker/.venv && worker/.venv/bin/pip install --upgrade pip && worker/.venv/bin/pip install -r worker/requirements.txt -r worker/requirements-dev.txt && worker/.venv/bin/pip install --no-deps -e worker",
     "worker:lint": "cd worker && .venv/bin/ruff check . && .venv/bin/ruff format --check .",
     "worker:test": "cd worker && .venv/bin/pytest",
     "db:generate": "npm run db:generate -w @exdomainvault/database",

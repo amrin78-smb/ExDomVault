@@ -2,27 +2,24 @@ import type { DomainDetailResponse } from '@exdomainvault/shared';
 import { AlertTriangle, ArrowLeft, Construction } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { DnsRecordsCard } from '../../components/domains/DnsRecordsCard.tsx';
 import { CriticalityLabel, VerificationBadge } from '../../components/domains/DomainBadges.tsx';
 import { DomainScansCard } from '../../components/domains/DomainScansCard.tsx';
 import { DomainSettingsCard } from '../../components/domains/DomainSettingsCard.tsx';
+import { RegistrationCard } from '../../components/domains/RegistrationCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { api } from '../../lib/api.ts';
-import { formatDate, formatDateTime } from '../../lib/format.ts';
+import { formatDate } from '../../lib/format.ts';
 import { useAsync } from '../../lib/use-async.ts';
-
-const REGISTRATION_STATUS_TEXT = {
-  unknown: 'Not collected yet. Registration (RDAP) data is gathered once monitoring runs.',
-  available: null,
-  redacted: 'The registry redacts this registration data for privacy.',
-  unavailable: 'The registry did not provide registration data.',
-} as const;
 
 export function DomainDetailPage() {
   const { id = '' } = useParams();
   const state = useAsync((signal) => api.domains.get(id, { signal }), [id]);
+  // Loaded independently so a failure here never hides the rest of the domain page.
+  const observations = useAsync((signal) => api.domains.observations(id, { signal }), [id]);
   // Results of changes made on this page, applied without refetching so one-time values survive.
   const [override, setOverride] = useState<{ id: string; detail: DomainDetailResponse } | null>(
     null,
@@ -47,7 +44,6 @@ export function DomainDetailPage() {
   const detail = override?.id === id ? override.detail : state.data;
   const { domain, verification } = detail;
   const apply = (next: DomainDetailResponse) => setOverride({ id, detail: next });
-  const registrationNote = REGISTRATION_STATUS_TEXT[domain.registrationDataStatus];
 
   return (
     <>
@@ -89,43 +85,16 @@ export function DomainDetailPage() {
           onSaved={(d) => apply({ domain: d, verification })}
         />
 
-        <Card title="Registration">
-          {registrationNote ? (
-            <p className="text-sm text-slate-600">{registrationNote}</p>
-          ) : (
-            <dl className="grid gap-3 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Registrar
-                </dt>
-                <dd className="mt-1">{domain.registrar ?? 'Not provided'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Registered
-                </dt>
-                <dd className="mt-1">
-                  {domain.registeredAt ? formatDate(domain.registeredAt) : 'Not provided'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Expires
-                </dt>
-                <dd className="mt-1">
-                  {domain.expiresAt ? formatDateTime(domain.expiresAt) : 'Not provided'}
-                </dd>
-              </div>
-            </dl>
-          )}
-        </Card>
+        <RegistrationCard domain={domain} state={observations} />
 
         <DomainScansCard domain={domain} />
 
-        <Card title="DNS, certificates, assets and findings">
-          <EmptyState title="Nothing collected yet" icon={Construction}>
-            DNS records, nameservers, certificate status, discovered assets and findings appear here
-            once the scanning worker reports results (Milestones 5–9).
+        <DnsRecordsCard apex={domain.fqdn} state={observations} />
+
+        <Card title="Certificates, assets and findings">
+          <EmptyState title="Not available yet" icon={Construction}>
+            Certificate status arrives with active scanning (Milestone 6); discovered assets and
+            findings arrive with discovery (Milestone 9).
           </EmptyState>
         </Card>
       </div>

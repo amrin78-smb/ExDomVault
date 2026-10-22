@@ -8,7 +8,12 @@ import {
 import { Hono } from 'hono';
 import { parseJsonBody } from '../lib/validation.ts';
 import { WORKER_MAX_BODY_BYTES, requireWorker } from '../middleware/worker-auth.ts';
-import { claimJob, heartbeat, reportFailure, submitResults } from '../services/job-lifecycle.ts';
+import {
+  claimJob,
+  heartbeat,
+  reportFailure,
+  submitResultsDetailed,
+} from '../services/job-lifecycle.ts';
 import type { AppBindings } from '../types.ts';
 
 /**
@@ -44,13 +49,14 @@ export function internalWorkerRoutes(deps: { now?: () => Date } = {}) {
     .post('/results', async (c) => {
       const body = await parseJsonBody(c, resultsRequestSchema, WORKER_MAX_BODY_BYTES);
       const db = await c.get('db')();
-      const res = await submitResults(db, c.get('worker'), body, now());
+      const res = await submitResultsDetailed(db, c.get('worker'), body, now());
       c.get('logger').info('job_results', {
         jobId: body.jobId,
         accepted: res.accepted,
         complete: body.complete,
+        observations: res.observations,
       });
-      return c.json(res);
+      return c.json({ accepted: res.accepted, status: res.status });
     })
     .post('/failures', async (c) => {
       const body = await parseJsonBody(c, failureRequestSchema, WORKER_MAX_BODY_BYTES);

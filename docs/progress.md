@@ -10,7 +10,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 2   | Database and authentication                | done        | Deployed; production migrated           |
 | 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
 | 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
-| 5   | Python worker                              | not started |                                         |
+| 5   | Python worker                              | done        | Not deployed yet; worker not installed  |
 | 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
 | 7   | Deterministic rules engine                 | not started |                                         |
 | 8   | Finding lifecycle                          | not started |                                         |
@@ -19,6 +19,12 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
+
+- 2026-10-22 — **Milestone 5 built by four parallel agents** (server ingestion, Python worker, deployment/docs, UI) after I fixed the shared contract first: `packages/shared/src/api/observations.ts` + `docs/worker-protocol.md`, with an RFC 8032-based signing test vector asserted by both the TypeScript and Python test suites.
+- 2026-10-22 — **Observations ride on `results` submissions**, ingested in the same transaction after the idempotency row (duplicates store nothing); row ids `jobId:resultId:index`. DNS hostnames must be within the job's domain on a label boundary; registration only for the apex target; `observedAt` within −7 days/+5 min of server time. The newest successful RDAP observation updates the domain's registrar/dates/status (never regressing; `unavailable` doesn't erase known data).
+- 2026-10-22 — **Worker DNS defaults to public resolvers** (1.1.1.1, 9.9.9.9 + IPv6), not the host stub: systemd-resolved answered DS/DNSKEY with SERVFAIL in the end-to-end run, and records should be seen as the internet sees them. `EXDV_DNS_RESOLVERS=system` opts back in.
+- 2026-10-22 — **Worker runtime deps** pinned (≥14 days old): httpx 0.28.1, dnspython 2.8.0, cryptography 50.0.2 (+ transitive). No Nmap; network-connecting checks (`tls_checks`, `http_checks`, `port_checks`) only raise the scope error until Milestone 6.
+- 2026-10-22 — **Deployment:** systemd unit with a dedicated system user, `LoadCredential=` for the root-owned private key, no capabilities, `IPAddressDeny` for private/LAN ranges (allowing the local DNS stub), strict sandboxing (offline `systemd-analyze security` 1.2); optional hardened Docker image (non-root, read-only). The worker reaches the app through a Cloudflare Access **service token** with a Service Auth policy (configured by the owner 2026-10-22).
 
 - 2026-10-22 — **Worker authentication uses Ed25519 request signatures, not HMAC.** The spec asked for credentials "stored hashed" and "HMAC-signed requests", which conflict (HMAC verification needs the secret). With Ed25519 the server stores only public keys, so nothing in the database can impersonate a worker. Signing string `EDV1\nMETHOD\npath\ntimestamp\nnonce\nsha256(body)`, ±300 s window, single-use nonces (DB primary key), 120 requests/min per key, keys expire (≤730 days), rotate (several active keys) and revoke. Small-order public keys are rejected.
 - 2026-10-22 — **Fencing token = attempt number.** Heartbeat/results/failures must quote the attempt returned by claim; a worker that lost its lease is refused (409). No extra column needed.
@@ -81,7 +87,8 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~First production deploy~~ — done 2026-10-22: production migrated, `exdomainvault_app` + grants, Hyperdrive, Access, bootstrap admin signed in (details in `docs/deployment.md`).
 - [ ] Optional: replace the shared `demo-allowlist` Access policy with a dedicated ExDomainVault policy.
 - [ ] Optional: delete the `BOOTSTRAP_ADMIN_EMAILS` secret now that the first admin exists.
-- [ ] Milestone 5: create a Cloudflare Access **service token** and a Service Auth policy on the Worker so the home worker can reach `/api/v1/internal/worker/*`; register the worker's public key in Settings → Workers.
+- [x] ~~Cloudflare Access service token + Service Auth policy for the worker~~ — done by the owner 2026-10-22.
+- [ ] Install the worker on this host (`docs/home-worker-setup.md`: service user, key, register public key in Settings → Workers, `worker.env` with the service token, systemd unit).
 - [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
 
 ## Future enhancements (owner requests)
@@ -98,7 +105,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - Registration (RDAP) data is not collected; the UI says "Not collected yet".
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
-- No worker exists yet (Milestone 5): queued scans stay queued. Scheduled passive jobs only start once monitoring is on for a domain; with no worker they wait (one per domain, no pile-up).
+- The worker is not installed on the scan host yet (owner steps in `docs/home-worker-setup.md`): queued scans stay queued until it runs. Scheduled passive jobs only start once monitoring is on for a domain; with no worker they wait (one per domain, no pile-up).
 - Result submissions carry target statuses only; observation payloads (DNS/RDAP/TLS/HTTP) are added with the worker in Milestones 5–6.
 - The home worker will need a Cloudflare Access service token + Service Auth policy to reach `/api/v1/internal/worker/*` (the hostname is behind Access for all traffic).
 - No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
@@ -192,3 +199,23 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 **Production (owner-approved):** Neon `production` migrated with `0002` (profiles seeded; `exdomainvault_app` has privileges on the new tables; the owner's 339-domain import is present, monitoring off), deployed as `663d3165-211d-4998-8172-71b3eaff4e92` with the `*/5 * * * *` trigger. `wrangler tail` showed the Cron runs at 08:35 and 08:40 UTC completing all four maintenance steps through Hyperdrive. `/scans`, `/api/v1/scans` and the internal worker API without Access → 302.
 
 **Next:** Milestone 5 — Python worker (`docs/prompts/05-python-worker.md`), split across parallel agents.
+
+### Milestone 5 — 2026-10-22
+
+**Built (in parallel by four agents, integrated by me):**
+
+- _Contract:_ observation schemas (`dns`, `registration`) in worker results; `GET /domains/:id/observations` read model; `docs/worker-protocol.md`; signing test vector.
+- _Server:_ `services/observations.ts` (validated, idempotent batch ingestion; domain registration update; latest-per-record read), route, 14 tests.
+- _Python worker:_ `worker/app/` — config, identity, signed httpx client (retries re-sign, 409 stops work), scope guard (passive checks only, label-boundary target check), DNS checks (dnspython, rate/concurrency limits), RDAP (IANA bootstrap, redaction detection), batching, queue loop with heartbeats/cancellation/graceful SIGTERM, health file + `--health`, JSON logs with redaction; 145 pytest tests (mocked API, DNS and RDAP; no live targets).
+- _Deployment:_ `worker/Dockerfile` (+ `.dockerignore`), `worker/deploy/exdomainvault-worker.service` (+ health timer), `.env.example`, `worker/README.md`, `docs/home-worker-setup.md`.
+- _UI:_ Registration and DNS records cards on the domain page (expiry highlighting, redacted/unavailable wording, grouped record sets), 9 tests.
+
+**Checks:**
+
+- `npm run lint` pass (now also covers `apps/web/worker/` — `.prettierignore` had been excluding it; found by the server agent) · `npm run typecheck` pass · `npm run build` pass · `npm test` 23 files / 303 tests pass
+- `npm run worker:install` · `worker:lint` pass · `worker:test` 145 passed
+- **End to end (real Python worker → local workerd → Neon `dev`):** registered a key, requested a passive scan of `armoric.com`, `exdomainvault-worker --once` claimed, ran real DNS + RDAP lookups (public resolvers/registry only), uploaded 11 DNS + 1 registration observations, job `succeeded`; domain page showed registrar CSC, registered 1997-10-14, expiry 2027-10-13, CSC nameservers, A/MX/NS/SOA, no DMARC, no DNSSEC. Test data removed afterwards.
+- Found and fixed by the end-to-end run: systemd-resolved SERVFAIL on DS/DNSKEY (→ public resolver default); `pip install .` failed because `deploy/` made setuptools see two packages (→ explicit `packages = ["app"]`, `worker:install` now installs the CLI).
+- Not verifiable here: Docker image build (Docker not installed), the systemd unit under real root (`systemd-analyze verify` only).
+
+**Next:** owner installs the worker (`docs/home-worker-setup.md`); then Milestone 6 — scanning and target safety (the security gate for active scanning).

@@ -1,0 +1,95 @@
+# ExDomainVault home scanning worker. Installation: docs/home-worker-setup.md.
+# Install to /etc/systemd/system/exdomainvault-worker.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now exdomainvault-worker
+#
+# Outbound HTTPS only; the service listens on no port. Requires systemd >= 250 (Ubuntu 24.04: 255).
+
+[Unit]
+Description=ExDomainVault home scanning worker
+Documentation=file:/opt/exdomainvault-worker/README.md
+Wants=network-online.target
+After=network-online.target time-sync.target
+# Give up after 5 failed starts in 10 minutes (e.g. invalid configuration); fix, then
+# `systemctl reset-failed exdomainvault-worker` and start again.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=exdomainvault-worker
+Group=exdomainvault-worker
+WorkingDirectory=/opt/exdomainvault-worker
+
+# Configuration (0640 root:exdomainvault-worker). Read by systemd, not by the worker process.
+EnvironmentFile=/etc/exdomainvault/worker.env
+# The Ed25519 private key stays root-owned (0600) at rest. systemd copies it into a private,
+# non-swappable credentials directory readable only by this service ($CREDENTIALS_DIRECTORY, %d).
+# This overrides any EXDV_PRIVATE_KEY_FILE in worker.env.
+LoadCredential=worker.key:/etc/exdomainvault/worker.key
+Environment=EXDV_PRIVATE_KEY_FILE=%d/worker.key
+Environment=EXDV_HEALTH_FILE=/var/lib/exdomainvault-worker/health.json
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
+# Fail fast with a clear journal entry if the configuration is invalid.
+ExecStartPre=/opt/exdomainvault-worker/.venv/bin/exdomainvault-worker --check-config
+ExecStart=/opt/exdomainvault-worker/.venv/bin/exdomainvault-worker
+Restart=on-failure
+RestartSec=30s
+TimeoutStopSec=60s
+
+# State: /var/lib/exdomainvault-worker (health file). The only writable path.
+StateDirectory=exdomainvault-worker
+StateDirectoryMode=0700
+UMask=0077
+
+# --- Sandboxing -----------------------------------------------------------------------------------
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+# CPython 3.12 (no JIT), cryptography and cffi do not need writable+executable memory.
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+# No capabilities at all. Milestone 6 port checks use unprivileged TCP connect, not raw sockets.
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# The worker process itself never needs to read these: systemd reads worker.env and worker.key.
+InaccessiblePaths=-/etc/exdomainvault
+
+# --- Egress: keep the worker off the home LAN (design §12, worker isolation) ----------------------
+# Public internet is allowed (API, resolvers, RDAP, and scan targets from Milestone 6). Loopback,
+# private, CGNAT, link-local and multicast ranges are denied, except the systemd-resolved stub that
+# /etc/resolv.conf points at. The application-level scope validator remains the primary control;
+# this is defence in depth. If EXDV_DNS_RESOLVERS names a LAN resolver, add it to IPAddressAllow.
+IPAddressAllow=127.0.0.53/32
+IPAddressDeny=localhost link-local multicast 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 172.16.0.0/12 192.168.0.0/16 fc00::/7
+
+# --- Resource limits ------------------------------------------------------------------------------
+MemoryHigh=384M
+MemoryMax=512M
+TasksMax=64
+CPUQuota=50%
+LimitNOFILE=4096
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

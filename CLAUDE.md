@@ -77,17 +77,18 @@ Deploying, changing Cloudflare/Neon account settings, creating paid resources, r
 
 All from the repo root unless noted.
 
-| Command                               | What it does                                                                                                                           |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                         | Vite dev server with the Worker running in workerd (needs `apps/web/.dev.vars`, copy from `.dev.vars.example`)                         |
-| `npm run build`                       | Production build of SPA + Worker into `apps/web/dist/`                                                                                 |
-| `npm run preview`                     | Build, then serve the production build locally                                                                                         |
-| `npm run lint`                        | ESLint + Prettier check (`npm run format` to fix)                                                                                      |
-| `npm run typecheck`                   | `tsc` across all workspaces                                                                                                            |
-| `npm test`                            | Vitest (projects: `web` = UI in jsdom + Worker API/services in Node against PGlite; `shared`; `database` = migration/constraint tests) |
-| `npm run cf-typegen`                  | Regenerate `apps/web/worker-configuration.d.ts` after editing `wrangler.jsonc`                                                         |
-| `npm run worker:install`              | Create `worker/.venv` and install pinned Python deps (needs `python3.12-venv`)                                                         |
-| `npm run worker:lint` / `worker:test` | ruff / pytest for the Python worker                                                                                                    |
+| Command                                                                        | What it does                                                                                                                           |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                                                                  | Vite dev server with the Worker running in workerd (needs `apps/web/.dev.vars`, copy from `.dev.vars.example`)                         |
+| `npm run build`                                                                | Production build of SPA + Worker into `apps/web/dist/`                                                                                 |
+| `npm run preview`                                                              | Build, then serve the production build locally                                                                                         |
+| `npm run lint`                                                                 | ESLint + Prettier check (`npm run format` to fix)                                                                                      |
+| `npm run typecheck`                                                            | `tsc` across all workspaces                                                                                                            |
+| `npm test`                                                                     | Vitest (projects: `web` = UI in jsdom + Worker API/services in Node against PGlite; `shared`; `database` = migration/constraint tests) |
+| `npm run cf-typegen`                                                           | Regenerate `apps/web/worker-configuration.d.ts` after editing `wrangler.jsonc`                                                         |
+| `npm run worker:install`                                                       | Create `worker/.venv` and install pinned Python deps (needs `python3.12-venv`)                                                         |
+| `npm run worker:lint` / `worker:test`                                          | ruff / pytest for the Python worker                                                                                                    |
+| `worker/.venv/bin/exdomainvault-worker --check-config` / `--once` / `--health` | Run the worker locally (env from `worker/.env.example`; protocol in `docs/worker-protocol.md`)                                         |
 
 | `neon env pull` | Refresh `.env.local` (git-ignored) with `DATABASE_URL` / `DATABASE_URL_UNPOOLED` for the linked Neon branch |
 | `neon deploy` | Apply `neon.ts` branch policy to the linked branch (outward-facing: only when asked) |

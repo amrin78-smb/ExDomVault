@@ -1,0 +1,13 @@
+# Runs exdomainvault-worker-health.service every 5 minutes (optional).
+# Enable with: sudo systemctl enable --now exdomainvault-worker-health.timer
+
+[Unit]
+Description=Run the ExDomainVault worker health check every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

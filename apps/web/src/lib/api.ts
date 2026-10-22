@@ -9,6 +9,7 @@ import {
   createChallengeResponseSchema,
   domainDetailResponseSchema,
   domainListResponseSchema,
+  domainObservationsResponseSchema,
   errorResponseSchema,
   healthResponseSchema,
   importConfirmResponseSchema,
@@ -28,6 +29,7 @@ import {
   type CreateDomainRequest,
   type DomainDetailResponse,
   type DomainListResponse,
+  type DomainObservationsResponse,
   type FieldError,
   type HealthResponse,
   type ImportConfirmResponse,
@@ -135,6 +137,9 @@ export const api = {
       getJson(`/api/v1/domains${toQuery(params)}`, domainListResponseSchema, init),
     get: (id: string, init?: RequestInit): Promise<DomainDetailResponse> =>
       getJson(domainPath(id), domainDetailResponseSchema, init),
+    /** Latest DNS record sets and registration snapshot reported by scans (evidence only). */
+    observations: (id: string, init?: RequestInit): Promise<DomainObservationsResponse> =>
+      getJson(`${domainPath(id)}/observations`, domainObservationsResponseSchema, init),
     create: (body: CreateDomainRequest): Promise<DomainDetailResponse> =>
       sendJson('POST', '/api/v1/domains', domainDetailResponseSchema, body),
     update: (id: string, body: UpdateDomainRequest): Promise<DomainDetailResponse> =>
