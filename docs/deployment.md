@@ -13,8 +13,9 @@ deploy or change Cloudflare/Neon account settings without explicit permission.
 | Access team domain | `fragrant-grass-4d8f.cloudflareaccess.com`                                                             |
 | Hyperdrive         | `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) → Neon `production` direct endpoint            |
 | Database role      | `exdomainvault_app` (least privilege, see below)                                                       |
-| Neon `production`  | migrated through `0001_domain_authorisation`; **`0002_scan_job_lifecycle` not applied yet**            |
+| Neon `production`  | migrated through `0002_scan_job_lifecycle` (2026-10-22)                                                |
 | Worker secrets     | `BOOTSTRAP_ADMIN_EMAILS`                                                                               |
+| Deployed version   | `663d3165` (Milestone 4); Cron Trigger `*/5 * * * *` confirmed running via `wrangler tail`             |
 | Verified           | unauthenticated `/`, `/api/*` and forged assertion header → 302 to Access login; owner sign-in → admin |
 
 `demo-allowlist` is a reusable Access policy shared with another app; anyone added to it can also reach

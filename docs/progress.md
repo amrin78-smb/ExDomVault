@@ -9,7 +9,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 1   | Repository foundation                      | done        |                                         |
 | 2   | Database and authentication                | done        | Deployed; production migrated           |
 | 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
-| 4   | Scan job lifecycle                         | done        | Not deployed yet (needs migration 0002) |
+| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
 | 5   | Python worker                              | not started |                                         |
 | 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
 | 7   | Deterministic rules engine                 | not started |                                         |
@@ -189,6 +189,6 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 - A parallel docs agent reviewed the code while documenting it; fixed from its findings: body limits now in bytes and 1 MB on the worker API, refused jobs' targets marked `skipped`, scheduled jobs refused if monitoring was turned off, scheduler applies the label-boundary check, duplicate-result lookup limited to the submitting worker (no status probing), final target statuses can no longer regress, UI shows lapsed authorisations, stale schema comment. Left as documented behaviour: a job completed after a cancel request ends `succeeded`; profile `default_schedule` is not used yet (only passive is scheduled); key rotation is API-only.
 - `worker:test` not run — Python worker unchanged (Milestone 5).
 
-**Not deployed:** production needs migration `0002` then deploy (owner approval).
+**Production (owner-approved):** Neon `production` migrated with `0002` (profiles seeded; `exdomainvault_app` has privileges on the new tables; the owner's 339-domain import is present, monitoring off), deployed as `663d3165-211d-4998-8172-71b3eaff4e92` with the `*/5 * * * *` trigger. `wrangler tail` showed the Cron runs at 08:35 and 08:40 UTC completing all four maintenance steps through Hyperdrive. `/scans`, `/api/v1/scans` and the internal worker API without Access → 302.
 
 **Next:** Milestone 5 — Python worker (`docs/prompts/05-python-worker.md`), split across parallel agents.
