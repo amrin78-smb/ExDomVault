@@ -11,22 +11,33 @@ import {
 } from 'drizzle-orm/pg-core';
 import { assets } from './assets.ts';
 import { createdAt, id, ts, updatedAt } from './common.ts';
+import { domains } from './domains.ts';
 import { confidence, findingStatus, severity } from './enums.ts';
 import { scanJobs } from './scans.ts';
 import { users } from './users.ts';
 
 /**
  * Evidence-backed findings produced by deterministic rules. `fingerprint` identifies the logical
- * issue (asset + rule + affected component); at most one non-resolved finding per fingerprint.
- * A resolved finding that recurs is reopened (same row) rather than duplicated.
+ * issue (rule + domain + hostname + affected component); at most one non-resolved finding per
+ * fingerprint. A resolved finding that recurs is reopened (same row) rather than duplicated.
+ * `asset_id` is null for domain-level findings (e.g. DMARC) and hostnames that are not assets.
  */
 export const findings = pgTable(
   'findings',
   {
     id: id(),
-    assetId: uuid('asset_id')
+    domainId: uuid('domain_id')
       .notNull()
-      .references(() => assets.id, { onDelete: 'cascade' }),
+      .references(() => domains.id, { onDelete: 'cascade' }),
+    // Set null (not cascade) so deleting an asset keeps the finding's history; findings also carry
+    // domain_id, which cascades with the domain.
+    assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'set null' }),
+    /** Affected hostname (the domain itself for domain-level findings). */
+    hostname: text('hostname').notNull(),
+    /** Stable affected-component key within the hostname (part of the fingerprint). */
+    component: text('component').notNull(),
+    /** Rule category at detection time (dns, email, tls, http, exposure, registration, asset). */
+    category: text('category').notNull(),
     ruleId: text('rule_id').notNull(),
     ruleVersion: integer('rule_version').notNull(),
     fingerprint: text('fingerprint').notNull(),
@@ -58,7 +69,14 @@ export const findings = pgTable(
       .where(sql`${t.status} <> 'resolved'`),
     index('findings_status_severity_idx').on(t.status, t.severity),
     index('findings_asset_idx').on(t.assetId),
+    index('findings_domain_status_idx').on(t.domainId, t.status),
+    // Recurrence lookup (latest resolved finding with a fingerprint).
+    index('findings_fingerprint_idx').on(t.fingerprint),
     index('findings_assignee_idx').on(t.assignedTo),
+    check(
+      'findings_category_valid',
+      sql`${t.category} IN ('dns', 'email', 'tls', 'http', 'exposure', 'registration', 'asset')`,
+    ),
     check('findings_risk_score_range', sql`${t.riskScore} BETWEEN 0 AND 100`),
     check('findings_seen_order', sql`${t.lastSeenAt} >= ${t.firstSeenAt}`),
     check(

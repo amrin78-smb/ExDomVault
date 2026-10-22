@@ -1,6 +1,9 @@
 import type { RouteObject } from 'react-router';
 import { AppShell } from './components/layout/AppShell.tsx';
 import { NAV_ITEMS } from './components/layout/nav.ts';
+import { AdvisoriesPage } from './pages/advisories/AdvisoriesPage.tsx';
+import { FindingDetailPage } from './pages/findings/FindingDetailPage.tsx';
+import { FindingsPage } from './pages/findings/FindingsPage.tsx';
 import { DomainDetailPage } from './pages/domains/DomainDetailPage.tsx';
 import { DomainImportPage } from './pages/domains/DomainImportPage.tsx';
 import { DomainsPage } from './pages/domains/DomainsPage.tsx';
@@ -13,7 +16,7 @@ import { PlaceholderPage } from './pages/PlaceholderPage.tsx';
 import { RouteErrorPage } from './pages/RouteErrorPage.tsx';
 
 /** Sections with real pages; the rest render a placeholder naming their milestone. */
-const IMPLEMENTED = new Set(['/', '/domains', '/scans', '/settings']);
+const IMPLEMENTED = new Set(['/', '/domains', '/scans', '/findings', '/advisories', '/settings']);
 
 export const routes: RouteObject[] = [
   {
@@ -27,6 +30,9 @@ export const routes: RouteObject[] = [
       { path: 'domains/:id', element: <DomainDetailPage /> },
       { path: 'scans', element: <ScansPage /> },
       { path: 'scans/:id', element: <ScanDetailPage /> },
+      { path: 'findings', element: <FindingsPage /> },
+      { path: 'findings/:id', element: <FindingDetailPage /> },
+      { path: 'advisories', element: <AdvisoriesPage /> },
       { path: 'settings', element: <SettingsPage /> },
       ...NAV_ITEMS.filter((item) => !IMPLEMENTED.has(item.path)).map((item) => ({
         path: item.path.slice(1),

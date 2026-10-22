@@ -626,8 +626,10 @@ def test_quick_job_runs_web_checks(active):
         ("example.com", "203.0.113.10", True),
         ("www.example.com", "203.0.113.20", True),
     }
-    # gone.example.com is refused before connecting, so no plain-HTTP retry either.
+    # Both schemes are requested per target, as a visitor would; gone.example.com is refused before
+    # connecting, so its plain-HTTP request is not made either.
     assert sorted(calls["http"]) == [
+        "http://example.com/", "http://www.example.com/",
         "https://example.com/", "https://gone.example.com/", "https://www.example.com/",
     ]  # fmt: skip
     assert calls["nmap"] == []
@@ -667,7 +669,7 @@ def test_standard_job_runs_web_and_network_checks(active):
     ]  # fmt: skip
     http = [o for o in observations if o["kind"] == "http"]
     assert all("securityHeaders" in o["evidence"] for o in http)
-    assert all(o["hstsEnabled"] is True for o in http)
+    assert all(o["hstsEnabled"] is True for o in http if o["url"].startswith("https://"))
     assert ("assert_destination", "198.51.100.7", "network") in policy.calls
 
 

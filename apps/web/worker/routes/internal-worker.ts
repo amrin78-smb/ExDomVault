@@ -5,9 +5,13 @@ import {
   resultsRequestSchema,
   type ClaimResponse,
 } from '@exdomainvault/shared';
-import { Hono } from 'hono';
+import { connect } from '@exdomainvault/database';
+import { Hono, type Context } from 'hono';
+import type { Logger } from '../lib/logger.ts';
 import { parseJsonBody } from '../lib/validation.ts';
+import type { Connector } from '../middleware/database.ts';
 import { WORKER_MAX_BODY_BYTES, requireWorker } from '../middleware/worker-auth.ts';
+import { evaluateJob } from '../services/evaluation.ts';
 import {
   claimJob,
   heartbeat,
@@ -21,8 +25,9 @@ import type { AppBindings } from '../types.ts';
  * by user sessions; never exposed to the browser. The worker can only act on jobs it holds and
  * targets inside the job's immutable snapshot.
  */
-export function internalWorkerRoutes(deps: { now?: () => Date } = {}) {
+export function internalWorkerRoutes(deps: { now?: () => Date; connect?: Connector } = {}) {
   const now = deps.now ?? (() => new Date());
+  const connector: Connector = deps.connect ?? ((cs) => connect(cs));
   return new Hono<AppBindings>()
     .use('*', requireWorker({ now }))
     .post('/claim', async (c) => {
@@ -62,6 +67,9 @@ export function internalWorkerRoutes(deps: { now?: () => Date } = {}) {
         complete: body.complete,
         observations: res.observations,
       });
+      if (res.accepted && body.complete && res.status === 'succeeded') {
+        evaluateAfterResponse(c, connector, body.jobId, now(), c.get('logger'));
+      }
       return c.json({ accepted: res.accepted, status: res.status });
     })
     .post('/failures', async (c) => {
@@ -75,4 +83,42 @@ export function internalWorkerRoutes(deps: { now?: () => Date } = {}) {
       });
       return c.json(res);
     });
+}
+
+/**
+ * Best-effort rules evaluation right after a job succeeds, on a separate connection (the request's
+ * connection closes with the response). Skipped outside the Workers runtime. Failure or deferral is
+ * harmless: the `evaluate_pending_jobs` maintenance step evaluates every succeeded job within one
+ * cron interval, and evaluation is idempotent (`rules_evaluated_at` is claimed atomically).
+ */
+function evaluateAfterResponse(
+  c: Context<AppBindings>,
+  connector: Connector,
+  jobId: string,
+  at: Date,
+  logger: Logger,
+): void {
+  let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    return; // no execution context (tests outside the runtime): maintenance evaluates it
+  }
+  const connectionString = c.env.HYPERDRIVE?.connectionString;
+  if (!ctx || !connectionString) return;
+  ctx.waitUntil(
+    (async () => {
+      const conn = await connector(connectionString);
+      try {
+        await evaluateJob(conn.db, jobId, at, undefined, logger);
+      } finally {
+        await conn.close();
+      }
+    })().catch((err: unknown) => {
+      logger.warn('rules_evaluation_deferred', {
+        jobId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }),
+  );
 }

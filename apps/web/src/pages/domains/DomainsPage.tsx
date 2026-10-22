@@ -3,11 +3,12 @@ import {
   CRITICALITIES,
   type AuthorisationInput,
   type BulkAuthoriseResponse,
+  type BulkMonitoringResponse,
   CRITICALITY_LABELS,
   DOMAIN_VERIFICATION_STATUSES,
   DOMAIN_VERIFICATION_STATUS_LABELS,
 } from '@exdomainvault/shared';
-import { AlertTriangle, Globe, Plus, Search, Upload } from 'lucide-react';
+import { AlertTriangle, Globe, Plus, Radio, Search, Upload } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { AddDomainForm } from '../../components/domains/AddDomainForm.tsx';
@@ -34,9 +35,12 @@ export function DomainsPage() {
   const [params, setParams] = useSearchParams();
   const canWrite = usePermission('domains:write');
   const canVerify = usePermission('domains:verify');
+  const canSelect = canWrite || canVerify;
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [reloadKey, setReloadKey] = useState(0);
   const [bulkResult, setBulkResult] = useState<BulkAuthoriseResponse | null>(null);
+  const [monitoringResult, setMonitoringResult] = useState<MonitoringResult | null>(null);
+  const [confirmMonitoring, setConfirmMonitoring] = useState<MonitoringTarget | null>(null);
   const [adding, setAdding] = useState(false);
   const [searchDraft, setSearchDraft] = useState(params.get('q') ?? '');
 
@@ -83,6 +87,13 @@ export function DomainsPage() {
         actions={
           canWrite && (
             <>
+              <Button
+                onClick={() => setConfirmMonitoring({ all: true })}
+                disabled={confirmMonitoring !== null}
+              >
+                <Radio className="size-4" aria-hidden />
+                Turn on monitoring for all domains
+              </Button>
               <Link to="/domains/import" className={buttonClass('secondary')}>
                 <Upload className="size-4" aria-hidden />
                 Import CSV
@@ -113,6 +124,45 @@ export function DomainsPage() {
             `; skipped ${bulkResult.skipped.length} (already verified or not found)`}
           .
         </p>
+      )}
+      {monitoringResult && (
+        <p
+          role="status"
+          className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900"
+        >
+          Monitoring turned {monitoringResult.enabled ? 'on' : 'off'} for {monitoringResult.updated}{' '}
+          domain{monitoringResult.updated === 1 ? '' : 's'}
+          {monitoringResult.updated === 0 && ' (already in that state)'}.
+        </p>
+      )}
+      {confirmMonitoring && (
+        <div className="mb-6">
+          <ConfirmMonitoring
+            target={confirmMonitoring}
+            onDone={(result) => {
+              setMonitoringResult({ enabled: true, updated: result.updated });
+              setConfirmMonitoring(null);
+              setSelected(new Set());
+              setReloadKey((k) => k + 1);
+            }}
+            onCancel={() => setConfirmMonitoring(null)}
+          />
+        </div>
+      )}
+      {canWrite && selected.size > 0 && (
+        <div className="mb-4">
+          <BulkMonitoring
+            ids={[...selected]}
+            showClear={!canVerify}
+            onTurnOn={() => setConfirmMonitoring({ domainIds: [...selected] })}
+            onDone={(result) => {
+              setMonitoringResult({ enabled: false, updated: result.updated });
+              setSelected(new Set());
+              setReloadKey((k) => k + 1);
+            }}
+            onClear={() => setSelected(new Set())}
+          />
+        </div>
       )}
       {canVerify && selected.size > 0 && (
         <div className="mb-6">
@@ -247,7 +297,7 @@ export function DomainsPage() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                    {canVerify && (
+                    {canSelect && (
                       <th scope="col" className="w-8 py-2 pr-2">
                         <input
                           type="checkbox"
@@ -289,7 +339,7 @@ export function DomainsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {state.data.items.map((d) => (
                     <tr key={d.id} className="hover:bg-slate-50">
-                      {canVerify && (
+                      {canSelect && (
                         <td className="py-2.5 pr-2">
                           <input
                             type="checkbox"
@@ -441,5 +491,132 @@ function BulkAuthorise({
         </div>
       </form>
     </Card>
+  );
+}
+
+type MonitoringTarget = { domainIds: string[] } | { all: true };
+interface MonitoringResult {
+  enabled: boolean;
+  updated: number;
+}
+
+/** Monitoring actions for the selected rows. Turning monitoring on asks for confirmation first. */
+function BulkMonitoring({
+  ids,
+  showClear,
+  onTurnOn,
+  onDone,
+  onClear,
+}: {
+  ids: string[];
+  showClear: boolean;
+  onTurnOn: () => void;
+  onDone: (result: BulkMonitoringResponse) => void;
+  onClear: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const turnOff = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(await api.domains.setMonitoring({ domainIds: ids }, false));
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label="Monitoring for selected domains"
+      className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+    >
+      <span className="text-slate-600">{ids.length} selected — monitoring:</span>
+      <Button onClick={onTurnOn} disabled={busy}>
+        Turn on monitoring for selected
+      </Button>
+      <Button onClick={turnOff} disabled={busy}>
+        Turn off monitoring for selected
+      </Button>
+      {showClear && (
+        <Button onClick={onClear} disabled={busy}>
+          Clear selection
+        </Button>
+      )}
+      {error && (
+        <div className="w-full">
+          <ErrorAlert error={error} title="Monitoring was not changed" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Explains what monitoring does before turning it on for the selected domains or all domains. */
+function ConfirmMonitoring({
+  target,
+  onDone,
+  onCancel,
+}: {
+  target: MonitoringTarget;
+  onDone: (result: BulkMonitoringResponse) => void;
+  onCancel: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const all = 'all' in target;
+  const scope = all
+    ? 'every registered domain'
+    : `${target.domainIds.length} selected domain${target.domainIds.length === 1 ? '' : 's'}`;
+
+  const confirm = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(await api.domains.setMonitoring(target, true));
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      role="alertdialog"
+      aria-labelledby="confirm-monitoring-title"
+      aria-describedby="confirm-monitoring-body"
+      className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm shadow-sm"
+    >
+      <h2 id="confirm-monitoring-title" className="font-semibold text-amber-950">
+        Turn on monitoring for {scope}?
+      </h2>
+      <div id="confirm-monitoring-body" className="mt-2 space-y-1 text-amber-900">
+        <p>
+          Each monitored domain gets a daily passive scan of public DNS and registration data.
+          Passive scans never contact your hosts and are allowed before ownership is verified.
+        </p>
+        <p>
+          Active checks (certificates, web and ports) are not started by monitoring: they run only
+          for verified domains, and only when someone with permission requests them.
+        </p>
+      </div>
+      {error && (
+        <div className="mt-3">
+          <ErrorAlert error={error} title="Monitoring was not changed" />
+        </div>
+      )}
+      <div className="mt-3 flex gap-2">
+        <Button variant="primary" onClick={confirm} disabled={busy}>
+          {all ? 'Turn on for all domains' : 'Turn on for selected'}
+        </Button>
+        <Button onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }

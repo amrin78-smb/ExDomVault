@@ -53,14 +53,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: 'Findings',
     icon: Bug,
     description: 'Evidence-backed findings and the remediation workflow.',
-    milestone: 'Milestone 8',
+    milestone: 'Milestone 7',
   },
   {
     path: '/advisories',
     label: 'Advisories',
     icon: FileText,
     description: 'Remediation advisories derived from findings and evidence.',
-    milestone: 'Milestone 8',
+    milestone: 'Milestone 7',
   },
   {
     path: '/reports',

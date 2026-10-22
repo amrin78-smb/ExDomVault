@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@exdomainvault/database": "*",
+    "@exdomainvault/rules": "*",
     "@exdomainvault/shared": "*",
     "hono": "^4.13.13",
     "jose": "^6.2.13",

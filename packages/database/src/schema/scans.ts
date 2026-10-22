@@ -50,6 +50,11 @@ export const scanJobs = pgTable(
     cancelRequestedAt: ts('cancel_requested_at'),
     errorCode: text('error_code'),
     errorSummary: text('error_summary'),
+    /**
+     * When the rules engine evaluated this (succeeded) job's observations. Null = not yet; only
+     * succeeded jobs are ever evaluated. Set atomically so each job is evaluated once.
+     */
+    rulesEvaluatedAt: ts('rules_evaluated_at'),
   },
   (t) => [
     uniqueIndex('scan_jobs_idempotency_key').on(t.idempotencyKey),
@@ -62,6 +67,10 @@ export const scanJobs = pgTable(
       .on(t.leaseExpiresAt)
       .where(sql`${t.status} IN ('claimed', 'running')`),
     index('scan_jobs_domain_idx').on(t.domainId, t.createdAt),
+    // Rules evaluation backlog: succeeded jobs not yet evaluated, oldest first.
+    index('scan_jobs_rules_pending_idx')
+      .on(t.completedAt)
+      .where(sql`${t.status} = 'succeeded' AND ${t.rulesEvaluatedAt} IS NULL`),
     // At most one queued/active job per domain and profile: duplicate requests and overlapping
     // schedules cannot pile up work for the same target.
     uniqueIndex('scan_jobs_one_active_per_domain_profile')

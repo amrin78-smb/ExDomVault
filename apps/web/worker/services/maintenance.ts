@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, lt, notExists, or, sql } from 'drizzle-orm';
 import type { Logger } from '../lib/logger.ts';
 import { writeAudit } from './audit.ts';
 import { expireStaleChallenges } from './domain-verification.ts';
+import { evaluatePendingJobs } from './evaluation.ts';
 import { reapExpiredLeases } from './job-lifecycle.ts';
 import { buildSnapshot, listProfiles } from './scans.ts';
 import { WORKER_SIGNATURE_MAX_SKEW_SECONDS } from '@exdomainvault/shared';
@@ -142,6 +143,9 @@ export async function runMaintenance(db: Database, now: Date, logger: Logger): P
     ['verifications_expired', () => expireStaleChallenges(db, now)],
     ['nonces_pruned', () => pruneNonces(db, now)],
     ['passive_jobs_scheduled', () => schedulePassiveMonitoring(db, now)],
+    // Rules evaluation of succeeded jobs (oldest first, bounded batch). Results submissions also
+    // trigger evaluation right after the response; this step is the guaranteed path (≤5 min lag).
+    ['evaluate_pending_jobs', () => evaluatePendingJobs(db, now, { logger })],
   ];
   for (const [name, step] of steps) {
     try {

@@ -72,18 +72,15 @@ describe('App shell', () => {
     }
   });
 
-  it('shows honest empty states and no dev banner when fixtures are off', () => {
+  it('shows no dev banner when fixtures are off', () => {
     renderApp();
     expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
     expect(screen.queryByText(/Development data/)).not.toBeInTheDocument();
-    expect(screen.getByText('No findings recorded')).toBeInTheDocument();
-    expect(screen.queryByText('shop.example.com')).not.toBeInTheDocument();
   });
 
-  it('labels fixture data with the development banner', () => {
+  it('labels development mode with the banner', () => {
     renderApp('/', true);
     expect(screen.getByRole('note')).toHaveTextContent('not real scan results');
-    expect(screen.getAllByText('shop.example.com').length).toBeGreaterThan(0);
   });
 
   it('navigates to a section placeholder', async () => {
@@ -91,6 +88,16 @@ describe('App shell', () => {
     await userEvent.click(screen.getByRole('link', { name: 'Reports' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument();
     expect(screen.getByText(/implemented in Milestone 10/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Findings', 'Findings'],
+    ['Advisories', 'Advisories'],
+  ])('routes %s to its implemented page, not a placeholder', async (link, heading) => {
+    renderApp();
+    await userEvent.click(screen.getByRole('link', { name: link }));
+    expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+    expect(screen.queryByText(/implemented in Milestone/)).not.toBeInTheDocument();
   });
 
   it('reports API health from the typed health endpoint', async () => {

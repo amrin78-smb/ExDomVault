@@ -22,10 +22,11 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'scans:request',
     'scan_policies:manage',
     'settings:manage',
+    'findings:read',
   ],
-  analyst: ['domains:read', 'scans:read', 'scans:request'],
-  viewer: ['domains:read', 'scans:read'],
-  asset_owner: [],
+  analyst: ['domains:read', 'scans:read', 'scans:request', 'findings:read'],
+  viewer: ['domains:read', 'scans:read', 'findings:read'],
+  asset_owner: ['findings:read'],
 };
 
 export const ok = (body: unknown) => () => ({ status: 200, body });

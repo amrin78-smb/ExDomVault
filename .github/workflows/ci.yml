@@ -27,6 +27,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - name: Rules documentation is in sync with the registry
+        run: npm run rules:docs:check
       - run: npm run build
       - name: Schema and migrations are in sync
         run: |

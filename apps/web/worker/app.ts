@@ -7,11 +7,15 @@ import { sameOriginWrites } from './middleware/csrf.ts';
 import { database, type Connector } from './middleware/database.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
+import type { Rule } from '@exdomainvault/rules';
+import { advisoryRoutes } from './routes/advisories.ts';
 import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
+import { findingRoutes } from './routes/findings.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import { internalWorkerRoutes } from './routes/internal-worker.ts';
 import { meRoutes } from './routes/me.ts';
 import { approvedNetworkRoutes } from './routes/networks.ts';
+import { ruleRoutes } from './routes/rules.ts';
 import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
 import { workerAdminRoutes } from './routes/workers.ts';
 import type { AppBindings } from './types.ts';
@@ -24,6 +28,8 @@ export interface AppDeps {
   domains?: DomainRouteDeps;
   /** Clock for scans, workers and the internal worker API (tests). */
   now?: () => Date;
+  /** Rule registry for the rule catalogue and finding detail (tests; defaults to RULES). */
+  rules?: readonly Rule[];
 }
 
 /**
@@ -42,7 +48,7 @@ export function createApp(deps: AppDeps = {}) {
   const v1 = new Hono<AppBindings>();
   v1.route('/health', healthRoutes(deps.health));
   // Scanning worker: request-signature authentication, no user session, no CSRF (no cookies).
-  v1.route('/internal/worker', internalWorkerRoutes({ now: deps.now }));
+  v1.route('/internal/worker', internalWorkerRoutes({ now: deps.now, connect: deps.connect }));
 
   // Everything else requires an authenticated, provisioned user. Unknown paths also require
   // authentication, so route existence is not revealed to anonymous clients.
@@ -55,6 +61,9 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/scans', scanRoutes({ now: deps.now }));
   authed.route('/workers', workerAdminRoutes({ now: deps.now }));
   authed.route('/approved-networks', approvedNetworkRoutes({ now: deps.now }));
+  authed.route('/findings', findingRoutes({ rules: deps.rules }));
+  authed.route('/advisories', advisoryRoutes());
+  authed.route('/rules', ruleRoutes({ rules: deps.rules }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

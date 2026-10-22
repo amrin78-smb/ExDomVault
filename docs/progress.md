@@ -12,13 +12,21 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
 | 5   | Python worker                              | done        | Deployed; worker live on this host      |
 | 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
-| 7   | Deterministic rules engine                 | not started |                                         |
+| 7   | Deterministic rules engine                 | done        | Not deployed yet (needs migration 0004) |
 | 8   | Finding lifecycle                          | not started |                                         |
 | 9   | Passive subdomain discovery                | not started |                                         |
 | 10  | Frontend integration                       | not started |                                         |
 | 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
+
+- 2026-10-22 — **Rules engine (`packages/rules`) is pure and deterministic:** rules return findings plus the components they CHECKED with successful evidence; only checked-and-absent components resolve; rules lacking successful evidence are skipped (neither raise nor resolve); a throwing rule produces nothing. Fingerprint `ruleId|domainId|hostname|component`. Risk model v1 = severity weight (5/25/50/75/95) × exposure (public record 0.8, web 1.0, network service 1.1) × criticality (0.7/0.85/1.0/1.15), clamped 0–100, inputs stored.
+- 2026-10-22 — **23 rules**: the 14 from design §8 plus DNS-005 (no DNSSEC), DNS-006 (no CAA), DNS-007 (DMARC `p=none`), TLS-005 (untrusted chain), HTTP-001…005 (no HTTPS, no HTTP→HTTPS redirect, no HSTS, missing headers, version disclosure). `docs/advisory-rules.md` is generated from the registry (`npm run rules:docs`; CI fails on drift).
+- 2026-10-22 — **Change rules (DNS-001, REG-002) do not auto-resolve** (the baseline moves with every scan); they stay open until reviewed (Milestone 8 workflow). EXP-001 only flags a port the previous scan actually checked.
+- 2026-10-22 — **Findings belong to a domain** (`domain_id`, `hostname`, `component`, `category`; `asset_id` optional, SET NULL on asset deletion) — most evidence today is domain-level (DMARC, registration).
+- 2026-10-22 — **Evaluation** runs per succeeded job, once (`scan_jobs.rules_evaluated_at`), in job-completion order per domain (advisory lock + deferral), immediately after results (best effort) and by the 5-minute cron (guaranteed). Timestamps use the job's completion time. Existing statuses (acknowledged, accepted risk…) are preserved on refresh; recurrence reopens the same row (`recurrence`); accepted-risk findings resolve when the condition is gone.
+- 2026-10-22 — **Worker requests both `https://` and `http://`** for each target (as a visitor typing the name), so HTTP→HTTPS redirect behaviour is observed.
+- 2026-10-22 — **Overview shows live data now** (pulled forward from Milestone 10) and the Domains list has **bulk monitoring** (`POST /domains/monitoring`), at the owner's request (339 domains).
 
 - 2026-10-22 — **SECURITY GATE (Milestone 6): PASSED.** Scope validator implemented and tested (worker `policy.py`/`net.py`, server re-validation), two independent red-team reviews (worker 497 + server 500 attack tests, kept in the suite), all Critical/High/Medium findings fixed, and a real end-to-end active scan behaved as designed (below). Active scanning may now be enabled — in production only with the owner's explicit approval (server `ACTIVE_SCANNING_ENABLED` + worker `EXDV_ACTIVE_SCANNING_ENABLED`).
 - 2026-10-22 — **Tiered third-party policy (owner decision):** browser-like web checks (TLS handshake, HTTP GET) may reach any public address of an in-scope hostname; network checks (ports, service identification, TLS configuration) only admin-approved networks (`approved_networks`, reason + review date ≤ 24 months, audited; IPv4 ≤ /16, IPv6 ≤ /32, never overlapping prohibited space).
@@ -255,3 +263,15 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 **Production (owner-approved 2026-10-22):** Neon `production` migrated with `0003` (app role has privileges on `approved_networks`), deployed `2bad1d5c-e888-47eb-8308-141f455f9ece` with `ACTIVE_SCANNING_ENABLED=true`. The worker on the scan host still needs upgrading and `EXDV_ACTIVE_SCANNING_ENABLED=true` (owner, `docs/home-worker-setup.md` step 15) before active jobs run. `tls_configuration` accepted but not run.
 
 **Next:** Milestone 7 — deterministic rules engine.
+
+### Milestone 7 — 2026-10-22
+
+**Built (contracts by me; four parallel agents: two rule sets, server, UI):** `packages/rules` (types, evaluator, risk model, exposure policy, registry, 23 rules with fixtures and tests, docs generator); migration `0004_findings_engine`; evaluation service (current/previous observation sets, transactional upsert/resolve/reopen with status history and advisories); findings/advisories/rules APIs with asset-owner scoping; bulk monitoring API; UI: Findings list and detail (evidence, risk explainer, advisory, resolution, history), Advisories, domain Findings card, live Overview, bulk monitoring; worker always probes http:// too.
+
+**Checks:** lint pass · typecheck pass · build pass · `db:check` pass · `rules:docs:check` up to date · `npm test` 44 files / 1246 tests pass · `worker:lint` pass · `worker:test` 1250 passed.
+
+**End to end (real worker → local workerd → Neon `dev`):** passive scan of `armoric.com` produced 4 accurate findings within seconds — DNS-003 no DMARC (medium, risk 40), DNS-004 MX but no SPF (low), DNS-005 no DNSSEC (low), DNS-006 no CAA (informational) — with advisories and `detected` history; a second scan kept 4 findings (first seen preserved, last seen updated), both jobs evaluated exactly once. Test data removed.
+
+**Not deployed:** production needs migration `0004` then deploy (owner approval); then turn on monitoring (bulk) to populate findings for all domains.
+
+**Next:** Milestone 8 — finding lifecycle (status workflow, assignment, accepted risk, user audit).

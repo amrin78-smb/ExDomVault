@@ -1,6 +1,7 @@
 import {
   authorisationSchema,
   bulkAuthoriseRequestSchema,
+  bulkMonitoringRequestSchema,
   createDomainRequestSchema,
   hasPermission,
   createScanRequestSchema,
@@ -35,6 +36,7 @@ import {
   createDomain,
   getDomainRow,
   listDomains,
+  setMonitoringBulk,
   toDomainDto,
   updateDomain,
   type Actor,
@@ -111,6 +113,22 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
       c.get('logger').info('domains_authorised', {
         authorised: result.authorised.length,
         skipped: result.skipped.length,
+      });
+      return c.json(result);
+    })
+    .post('/monitoring', requirePermission('domains:write'), async (c) => {
+      const body = await parseJsonBody(c, bulkMonitoringRequestSchema);
+      const db = await c.get('db')();
+      const result = await setMonitoringBulk(
+        db,
+        'all' in body ? { all: true } : { domainIds: body.domainIds },
+        body.enabled,
+        actorOf(c),
+      );
+      c.get('logger').info('domains_monitoring_bulk', {
+        enabled: body.enabled,
+        all: 'all' in body,
+        updated: result.updated,
       });
       return c.json(result);
     })

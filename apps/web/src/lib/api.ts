@@ -1,4 +1,16 @@
 import {
+  advisoryListResponseSchema,
+  bulkMonitoringResponseSchema,
+  type BulkMonitoringResponse,
+  findingDetailResponseSchema,
+  findingListResponseSchema,
+  findingSummaryResponseSchema,
+  ruleCatalogueResponseSchema,
+  type AdvisoryListResponse,
+  type FindingDetailResponse,
+  type FindingListResponse,
+  type FindingSummaryResponse,
+  type RuleCatalogueEntry,
   approvedNetworkListResponseSchema,
   approvedNetworkSchema,
   type ApprovedNetwork,
@@ -126,6 +138,8 @@ export function toQuery(params: Record<string, string | number | undefined>): st
   return s ? `?${s}` : '';
 }
 
+type QueryParams = Record<string, string | number | undefined>;
+
 const domainPath = (id: string) => `/api/v1/domains/${encodeURIComponent(id)}`;
 
 export const api = {
@@ -176,6 +190,15 @@ export const api = {
       }),
     revoke: (id: string, reason: string): Promise<DomainDetailResponse> =>
       sendJson('POST', `${domainPath(id)}/revoke`, domainDetailResponseSchema, { reason }),
+    /** Turns passive monitoring on or off for the given domains, or for every domain. */
+    setMonitoring: (
+      target: { domainIds: string[] } | { all: true },
+      enabled: boolean,
+    ): Promise<BulkMonitoringResponse> =>
+      sendJson('POST', '/api/v1/domains/monitoring', bulkMonitoringResponseSchema, {
+        ...target,
+        enabled,
+      }),
     /** Queues a scan; returns immediately (the worker runs it asynchronously). */
     requestScan: (id: string, body: CreateScanRequest): Promise<ScanJobDetailResponse> =>
       sendJson('POST', `${domainPath(id)}/scans`, scanJobDetailResponseSchema, body),
@@ -214,6 +237,25 @@ export const api = {
         scanJobDetailResponseSchema,
       ),
   },
+
+  /** Rule-engine findings: evidence-backed observations, never claims of compromise. */
+  findings: {
+    list: (params: QueryParams, init?: RequestInit): Promise<FindingListResponse> =>
+      getJson(`/api/v1/findings${toQuery(params)}`, findingListResponseSchema, init),
+    /** Active (non-resolved) findings by severity and category, optionally for one domain. */
+    summary: (params: QueryParams, init?: RequestInit): Promise<FindingSummaryResponse> =>
+      getJson(`/api/v1/findings/summary${toQuery(params)}`, findingSummaryResponseSchema, init),
+    get: (id: string, init?: RequestInit): Promise<FindingDetailResponse> =>
+      getJson(`/api/v1/findings/${encodeURIComponent(id)}`, findingDetailResponseSchema, init),
+  },
+
+  advisories: {
+    list: (params: QueryParams, init?: RequestInit): Promise<AdvisoryListResponse> =>
+      getJson(`/api/v1/advisories${toQuery(params)}`, advisoryListResponseSchema, init),
+  },
+
+  rules: (init?: RequestInit): Promise<{ items: RuleCatalogueEntry[] }> =>
+    getJson('/api/v1/rules', ruleCatalogueResponseSchema, init),
 
   workers: {
     list: (init?: RequestInit): Promise<{ items: Worker[] }> =>

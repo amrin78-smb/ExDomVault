@@ -330,11 +330,12 @@ describe('Domain page layout and scan tiers', () => {
       'Ownership and monitoring',
       'Registration',
       'Scans',
+      'Findings',
       'DNS records',
       'TLS certificates',
       'HTTP',
       'Ports',
-      'Assets and findings',
+      'Assets',
     ]);
   });
 

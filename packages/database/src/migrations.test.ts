@@ -42,8 +42,12 @@ async function seedDomainAndAsset(fqdn: string) {
   return { domain: domain!, asset: asset! };
 }
 
-const finding = (assetId: string, fingerprint: string) => ({
+const finding = (domainId: string, assetId: string | null, fingerprint: string) => ({
+  domainId,
   assetId,
+  hostname: 'findings.example',
+  component: 'dmarc',
+  category: 'email',
   ruleId: 'DNS-003',
   ruleVersion: 1,
   fingerprint,
@@ -185,24 +189,28 @@ describe('constraints', () => {
   });
 
   it('allows only one non-resolved finding per fingerprint', async () => {
-    const { asset } = await seedDomainAndAsset('findings.example');
-    await t.db.insert(findings).values(finding(asset.id, 'fp-1'));
-    expect(await violation(() => t.db.insert(findings).values(finding(asset.id, 'fp-1')))).toBe(
-      'findings_active_fingerprint_key',
-    );
+    const { domain, asset } = await seedDomainAndAsset('findings.example');
+    await t.db.insert(findings).values(finding(domain.id, asset.id, 'fp-1'));
+    expect(
+      await violation(() => t.db.insert(findings).values(finding(domain.id, asset.id, 'fp-1'))),
+    ).toBe('findings_active_fingerprint_key');
 
     // Once resolved, a new active finding with the same fingerprint is allowed.
     await t.db.execute(
       sql`update findings set status = 'resolved', resolved_at = now() where fingerprint = 'fp-1'`,
     );
-    await expect(t.db.insert(findings).values(finding(asset.id, 'fp-1'))).resolves.toBeDefined();
+    await expect(
+      t.db.insert(findings).values(finding(domain.id, asset.id, 'fp-1')),
+    ).resolves.toBeDefined();
   });
 
   it('requires accepted-risk details', async () => {
-    const { asset } = await seedDomainAndAsset('risk.example');
+    const { domain, asset } = await seedDomainAndAsset('risk.example');
     expect(
       await violation(() =>
-        t.db.insert(findings).values({ ...finding(asset.id, 'fp-risk'), status: 'accepted_risk' }),
+        t.db
+          .insert(findings)
+          .values({ ...finding(domain.id, asset.id, 'fp-risk'), status: 'accepted_risk' }),
       ),
     ).toBe('findings_accepted_risk_complete');
   });
@@ -343,6 +351,39 @@ describe('0003_approved_networks', () => {
           .values(network('1.0.2.0/24', { revokedAt: new Date('2026-10-02T00:00:00Z') })),
       ),
     ).toBe('approved_networks_revoke_reason');
+  });
+});
+
+describe('0004_findings_engine', () => {
+  it('allows domain-level findings without an asset and validates the category', async () => {
+    const { domain } = await seedDomainAndAsset('domainlevel.example');
+    await expect(
+      t.db.insert(findings).values(finding(domain.id, null, 'fp-domain')),
+    ).resolves.toBeDefined();
+    expect(
+      await violation(() =>
+        t.db
+          .insert(findings)
+          .values({ ...finding(domain.id, null, 'fp-cat'), category: 'speculation' }),
+      ),
+    ).toBe('findings_category_valid');
+  });
+
+  it('deletes the findings of a deleted domain', async () => {
+    const { domain } = await seedDomainAndAsset('cascade.example');
+    await t.db.insert(findings).values(finding(domain.id, null, 'fp-cascade'));
+    await t.db.execute(sql`delete from domains where id = ${domain.id}`);
+    const { rows } = await t.pglite.query(
+      "select count(*)::int as n from findings where fingerprint = 'fp-cascade'",
+    );
+    expect(rows).toEqual([{ n: 0 }]);
+  });
+
+  it('adds rules_evaluated_at (null by default) to scan jobs', async () => {
+    const { rows } = await t.pglite.query<{ is_nullable: string }>(
+      "select is_nullable from information_schema.columns where table_name = 'scan_jobs' and column_name = 'rules_evaluated_at'",
+    );
+    expect(rows).toEqual([{ is_nullable: 'YES' }]);
   });
 });
 

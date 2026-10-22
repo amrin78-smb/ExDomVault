@@ -28,7 +28,9 @@
     "worker:test": "cd worker && .venv/bin/pytest",
     "db:generate": "npm run db:generate -w @exdomainvault/database",
     "db:migrate": "npm run db:migrate -w @exdomainvault/database",
-    "db:check": "npm run db:check -w @exdomainvault/database"
+    "db:check": "npm run db:check -w @exdomainvault/database",
+    "rules:docs": "node scripts/generate-rules-doc.ts",
+    "rules:docs:check": "node scripts/generate-rules-doc.ts --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

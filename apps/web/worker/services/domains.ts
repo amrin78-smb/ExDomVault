@@ -1,10 +1,10 @@
 import { schema, type Database } from '@exdomainvault/database';
 import type { Domain, DomainListQuery, DomainListResponse } from '@exdomainvault/shared';
 import { normaliseDomain } from '@exdomainvault/shared/hostname';
-import { and, asc, count, desc, eq, ilike, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, ne, type SQL } from 'drizzle-orm';
 import { firstRow } from '../lib/db.ts';
 import { ApiError } from '../lib/errors.ts';
-import { writeAudit } from './audit.ts';
+import { writeAudit, writeAuditMany } from './audit.ts';
 
 const { domains } = schema;
 
@@ -205,5 +205,44 @@ export async function updateDomain(
       );
     }
     return updated;
+  });
+}
+
+/**
+ * Turns passive monitoring on or off for the listed domains (or all of them) in one statement.
+ * Only domains whose setting actually changes are updated and audited (one record each).
+ */
+export async function setMonitoringBulk(
+  db: Database,
+  target: { domainIds: string[] } | { all: true },
+  enabled: boolean,
+  actor: Actor,
+): Promise<{ updated: number }> {
+  return db.transaction(async (tx) => {
+    const scope =
+      'all' in target
+        ? undefined
+        : inArray(
+            domains.id,
+            target.domainIds.map((id) => id.toLowerCase()),
+          );
+    const rows = await tx
+      .update(domains)
+      .set({ monitoringEnabled: enabled })
+      .where(and(ne(domains.monitoringEnabled, enabled), scope))
+      .returning({ id: domains.id, fqdn: domains.fqdn });
+    await writeAuditMany(
+      tx as unknown as Database,
+      rows.map((row) => ({
+        actorType: 'user' as const,
+        actorUserId: actor.userId,
+        action: enabled ? 'domain.monitoring_enabled' : 'domain.monitoring_disabled',
+        resourceType: 'domain',
+        resourceId: row.id,
+        requestId: actor.requestId,
+        metadata: { fqdn: row.fqdn, bulk: true },
+      })),
+    );
+    return { updated: rows.length };
   });
 }

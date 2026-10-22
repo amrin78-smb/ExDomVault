@@ -11,6 +11,7 @@ import { PortsCard } from '../../components/domains/PortsCard.tsx';
 import { RegistrationCard } from '../../components/domains/RegistrationCard.tsx';
 import { TlsCard } from '../../components/domains/TlsCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
+import { DomainFindingsCard } from '../../components/findings/DomainFindingsCard.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
@@ -92,6 +93,8 @@ export function DomainDetailPage() {
 
         <DomainScansCard domain={domain} />
 
+        <DomainFindingsCard domain={domain} />
+
         <DnsRecordsCard apex={domain.fqdn} state={observations} />
 
         <TlsCard state={observations} />
@@ -100,9 +103,9 @@ export function DomainDetailPage() {
 
         <PortsCard state={observations} />
 
-        <Card title="Assets and findings">
+        <Card title="Assets">
           <EmptyState title="Not available yet" icon={Construction}>
-            Discovered assets and findings arrive with discovery (Milestone 9).
+            Discovered hostnames and assets arrive with discovery (Milestone 9).
           </EmptyState>
         </Card>
       </div>

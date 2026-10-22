@@ -111,6 +111,22 @@ export const updateDomainRequestSchema = z
   });
 export type UpdateDomainRequest = z.input<typeof updateDomainRequestSchema>;
 
+/** Turn passive monitoring on or off for many domains (listed ids, or every domain). */
+export const BULK_MONITORING_MAX = 500;
+export const bulkMonitoringRequestSchema = z.union([
+  z.strictObject({
+    domainIds: z
+      .array(z.uuid())
+      .min(1, 'Select at least one domain.')
+      .max(BULK_MONITORING_MAX, `Select at most ${BULK_MONITORING_MAX} domains.`),
+    enabled: z.boolean(),
+  }),
+  z.strictObject({ all: z.literal(true), enabled: z.boolean() }),
+]);
+export type BulkMonitoringRequest = z.input<typeof bulkMonitoringRequestSchema>;
+export const bulkMonitoringResponseSchema = z.object({ updated: z.int().min(0) });
+export type BulkMonitoringResponse = z.infer<typeof bulkMonitoringResponseSchema>;
+
 // --- Verification -------------------------------------------------------------------------------
 
 export const CHALLENGE_STATUSES = [

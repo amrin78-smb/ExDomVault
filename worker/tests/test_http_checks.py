@@ -232,13 +232,14 @@ def run(include_headers=True):
     return out
 
 
-def test_https_answer_means_no_plain_http_request(gets):
+def test_both_schemes_are_requested_even_when_https_answers(gets):
     calls, responses = gets
     responses["https://www.example.com/"] = result(hop("https://www.example.com/"))
+    responses["http://www.example.com/"] = result(hop("http://www.example.com/"))
     out = run()
-    assert [c[0] for c in calls] == ["https://www.example.com/"]
-    assert calls[0][1] == "web"
-    assert len(out) == 1
+    assert [c[0] for c in calls] == ["https://www.example.com/", "http://www.example.com/"]
+    assert all(c[1] == "web" for c in calls)
+    assert len(out) == 2
 
 
 def test_https_connect_failure_falls_back_to_http(gets):

@@ -1,7 +1,8 @@
 """HTTP availability and security-header checks (web tier) — Milestone 6.
 
-One :func:`app.net.http_get` per target for ``https://<hostname>/``; only if that reached an address
-but got no HTTP response (connect-level failure) is ``http://<hostname>/`` tried. ``net.http_get``
+Two :func:`app.net.http_get` calls per target, as a visitor typing the name would make:
+``https://<hostname>/`` and ``http://<hostname>/`` (the latter shows whether plain HTTP redirects
+to HTTPS). ``net.http_get``
 re-validates and pins every hop and never follows a redirect it has not validated. Each attempt
 that reached an address becomes one ``http`` observation (``docs/worker-protocol.md``):
 
@@ -184,7 +185,5 @@ def check_http(
             break
         sink(observation)
         emitted += 1
-        if any(_responded(h) for h in result.hops):
-            break  # an HTTP response arrived: no plain-HTTP fallback
     if emitted == 0:
         raise failure or CheckFailed("http_error")
