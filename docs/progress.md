@@ -12,7 +12,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
 | 5   | Python worker                              | done        | Deployed; worker live on this host      |
 | 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
-| 7   | Deterministic rules engine                 | done        | Not deployed yet (needs migration 0004) |
+| 7   | Deterministic rules engine                 | done        | Deployed 2026-10-22 (`7dff53fc`)        |
 | 8   | Finding lifecycle                          | not started |                                         |
 | 9   | Passive subdomain discovery                | not started |                                         |
 | 10  | Frontend integration                       | not started |                                         |
@@ -272,6 +272,6 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **End to end (real worker → local workerd → Neon `dev`):** passive scan of `armoric.com` produced 4 accurate findings within seconds — DNS-003 no DMARC (medium, risk 40), DNS-004 MX but no SPF (low), DNS-005 no DNSSEC (low), DNS-006 no CAA (informational) — with advisories and `detected` history; a second scan kept 4 findings (first seen preserved, last seen updated), both jobs evaluated exactly once. Test data removed.
 
-**Not deployed:** production needs migration `0004` then deploy (owner approval); then turn on monitoring (bulk) to populate findings for all domains.
+**Production (owner-approved):** Neon `production` migrated with `0004` (app role has the new column privileges), deployed `7dff53fc-b712-4607-898a-8ad90177a3fb`; the 5 earlier succeeded production jobs are evaluated by the cron. Owner next: upgrade the worker (both-schemes HTTP) and turn on monitoring for all domains.
 
 **Next:** Milestone 8 — finding lifecycle (status workflow, assignment, accepted risk, user audit).
