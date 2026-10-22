@@ -248,7 +248,9 @@ def test_parse_address_rejects_non_strings(value):
     ],
 )
 def test_parse_address_accepts_canonical(value, expected):
-    assert str(parse_address(value)) == expected
+    # Compare values, not text: CPython 3.12.x patch releases print IPv4-mapped IPv6 differently
+    # (``::ffff:7f00:1`` vs ``::ffff:127.0.0.1``).
+    assert parse_address(value) == ipaddress.ip_address(expected)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -680,7 +682,12 @@ def test_resolve_mixed_answers_keeps_only_public(captured):
     )
     resolved = make_policy().resolve("www.example.com", resolver, tier="web", lifetime=2)
     assert [str(a) for a in resolved.addresses] == [PUBLIC_V4, PUBLIC_V6]
-    assert dict(resolved.dropped) == {
+    # The mapped address's text form varies by CPython patch release; normalise it.
+    dropped = {
+        ("::ffff:a00:5" if k in ("::ffff:a00:5", "::ffff:10.0.0.5") else k): v
+        for k, v in resolved.dropped
+    }
+    assert dropped == {
         "10.0.0.5": "private",
         "127.0.0.1": "loopback",
         "0x7f.1": "unparseable",
