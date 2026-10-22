@@ -15,7 +15,7 @@ Describes what is implemented. Planned components are marked _(planned, Mileston
                                                     │ outbound HTTPS only
                                                     │ signed: claim / heartbeat /
                                                     │ results / failures (polling)
-                                  Home Linux worker (Python, systemd)  (planned, M5–6)
+                                  Home Linux worker (Python, systemd, Nmap)
 ```
 
 - **One Worker** serves both the SPA and the API via Cloudflare's Vite plugin. `wrangler.jsonc` sets
@@ -42,9 +42,10 @@ Request pipeline (`app.ts`):
    server-side and returned as a generic `internal_error`.
 
 Endpoints: `GET /health` (public), `GET /me`, domains (`routes/domains.ts`: list, create, detail, update,
-DNS TXT verification, administrator authorisation, CSV import, scan request), scan profiles and scans
-(`routes/scans.ts`), worker administration (`routes/workers.ts`) and the signed internal worker API
-(`routes/internal-worker.ts`, mounted outside the user-authenticated sub-app). Full contract:
+DNS TXT verification, administrator authorisation, CSV import, scan request, latest observations), scan
+profiles and scans (`routes/scans.ts`), worker administration (`routes/workers.ts`), approved networks
+(`routes/networks.ts`) and the signed internal worker API (`routes/internal-worker.ts`, mounted outside
+the user-authenticated sub-app). Full contract:
 [`api-specification.md`](api-specification.md).
 
 Request bodies and query strings are validated with the shared zod schemas (`lib/validation.ts`: JSON
@@ -97,8 +98,9 @@ Details: [`database-schema.md`](database-schema.md). Neon/Hyperdrive setup: [`de
 - Navigation: Overview, Domains, Assets, Scans, Findings, Advisories, Reports, Settings. Unbuilt sections
   render a placeholder naming their milestone.
 - Domains: list (`/domains`, filters/sort/page in the URL), detail (`/domains/:id`: verification panel,
-  owner/criticality, monitoring with confirmation, registration status, honest empty states for data not
-  collected yet) and CSV import (`/domains/import`).
+  owner/criticality, monitoring with confirmation, registration, DNS records, TLS, HTTP and open-ports
+  cards from the latest observations, honest empty states for data not collected yet) and CSV import
+  (`/domains/import`).
 - Scans: list (`/scans`, status filter and page in the URL, `?domainId=` from a domain page) and
   detail (`/scans/:id`: job state, attempts, worker, lease, progress, last error, the frozen scope
   snapshot and per-target status; polls every 10 s while the job is queued/claimed/running; cancel
@@ -109,8 +111,10 @@ Details: [`database-schema.md`](database-schema.md). Neon/Hyperdrive setup: [`de
 - Settings (`/settings`): **Scanning workers** for `settings:manage` — the `openssl` key-generation
   commands, a register form (name + base64 public key; shows the key id to configure on the worker),
   and per worker its status (enable/disable), last seen, version and credentials (key id, fingerprint,
-  expiry, last used, revoke). Adding a rotation key is API-only for now. Other users see an
-  "Administrators only" notice.
+  expiry, last used, revoke). Adding a rotation key is API-only for now. **Approved networks** for
+  `scan_policies:manage` — list (active, lapsed, revoked; review dates close to expiry highlighted),
+  approve form (CIDR, label, reason, reference, review date) and revoke with a reason. Other users see
+  an "Administrators only" notice.
 - `SessionProvider` loads `/api/v1/me` once; `usePermission()` hides actions the user's role cannot
   perform (the API still enforces every permission).
 - The top bar shows API health (`/api/v1/health`) and the signed-in user and role (`/api/v1/me`), or why
@@ -134,7 +138,8 @@ only, never scanner flags.
 
 **Creation.** `POST /domains/:id/scans` locks the domain row, resolves approved targets, and inserts the
 job, its `scan_job_targets` and an immutable `scope_snapshot` (domain authorisation state, profile key,
-version and full config, targets) in one transaction. Active profiles require `ACTIVE_SCANNING_ENABLED`
+version and full config, targets and — for active profiles — the currently active approved networks)
+in one transaction. Active profiles require `ACTIVE_SCANNING_ENABLED`
 and a domain that is verified with its review date (if any) in the future. The partial unique index
 `scan_jobs_one_active_per_domain_profile` allows one queued/claimed/running job per domain and profile.
 
@@ -159,21 +164,26 @@ stateDiagram-v2
   cancelled --> [*]
 ```
 
-| Mechanism          | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claim              | `SELECT … WHERE status='queued' AND scheduled_at <= now AND attempts < max_attempts [AND profile IN (…)] ORDER BY priority, scheduled_at LIMIT 1 FOR UPDATE SKIP LOCKED`, then `status=claimed`, `worker_id`, `attempts+1`, lease, `started_at` (first claim only).                                                                                                                                                                                                                                                                                                                           |
-| Lease              | `LEASE_SECONDS = 300`, renewed by heartbeats and partial results. The worker is told `HEARTBEAT_SECONDS = 60`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Fencing            | The attempt number returned by claim. Heartbeats, results and failures lock the job row and are rejected (`409`) unless the job is `claimed`/`running`, held by the same worker, and `attempts` matches.                                                                                                                                                                                                                                                                                                                                                                                      |
-| Idempotent results | `scan_job_results (scan_job_id, result_id)` unique; a duplicate `resultId` changes nothing. Reported targets must belong to the job.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Retry / backoff    | Retryable failure with attempts left → `queued`, `scheduled_at = now + min(60 s × 2^(attempt−1), 30 min)` (60 s, then 120 s with the default 3 attempts), `worker_id`/lease cleared, running targets back to `pending`. The last error stays visible.                                                                                                                                                                                                                                                                                                                                         |
-| Max attempts       | `max_attempts` default 3 (check `attempts <= max_attempts`). After the last attempt the job is `failed`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Reaper             | Up to 100 `claimed`/`running` jobs with `lease_expires_at <= now` per run (`FOR UPDATE SKIP LOCKED`) are treated as a retryable `lease_expired` failure.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Cancellation       | Queued → `cancelled` at once. Claimed/running → `cancel_requested_at` set; heartbeat returns `cancelRequested: true`; the next failure report or lease expiry ends it as `cancelled` (targets `skipped`). A worker that instead reports completion ends it `succeeded`.                                                                                                                                                                                                                                                                                                                       |
-| Re-authorisation   | At claim time an active-profile job is refused if `ACTIVE_SCANNING_ENABLED` is off, the domain is gone, or the domain is no longer verified (or its review date passed). Scheduled jobs are also refused if monitoring was turned off while they waited (`monitoring_disabled`). Refused jobs become `cancelled` with `error_code` `active_scanning_disabled` / `domain_missing` / `domain_not_authorised` / `monitoring_disabled` (or `invalid_snapshot` if the snapshot fails validation), their pending targets `skipped`, audited `scan.refused`. Manual passive jobs are not re-checked. |
+| Mechanism          | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claim              | `SELECT … WHERE status='queued' AND scheduled_at <= now AND attempts < max_attempts [AND profile IN (…)] ORDER BY priority, scheduled_at LIMIT 1 FOR UPDATE SKIP LOCKED`, then `status=claimed`, `worker_id`, `attempts+1`, lease, `started_at` (first claim only).                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Lease              | `LEASE_SECONDS = 300`, renewed by heartbeats and partial results. The worker is told `HEARTBEAT_SECONDS = 60`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Fencing            | The attempt number returned by claim. Heartbeats, results and failures lock the job row and are rejected (`409`) unless the job is `claimed`/`running`, held by the same worker, and `attempts` matches.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Idempotent results | `scan_job_results (scan_job_id, result_id)` unique; a duplicate `resultId` changes nothing. Reported targets must belong to the job.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Retry / backoff    | Retryable failure with attempts left → `queued`, `scheduled_at = now + min(60 s × 2^(attempt−1), 30 min)` (60 s, then 120 s with the default 3 attempts), `worker_id`/lease cleared, running targets back to `pending`. The last error stays visible.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Max attempts       | `max_attempts` default 3 (check `attempts <= max_attempts`). After the last attempt the job is `failed`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Reaper             | Up to 100 `claimed`/`running` jobs with `lease_expires_at <= now` per run (`FOR UPDATE SKIP LOCKED`) are treated as a retryable `lease_expired` failure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Cancellation       | Queued → `cancelled` at once. Claimed/running → `cancel_requested_at` set; heartbeat returns `cancelRequested: true`; the next failure report or lease expiry ends it as `cancelled` (targets `skipped`). A worker that instead reports completion ends it `succeeded`. The worker stops in-progress work between HTTP hops and kills a running Nmap.                                                                                                                                                                                                                                                                                                                                                                                          |
+| Re-authorisation   | At claim time an active-profile job is refused if `ACTIVE_SCANNING_ENABLED` is off, the domain is gone, or the domain is no longer verified (or its review date passed). Scheduled jobs are also refused if monitoring was turned off while they waited (`monitoring_disabled`). Refused jobs become `cancelled` with `error_code` `active_scanning_disabled` / `domain_missing` / `domain_not_authorised` / `monitoring_disabled` (or `invalid_snapshot` if the snapshot fails validation), their pending targets `skipped`, audited `scan.refused`. For active jobs, targets whose asset is no longer `approved` are skipped (`asset_not_approved`); none left → refused with `no_approved_targets`. Manual passive jobs are not re-checked. |
+| In-flight re-check | The same check runs on every heartbeat and result submission of a held job (`heldJobRefusal`). On failure the job gets `cancel_requested_at` (audited `scan.cancel_requested`, system actor), the heartbeat returns `cancelRequested: true`, and result submissions with `tls`/`http`/`port` evidence are refused with `409`. `revokeDomain` and authorisation lapse (`expireStaleChallenges`) also stop the domain's active jobs in the same transaction (queued → `cancelled`, claimed/running → flagged).                                                                                                                                                                                                                                   |
+| Network scope      | Active snapshots carry the approved networks active at creation. Claim and every heartbeat intersect them with the approvals active now (`intersectNetworks`); the heartbeat returns that list as `approvedNetworks` and the worker shrinks its policy to it. Scope can only shrink. Network approvals are serialised with a transaction-scoped advisory lock.                                                                                                                                                                                                                                                                                                                                                                                 |
 
 **`ACTIVE_SCANNING_ENABLED`** (Worker var, `"false"` in `wrangler.jsonc`; only `"true"`/`"false"`
-accepted, anything else fails configuration). While off, active jobs can neither be created (`409`) nor
-claimed. It stays off until the Milestone 6 scope validator is complete.
+accepted, anything else fails configuration). While off, active jobs can be neither created (`409`) nor
+claimed, and running active jobs are told to stop at their next heartbeat. It is one of two kill
+switches; the worker's `EXDV_ACTIVE_SCANNING_ENABLED` is the other, and both must be `true` before any
+target is contacted. Enabling it in production is an owner decision (see
+[`deployment.md`](deployment.md#enabling-active-scanning)).
 
 **Scheduling and maintenance** (`scheduled()` in `worker/index.ts`, Cron Trigger `*/5 * * * *`). Each
 run opens one connection through Hyperdrive and runs these independent steps; a failing step is logged
@@ -201,9 +211,27 @@ within ±300 s, rate limited (120/min per credential) and replay-protected by st
 
 ## Python worker (`worker/`)
 
-Validated configuration (`app/config.py`) and a `--check-config` entry point. `active_scanning_enabled` is
-hard-coded `False` until the Milestone 6 gate. The worker does not yet implement the claim/heartbeat/results
-protocol (Milestone 5), so jobs stay `queued` until then.
+A single long-running process (`app/main.py`, systemd unit `worker/deploy/exdomainvault-worker.service`)
+that polls `claim`, runs one job at a time and reports through the signed API (`app/client.py`,
+`app/identity.py`). Protocol and configuration: [`worker-protocol.md`](worker-protocol.md); safety
+controls: [`scan-safety.md`](scan-safety.md).
+
+| Module                                               | Role                                                                                                                                                                                                 |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.py`                                          | Validated environment (`EXDV_*`), including `EXDV_ACTIVE_SCANNING_ENABLED` (default `false`), `EXDV_DENY_NETWORKS`, `EXDV_NMAP_PATH`. Invalid configuration stops start-up.                          |
+| `queue.py`                                           | Claim → validate → run checks per target (thread pool, rate limiter, per-target budget) → heartbeat → upload → complete. A heartbeat's `approvedNetworks` shrinks the job's policy (`PolicyHolder`). |
+| `scope.py`                                           | Check catalogue, hostname normalisation, label boundaries, registrable job domain (`assert_registrable_domain`), snapshot target validation.                                                         |
+| `policy.py`                                          | `ScopePolicy`: tiers (passive / web / network), prohibited address tables, deny list, approved networks, CNAME walk, every decision logged (`scope_decision`).                                       |
+| `net.py`                                             | The only place target sockets are opened: validate-then-connect to the pinned address, TLS handshake, hand-written HTTP GET with manual, re-validated redirects.                                     |
+| `self_protection.py`                                 | Home-network self-protection: interface addresses and the public egress address (DNS `whoami`) added to the deny list hourly; fail closed (`egress_ip_unknown`) when the egress IP is unknown.       |
+| `dns_checks.py`, `rdap_checks.py`                    | Passive checks (resolvers, IANA/registry RDAP; RDAP redirects pre-validated).                                                                                                                        |
+| `tls_checks.py`, `http_checks.py`                    | Web tier: `tls_certificate`, `http_availability`, `http_headers`.                                                                                                                                    |
+| `port_checks.py`                                     | Network tier: Nmap TCP connect scan (`tcp_ports`, `service_identification`) from a fixed argv template, rlimits via an exec stub, output bounded and screened.                                       |
+| `result_upload.py`, `health.py`, `logging_config.py` | Batching/idempotent uploads, health file (`--health`), JSON logs with redaction.                                                                                                                     |
+
+Kill switches: the worker refuses any active job and every connection unless
+`EXDV_ACTIVE_SCANNING_ENABLED=true` (read at start-up); the server refuses active jobs unless
+`ACTIVE_SCANNING_ENABLED=true`. `tls_configuration` is accepted in profiles but not run yet.
 
 ## Testing
 
@@ -213,4 +241,9 @@ protocol (Milestone 5), so jobs stay `queued` until then.
   all migrations applied, injected via `createApp({ connect })`. No network, no Neon.
 - The real path (workerd + Hyperdrive local binding + Neon dev branch) is exercised with `npm run dev`.
 - CI also fails if the Drizzle schema and committed migrations drift apart.
-- pytest for the worker. Tests never contact real hosts.
+- pytest for the worker. Tests never contact real hosts (resolution is faked; only throwaway loopback
+  test servers are reachable, through a test-only monkeypatch).
+- Milestone 6 red-team suites run with the normal commands: `worker/tests/test_redteam.py`,
+  `packages/shared/src/net/redteam.test.ts`, `apps/web/worker/routes/redteam.test.ts`; the parity test
+  `packages/shared/src/net/prohibited-ranges.test.ts` fails if the TypeScript and Python prohibited
+  tables drift.

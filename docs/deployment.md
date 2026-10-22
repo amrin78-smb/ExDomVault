@@ -5,18 +5,19 @@ deploy or change Cloudflare/Neon account settings without explicit permission.
 
 ## Current production state (2026-10-22)
 
-| Item               | Value                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------------ |
-| URL                | https://exdomainvault.amrin78.workers.dev (Worker `exdomainvault`, `workers_dev` on, preview URLs off) |
-| Cloudflare account | `a2c0616cdf9b25972e26618151f392f7`                                                                     |
-| Access             | Worker → **Access** tab, scope _All traffic_, policy `demo-allowlist` (Allow: owner email only)        |
-| Access team domain | `fragrant-grass-4d8f.cloudflareaccess.com`                                                             |
-| Hyperdrive         | `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) → Neon `production` direct endpoint            |
-| Database role      | `exdomainvault_app` (least privilege, see below)                                                       |
-| Neon `production`  | migrated through `0002_scan_job_lifecycle` (2026-10-22)                                                |
-| Worker secrets     | `BOOTSTRAP_ADMIN_EMAILS`                                                                               |
-| Deployed version   | `663d3165` (Milestone 4); Cron Trigger `*/5 * * * *` confirmed running via `wrangler tail`             |
-| Verified           | unauthenticated `/`, `/api/*` and forged assertion header → 302 to Access login; owner sign-in → admin |
+| Item               | Value                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| URL                | https://exdomainvault.amrin78.workers.dev (Worker `exdomainvault`, `workers_dev` on, preview URLs off)                               |
+| Cloudflare account | `a2c0616cdf9b25972e26618151f392f7`                                                                                                   |
+| Access             | Worker → **Access** tab, scope _All traffic_, policy `demo-allowlist` (Allow: owner email only)                                      |
+| Access team domain | `fragrant-grass-4d8f.cloudflareaccess.com`                                                                                           |
+| Hyperdrive         | `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) → Neon `production` direct endpoint                                          |
+| Database role      | `exdomainvault_app` (least privilege, see below)                                                                                     |
+| Neon `production`  | migrated through `0002_scan_job_lifecycle` (2026-10-22); `0003_approved_networks` **not applied yet**                                |
+| Worker secrets     | `BOOTSTRAP_ADMIN_EMAILS`                                                                                                             |
+| Deployed version   | `98621b00` (Milestone 5); Cron Trigger `*/5 * * * *` confirmed running via `wrangler tail`. Milestone 6 code is **not** deployed yet |
+| Verified           | unauthenticated `/`, `/api/*` and forged assertion header → 302 to Access login; owner sign-in → admin                               |
+| Home worker        | `home-worker-01` running under systemd on the home host (passive profile only; `EXDV_ACTIVE_SCANNING_ENABLED` not set → `false`)     |
 
 `demo-allowlist` is a reusable Access policy shared with another app; anyone added to it can also reach
 ExDomainVault (but gets 403 from the API unless provisioned in `users`). Consider a dedicated policy.
@@ -154,9 +155,9 @@ Workers observability logs as `maintenance_step` / `maintenance_step_failed`.
 
 A Worker var in `wrangler.jsonc`, set to `"false"`. Only `"true"` or `"false"` is accepted (anything else
 fails configuration closed); unset means `false`. While `false`, jobs with active profiles are refused at
-creation (`409`) and at claim time; passive monitoring is unaffected. **Keep it `false` until the
-Milestone 6 scope validator is complete and tested.** The Python worker has its own
-`active_scanning_enabled`, hard-coded `False`.
+creation (`409`) and at claim time, and running active jobs are told to stop at their next heartbeat;
+passive monitoring is unaffected. Turning it on is described in
+[Enabling active scanning](#enabling-active-scanning).
 
 ### Registering the home worker
 
@@ -178,9 +179,7 @@ Milestone 6 scope validator is complete and tested.** The Python worker has its 
 4. Rotation: add a second key with `POST /api/v1/workers/:id/credentials` (API only for now), switch the
    worker over, then revoke the old key in Settings. **Disable** stops all of a worker's requests at once.
 
-The Python worker does not yet speak this protocol; that is Milestone 5.
-
-### Owner action for Milestone 5: Cloudflare Access service token (not configured yet)
+### Cloudflare Access service token (configured 2026-10-22)
 
 Access protects the Worker for **all traffic**, so the home worker's requests to
 `/api/v1/internal/worker/*` are redirected to the Access login before they reach the Worker's signature
@@ -194,8 +193,51 @@ check. Before the worker can connect, the owner needs to:
    headers alongside its signature headers.
 
 The service token only gets the request through Access; the Worker still requires the Ed25519 signature
-on every internal request, and service tokens are rejected on user routes (no email). None of this is
-configured yet.
+on every internal request, and service tokens are rejected on user routes (no email). Configured by
+the owner on 2026-10-22 (token `exdomainvault-home-worker`); rotation is in
+[`home-worker-setup.md`](home-worker-setup.md#12-credential-rotation).
+
+## Milestone 6: scope validator and active checks
+
+### Migration before deploy
+
+The Milestone 6 code reads `approved_networks` when creating scans, claiming jobs, answering heartbeats
+and ingesting results, and serves `/api/v1/approved-networks`. **Apply `0003_approved_networks` to Neon
+`production` before deploying this code** (verify on `dev` first; owner approval; see _Migrating
+production_). Otherwise scan creation, claim, heartbeat and result ingestion fail. The table is created
+by the owner role, so the default privileges give `exdomainvault_app` DML on it; check with
+`\dp approved_networks` and re-check that `audit_logs` and `finding_status_history` stay append-only.
+
+Order: migrate `production` → deploy the application (`wrangler deploy`, with `ACTIVE_SCANNING_ENABLED`
+still `"false"`) → upgrade the home worker ([`home-worker-setup.md`](home-worker-setup.md#11-upgrade-and-restart)).
+The previous worker version keeps working against the new API for passive jobs (the heartbeat's new
+`approvedNetworks` field is ignored by older workers), and the new worker refuses active jobs until its
+own switch is on.
+
+### Enabling active scanning
+
+Active (target-connecting) checks run only when **both** independent switches are on:
+
+1. **Server:** `"ACTIVE_SCANNING_ENABLED": "true"` in `apps/web/wrangler.jsonc`, then deploy. This is an
+   owner decision (it changes what the home IP may contact) and needs the owner's explicit approval
+   like any deployment. Setting it back to `"false"` and deploying stops new and running active jobs
+   (running ones at their next heartbeat).
+2. **Worker:** `EXDV_ACTIVE_SCANNING_ENABLED=true` in `/etc/exdomainvault/worker.env`, the active
+   profiles to run added to `EXDV_PROFILES` (e.g. `passive,quick,standard`), `EXDV_DENY_NETWORKS` set
+   to the home's public IPv4 `/32` and IPv6 `/64`, Nmap installed (`sudo apt install nmap`), then a
+   restart. Steps: [`home-worker-setup.md`](home-worker-setup.md#15-enabling-active-scanning).
+
+Then, as an administrator:
+
+- Domains to scan actively must be verified (DNS TXT or administrator authorisation, review date not
+  passed).
+- `quick` (TLS certificate, HTTP availability) works with no further setup: web-tier checks may reach
+  any public address an approved hostname resolves to.
+- `standard` and `deep` port probes (`tcp_ports`, `service_identification`) only reach **approved
+  networks**: approve the organisation's own ranges in **Settings → Approved networks** (CIDR ≤ /16
+  IPv4 or ≤ /32 IPv6, public only, reason, review date ≤ 24 months; audited). Without an approval those
+  checks are refused for every address. Jobs snapshot the networks active when they are created, so
+  approve first, then request the scan.
 
 ## Application deployment
 

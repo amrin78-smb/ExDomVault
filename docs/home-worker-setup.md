@@ -27,12 +27,15 @@ Commands marked `sudo` are run by the owner. Nothing here is automated.
   `timedatectl show -p NTPSynchronized` prints `NTPSynchronized=yes`.
 - An ExDomainVault administrator account (to register the worker) and access to the Cloudflare
   dashboard (to create the Access service token).
-- Nmap is **not** needed yet. It arrives with active scanning in Milestone 6.
+- Nmap, only for the network-tier checks of the `standard`/`deep` profiles (`sudo apt install nmap`;
+  this host has 7.94). It runs unprivileged as a TCP connect scan (no `CAP_NET_RAW`). Without it those
+  checks fail with `nmap_unavailable`; passive and web checks are unaffected.
 
 ## Quick path: install script
 
 `worker/deploy/install.sh` performs steps 2–4 and installs the units from step 9 (it does not start
-the service). It is safe to re-run for upgrades and never overwrites an existing key or `worker.env`:
+the service). It is safe to re-run for upgrades and never overwrites an existing key or `worker.env` (so variables
+added in later versions must be added to `worker.env` by hand, see step 11):
 
 ```bash
 cd ~/development/Nocvault/ExDomVault && git pull
@@ -148,9 +151,12 @@ EXDV_ENVIRONMENT=production
 EXDV_POLL_INTERVAL_SECONDS=30
 EXDV_PROFILES=passive
 EXDV_LOG_LEVEL=INFO
+EXDV_ACTIVE_SCANNING_ENABLED=false
+#EXDV_DENY_NETWORKS=
 ```
 
-Leave `EXDV_DNS_RESOLVERS` unset to query the public resolvers 1.1.1.1 and 9.9.9.9 (and their IPv6
+`EXDV_ACTIVE_SCANNING_ENABLED` stays `false` (the default) until you deliberately enable active scanning
+(step 15). Leave `EXDV_DNS_RESOLVERS` unset to query the public resolvers 1.1.1.1 and 9.9.9.9 (and their IPv6
 addresses), so records are seen as the internet sees them. `system` uses the host's resolver
 (`127.0.0.53`, systemd-resolved), which answers DS/DNSKEY queries with SERVFAIL. Write
 the values without quotes or trailing comments: systemd's `EnvironmentFile=` parser is not a shell.
@@ -214,11 +220,14 @@ What the unit does (see the comments in the file):
 - `Restart=on-failure` after 30 s; after 5 failed starts in 10 minutes systemd stops trying
   (`sudo systemctl reset-failed exdomainvault-worker` once fixed).
 - Limits: `MemoryMax=512M`, `TasksMax=64`, `CPUQuota=50%`.
-- **Egress filter:** `IPAddressDeny=` blocks loopback, RFC 1918 private, CGNAT, link-local, multicast
-  and IPv6 ULA destinations, except the resolver stub `127.0.0.53`. The worker can reach the public
-  internet but not the home LAN. If you set `EXDV_DNS_RESOLVERS` to a LAN resolver, add it to
-  `IPAddressAllow=`. This is defence in depth; the Milestone 6 scope validator remains the primary
-  control.
+- **Egress filter:** `IPAddressDeny=` mirrors the application's prohibited-address table (loopback,
+  RFC 1918 private, CGNAT, link-local, multicast, reserved, documentation, benchmarking, broadcast,
+  IPv4-embedding IPv6 prefixes, ULA, site-local) plus all IPv6 outside `2000::/3`, except the resolver
+  stub `127.0.0.53`. It applies to Nmap as well (same cgroup). The worker can reach the public internet
+  but not the home LAN. If you set `EXDV_DNS_RESOLVERS` to a LAN resolver, add it to
+  `IPAddressAllow=`. This is defence in depth; the scope validator remains the primary control. It
+  does not cover the home's public IP — the worker's self-protection and `EXDV_DENY_NETWORKS` do
+  (step 15).
 
 Check the hardening score with `systemd-analyze security exdomainvault-worker` (about 1.2, "OK").
 
@@ -237,16 +246,43 @@ row shows **Last used**. A worker that is running but never "seen" is not reachi
 
 ## 11. Upgrade and restart
 
+The simplest path is the install script, which syncs the code, reinstalls the pinned dependencies and
+the package, and reinstalls the unit files (it never touches the key or `worker.env`):
+
 ```bash
 cd ~/development/Nocvault/ExDomVault && git pull
+sudo bash worker/deploy/install.sh
+exdv_run --check-config
+sudo systemctl restart exdomainvault-worker
+journalctl -u exdomainvault-worker -o cat -n 20 | jq .   # expect worker_started, no invalid_config
+```
+
+**Because `worker.env` is never overwritten, add variables introduced by a new version by hand**
+(`sudoedit /etc/exdomainvault/worker.env`, compare with `worker/.env.example`). For the Milestone 6
+upgrade these are:
+
+```bash
+EXDV_ACTIVE_SCANNING_ENABLED=false
+#EXDV_DENY_NETWORKS=
+```
+
+Both are optional (the defaults are `false` and empty), so an upgrade without them keeps the worker
+passive-only. Set them when enabling active scanning (step 15).
+
+**Application first.** When the new worker version goes with application changes that need a database
+migration (Milestone 6: `0003_approved_networks`), the migration and application deploy come first
+([`deployment.md`](deployment.md#milestone-6-scope-validator-and-active-checks)); the worker is
+upgraded afterwards.
+
+Manual equivalent of the script:
+
+```bash
 sudo rsync -a --delete --chown=root:root \
   --exclude '.venv/' --exclude '__pycache__/' --exclude '.pytest_cache/' --exclude '.ruff_cache/' \
   --exclude '*.key' --exclude '.env' --exclude 'tests/' \
   worker/ /opt/exdomainvault-worker/
 sudo /opt/exdomainvault-worker/.venv/bin/pip install --no-cache-dir -r /opt/exdomainvault-worker/requirements.txt
 sudo /opt/exdomainvault-worker/.venv/bin/pip install --no-cache-dir --no-deps --force-reinstall /opt/exdomainvault-worker
-exdv_run --check-config
-# If the unit files changed:
 sudo install -o root -g root -m 0644 /opt/exdomainvault-worker/deploy/exdomainvault-worker*.service \
   /opt/exdomainvault-worker/deploy/exdomainvault-worker-health.timer /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -299,19 +335,23 @@ expiry date; an expired token makes every request fail at Access (`302`/`403`).
 The application answers every worker authentication failure with a generic `401`; the specific reason
 is in the application's Workers logs as `worker_auth_failed` with a `reason` field.
 
-| Symptom                                                         | Likely cause and fix                                                                                                                                                                                                            |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `401`, reason `timestamp_out_of_window`                         | Clock more than 300 s off. `timedatectl` must show _System clock synchronized: yes_; enable NTP with `sudo timedatectl set-ntp true`.                                                                                           |
-| `401`, reason `unknown_key` / `bad_signature`                   | `EXDV_KEY_ID` does not match the key in `/etc/exdomainvault/worker.key`, or the wrong public key was registered. Re-derive the public key (step 4); if in doubt, register it again and use the new key id.                      |
-| `401`, reason `key_revoked` / `key_expired` / `worker_disabled` | Register a new key (step 12) or re-enable the worker in **Settings → Scanning workers**.                                                                                                                                        |
-| `401`, reason `replayed_nonce`                                  | A request was re-sent with the same nonce. Should not happen (each retry is re-signed); report it as a bug.                                                                                                                     |
-| `302` to `*.cloudflareaccess.com`, or `403` from Access         | Service token missing, wrong or expired, or no **Service Auth** policy includes it. Check `EXDV_ACCESS_CLIENT_*` and step 6; test with the `curl` check in step 6.3. The worker does not follow redirects and reports an error. |
-| `409` on heartbeat/results                                      | The job lease was lost (expired or reassigned). The worker stops that job without reporting further; the application retries it. Frequent `409`s mean the host is stalling or was suspended.                                    |
-| `429`                                                           | More than 120 requests per minute for the key. Raise `EXDV_POLL_INTERVAL_SECONDS`; check that only one worker process uses the key.                                                                                             |
-| Service in `failed` state, `start request repeated too quickly` | Start limit reached (usually invalid configuration). `journalctl -u exdomainvault-worker -o cat -n 50`, fix, `sudo systemctl reset-failed exdomainvault-worker`, start again.                                                   |
-| `invalid_config` at start                                       | Read the `detail` field; run `exdv_run --check-config` after each fix.                                                                                                                                                          |
-| `Failed to set up credentials` / status `243/CREDENTIALS`       | `/etc/exdomainvault/worker.key` is missing or unreadable by root.                                                                                                                                                               |
-| DNS checks all time out                                         | `EXDV_DNS_RESOLVERS` points at a LAN address blocked by `IPAddressDeny=`; unset it or add it to `IPAddressAllow=`.                                                                                                              |
+| Symptom                                                             | Likely cause and fix                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401`, reason `timestamp_out_of_window`                             | Clock more than 300 s off. `timedatectl` must show _System clock synchronized: yes_; enable NTP with `sudo timedatectl set-ntp true`.                                                                                                                                                   |
+| `401`, reason `unknown_key` / `bad_signature`                       | `EXDV_KEY_ID` does not match the key in `/etc/exdomainvault/worker.key`, or the wrong public key was registered. Re-derive the public key (step 4); if in doubt, register it again and use the new key id.                                                                              |
+| `401`, reason `key_revoked` / `key_expired` / `worker_disabled`     | Register a new key (step 12) or re-enable the worker in **Settings → Scanning workers**.                                                                                                                                                                                                |
+| `401`, reason `replayed_nonce`                                      | A request was re-sent with the same nonce. Should not happen (each retry is re-signed); report it as a bug.                                                                                                                                                                             |
+| `302` to `*.cloudflareaccess.com`, or `403` from Access             | Service token missing, wrong or expired, or no **Service Auth** policy includes it. Check `EXDV_ACCESS_CLIENT_*` and step 6; test with the `curl` check in step 6.3. The worker does not follow redirects and reports an error.                                                         |
+| `409` on heartbeat/results                                          | The job lease was lost (expired or reassigned), or (results only) the job is no longer authorised for active checks — kill switch off, domain revoked or lapsed. The worker stops that job without reporting further. Frequent lease `409`s mean the host is stalling or was suspended. |
+| Targets fail with `egress_ip_unknown`                               | Self-protection could not detect the public IPv4 (`self_protection_refreshed` with `egressDetected: false` in the journal) and `EXDV_DENY_NETWORKS` is empty. Check outbound DNS to 1.1.1.1, or set `EXDV_DENY_NETWORKS` (step 15).                                                     |
+| Port checks fail with `nmap_unavailable`                            | Nmap is not installed at `EXDV_NMAP_PATH` (default `/usr/bin/nmap`): `sudo apt install nmap`.                                                                                                                                                                                           |
+| Port checks refused (`network_not_approved` / `no_allowed_address`) | The target's addresses are not inside an approved network. Approve the range in **Settings → Approved networks**, then request a new scan.                                                                                                                                              |
+| `invalid_config` mentioning `EXDV_DENY_NETWORKS`                    | Each entry must be a canonical CIDR with host bits zero (`203.0.113.7/32`, `2001:db8:1:2::/64`) or a single address; at most 100.                                                                                                                                                       |
+| `429`                                                               | More than 120 requests per minute for the key. Raise `EXDV_POLL_INTERVAL_SECONDS`; check that only one worker process uses the key.                                                                                                                                                     |
+| Service in `failed` state, `start request repeated too quickly`     | Start limit reached (usually invalid configuration). `journalctl -u exdomainvault-worker -o cat -n 50`, fix, `sudo systemctl reset-failed exdomainvault-worker`, start again.                                                                                                           |
+| `invalid_config` at start                                           | Read the `detail` field; run `exdv_run --check-config` after each fix.                                                                                                                                                                                                                  |
+| `Failed to set up credentials` / status `243/CREDENTIALS`           | `/etc/exdomainvault/worker.key` is missing or unreadable by root.                                                                                                                                                                                                                       |
+| DNS checks all time out                                             | `EXDV_DNS_RESOLVERS` points at a LAN address blocked by `IPAddressDeny=`; unset it or add it to `IPAddressAllow=`.                                                                                                                                                                      |
 
 ## 14. Security notes
 
@@ -323,11 +363,68 @@ is in the application's Workers logs as `worker_auth_failed` with a `reason` fie
   the service account only for systemd's use). Never commit them, paste them into tickets, or log them.
 - **No GitHub self-hosted runner** on this machine: it would run untrusted workflow code next to the
   worker's credentials and network position.
-- **Active scanning is disabled.** The worker hard-codes `active_scanning_enabled = False` and the
-  application refuses active profiles while `ACTIVE_SCANNING_ENABLED=false`. Only passive DNS and RDAP
-  checks run until the Milestone 6 scope validator is complete and tested. When it is, Nmap is
-  installed as an OS package and run unprivileged (TCP connect scans; no `CAP_NET_RAW`).
+- **Active scanning is off by default.** The worker runs active checks only with
+  `EXDV_ACTIVE_SCANNING_ENABLED=true`, and the application refuses active profiles while its own
+  `ACTIVE_SCANNING_ENABLED` is `false` (both ship `false`). Until both are switched on only passive DNS
+  and RDAP checks run. Nmap runs unprivileged (TCP connect scans; no `CAP_NET_RAW`).
 - Keep the OS and Python packages patched (`sudo apt upgrade`, then step 11 for Python dependencies).
+
+## 15. Enabling active scanning
+
+Only after the owner has decided to enable it and the application side is ready (migration
+`0003_approved_networks` applied, Milestone 6 deployed, server `ACTIVE_SCANNING_ENABLED` set to
+`"true"` — see [`deployment.md`](deployment.md#enabling-active-scanning)). Both switches must be on;
+either one off stops active checks.
+
+1. **Install Nmap** (for `standard`/`deep` port checks): `sudo apt install nmap`.
+2. **Find the home's public addresses.** The worker detects them itself (below), but list them
+   explicitly so there is no gap:
+
+   ```bash
+   dig +short TXT CH whoami.cloudflare @1.1.1.1              # public IPv4, e.g. "203.0.113.7"
+   dig +short TXT CH whoami.cloudflare @2606:4700:4700::1111 # public IPv6 (if the host has IPv6)
+   ip -6 addr show scope global                              # global IPv6 addresses and their prefix
+   ```
+
+   Use the IPv4 as `/32` and the IPv6 prefix as `/64` with the host bits zero (for
+   `2001:db8:1234:5678:a:b:c:d` that is `2001:db8:1234:5678::/64`).
+
+3. **Edit `worker.env`** (`sudoedit /etc/exdomainvault/worker.env`):
+
+   ```bash
+   EXDV_ACTIVE_SCANNING_ENABLED=true
+   EXDV_PROFILES=passive,quick,standard
+   EXDV_DENY_NETWORKS=203.0.113.7/32,2001:db8:1234:5678::/64
+   ```
+
+   Add `deep` to `EXDV_PROFILES` only if wanted. Optional: `EXDV_NMAP_PATH` (default `/usr/bin/nmap`).
+
+4. `exdv_run --check-config`, then `sudo systemctl restart exdomainvault-worker` (the switch is read at
+   start-up).
+5. **Check self-protection** in the journal:
+
+   ```bash
+   journalctl -u exdomainvault-worker -o cat | jq 'select(.message == "self_protection_refreshed")'
+   ```
+
+   Expect `egressDetected: true`, the interface networks and the egress address, and
+   `failClosed: false`.
+
+6. In the application (administrator): approve the organisation's own server ranges in **Settings →
+   Approved networks** before requesting `standard`/`deep` scans — port probes only reach approved
+   networks, and a job snapshots the approvals active when it is created.
+
+**How self-protection works.** While `EXDV_ACTIVE_SCANNING_ENABLED=true`, at start-up and then hourly
+the worker adds every local interface address (global IPv6 as its /64) and the public egress address
+(the `whoami.cloudflare` query above, sent to Cloudflare's resolver) to every active job's deny list,
+on top of `EXDV_DENY_NETWORKS`. If the IPv4 egress address cannot be detected **and**
+`EXDV_DENY_NETWORKS` is empty, web and network checks fail closed with `egress_ip_unknown` (passive
+checks still run). Detection counts IPv4 only, so **an IPv6-only host must set `EXDV_DENY_NETWORKS`**.
+Update the list when the ISP changes the address; a dynamic address is still detected within an hour.
+
+**Turning it off:** set `EXDV_ACTIVE_SCANNING_ENABLED=false` and restart (the running job's lease
+expires and it is retried; the worker then refuses active jobs), or have the application's switch
+turned off, which stops running active jobs at their next heartbeat.
 
 ## Alternative: container
 

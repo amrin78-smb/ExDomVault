@@ -42,8 +42,8 @@ also require authentication, so route existence isn't revealed.
 | Database unreachable                                                                   | `503 service_unavailable`               |
 
 Routes check their permission after authentication: scan reads need `scans:read`, requesting or
-cancelling a scan needs `scans:request`, and worker administration needs `settings:manage` (admin
-only); otherwise `403 forbidden`.
+cancelling a scan needs `scans:request`, worker administration needs `settings:manage` and approved
+networks need `scan_policies:manage` (both admin only); otherwise `403 forbidden`.
 
 **Providers** (`AUTH_PROVIDER`):
 
@@ -129,13 +129,13 @@ All domain endpoints use the `Domain` object:
   `warnings`: `idn` (contains non-ASCII characters), `mixed_script` (a label mixes scripts such as Latin
   and Cyrillic — possible homograph).
 - `registrationDataStatus`: `unknown` (not collected yet), `available`, `redacted`, `unavailable`.
-  Registration fields stay `null` until RDAP collection exists.
+  Registration fields are filled from the newest successful RDAP (`registration`) observation.
 - `verificationStatus`: `unverified` → `pending` (DNS challenge issued) → `verified`; `revoked` after an
   administrator revokes it. `verificationMethod` says how a verified domain was authorised: `dns_txt`
   (DNS proof) or `admin_attestation` (administrator authorisation, with `verificationExpiresAt` = its
   review date). The UI labels these "Verified (DNS)" and "Authorised (admin)".
-- **What verification gates:** only active scanning (later milestones). Passive monitoring (public DNS,
-  certificates, CT logs, registration data) is allowed for every domain, verified or not.
+- **What verification gates:** only active scanning. Passive monitoring (public DNS, certificates, CT
+  logs, registration data) is allowed for every domain, verified or not.
 
 ### Domain name rules
 
@@ -169,6 +169,31 @@ exists (enforced by the `domains_fqdn_key` unique index as well). Audited `domai
 
 `{ "domain": Domain, "verification": Challenge | null }` — the pending challenge, otherwise the most
 recent one. The challenge value is never returned here. Malformed or unknown ids → `404`.
+
+### `GET /api/v1/domains/:id/observations` — `domains:read`
+
+The latest scan observations for the domain (contract `domainObservationsResponseSchema` in
+`packages/shared/src/api/observations.ts`; unknown domain → `404`):
+
+```text
+{
+  "dns": [{ "hostname", "recordType", "ttl", "values": [], "resultStatus", "observedAt", "scanJobId" }],
+  "registration": { "registrar", "registeredAt", "expiresAt", "nameservers": [], "dataStatus", "resultStatus", "observedAt", "scanJobId" },
+  "tls": [{ "hostname", "ipAddress", "port", "protocolVersion", "notBefore", "notAfter", "issuer", "subject", "subjectAltNames": [], "fingerprintSha256", "hostnameMatches", "resultStatus", "observedAt", "scanJobId", "evidence": {} }],
+  "http": [{ "url", "ipAddress", "statusCode", "finalUrl", "redirectCount", "hstsEnabled", "resultStatus", "observedAt", "scanJobId", "evidence": {} }],
+  "ports": [{ "ipAddress", "port", "protocol", "state", "service", "resultStatus", "observedAt", "scanJobId", "evidence": {} }]
+}
+```
+
+- `dns`: latest observation per (hostname, record type), ≤ 500. `registration`: latest, or `null`.
+- `tls`: latest per (hostname, address, port); `evidence` holds `trusted`, `verifyError?` and `check`
+  (`tls_certificate` or `tls_configuration`, set by the server at ingestion).
+- `http`: latest per first URL; `evidence.hops` lists every hop with its decision, plus
+  `securityHeaders`, `server`, `xPoweredBy` when headers were checked.
+- `ports`: latest state per (address, port); `evidence` holds `method`, `reason?`, `product?`,
+  `version?`.
+- `tls`, `http` and `ports` are each capped at 500 rows and default to `[]`. Field meanings:
+  [`worker-protocol.md`](worker-protocol.md#active-checks-milestone-6).
 
 ### `PATCH /api/v1/domains/:id` — `domains:write`
 
@@ -233,8 +258,10 @@ constant time. Verification also requires the challenge to still be pending and 
 time. Audited `domain.verified` (with `dnssecAuthenticated`) or `domain.verification_failed`. `409` if
 already verified or no challenge has been issued.
 
-**Verification grants nothing else.** It does not create or approve assets, IP addresses or scan
-scope; hosting, CDN and cloud infrastructure need separate approval (later milestones).
+**Verification grants nothing else.** It does not create or approve IP addresses or network scope:
+network-tier checks (port probes, service identification) only reach
+[approved networks](#approved-networks--scan_policiesmanage). (The apex is approved as an asset when the
+first active scan is requested, see below.)
 
 ### Administrator authorisation — `domains:verify`
 
@@ -251,7 +278,11 @@ the end of that day (UTC).
   Set-based (a fixed number of statements), one transaction.
 - `POST /api/v1/domains/:id/revoke` — body `{ "reason": string (10–500) }`. Only for verified
   domains (`409` otherwise), either method. Domain becomes `revoked`; its verification record
-  `revoked`. A new DNS challenge or authorisation can follow.
+  `revoked`. A new DNS challenge or authorisation can follow. In the same transaction the domain's
+  active-profile jobs are stopped: queued ones are cancelled (`errorCode: domain_not_authorised`,
+  audited `scan.cancelled`), claimed/running ones get `cancelRequestedAt` (audited
+  `scan.cancel_requested`) and the worker is told to stop at its next heartbeat. Passive jobs are not
+  affected. An authorisation lapsing at its review date stops active jobs the same way (system actor).
 
 Audited per domain: `domain.authorised` (reason, reference, reviewBy, `source`: manual/bulk/import),
 `domain.verification_revoked` (reason, previous method), and `domain.authorisation_lapsed` (system,
@@ -284,11 +315,12 @@ nothing in the Cloudflare Worker contacts a scan target. Contracts: `packages/sh
 Lifecycle, leases and retries: [`architecture.md`](architecture.md#scan-jobs-and-the-worker-protocol).
 Safety rules: [`scan-safety.md`](scan-safety.md).
 
-| Permission        | Roles                  | Grants                                     |
-| ----------------- | ---------------------- | ------------------------------------------ |
-| `scans:read`      | admin, analyst, viewer | list profiles, list scans, scan detail     |
-| `scans:request`   | admin, analyst         | request a scan for a domain, cancel a scan |
-| `settings:manage` | admin                  | worker administration (`/api/v1/workers`)  |
+| Permission             | Roles                  | Grants                                          |
+| ---------------------- | ---------------------- | ----------------------------------------------- |
+| `scans:read`           | admin, analyst, viewer | list profiles, list scans, scan detail          |
+| `scans:request`        | admin, analyst         | request a scan for a domain, cancel a scan      |
+| `settings:manage`      | admin                  | worker administration (`/api/v1/workers`)       |
+| `scan_policies:manage` | admin                  | approved networks (`/api/v1/approved-networks`) |
 
 ### `GET /api/v1/scan-profiles` — `scans:read`
 
@@ -344,8 +376,10 @@ Targets: approved assets of the domain (exact label-boundary check against the d
 hostname, capped at the profile's `maxTargets`. Passive profiles always include the apex hostname. For
 active profiles, domain verification approves the apex as an asset (audited `asset.approved` with
 `basis: domain_verification`) unless that asset was explicitly rejected or suspended. The scope is frozen
-into the job's immutable `scopeSnapshot`. Audited `scan.requested` (domain, profile, active, target count,
-reason).
+into the job's immutable `scopeSnapshot`, together with — for active profiles only — every currently
+active [approved network](#approved-networks--scan_policiesmanage) (networks are organisation-wide;
+passive snapshots carry none). Audited `scan.requested` (domain, profile, active, target count,
+approved-network count, reason).
 
 ### `GET /api/v1/scans` — `scans:read`
 
@@ -393,7 +427,9 @@ queued.
 (`pending`, `running`, `succeeded`, `failed`, `skipped`), `startedAt`, `completedAt`, `errorCode`.
 `ScopeSnapshot` (version 1): `createdAt`, `requestedBy`, `trigger`, `domain` (`id`, `fqdn` and its
 verification status, method and expiry at request time), `profile` (`key`, `version`, full `config`),
-`targets` (`assetId`, `hostname`). Malformed or unknown ids → `404`.
+`targets` (`assetId`, `hostname`), `approvedNetworks` (canonical CIDRs captured at creation; the
+networks a running job may actually probe are this list intersected with the approvals still active).
+Malformed or unknown ids → `404`.
 
 ### `POST /api/v1/scans/:id/cancel` — `scans:request`
 
@@ -401,10 +437,73 @@ No body. Returns the scan detail.
 
 - `queued` → `cancelled` immediately (`errorCode: cancelled`, unfinished targets `skipped`); audited
   `scan.cancelled`.
-- `claimed`/`running` → `cancelRequestedAt` is set and the worker is told at its next heartbeat; the job
+- `claimed`/`running` → `cancelRequestedAt` is set and the worker is told at its next heartbeat (the
+  worker then stops in-progress HTTP checks between hops and kills a running Nmap); the job
   becomes `cancelled` when the worker reports a failure or when the lease reaper finds the lease expired.
   Audited `scan.cancel_requested`. Repeating the request is a no-op.
 - Already `succeeded`/`failed`/`cancelled` → `409 conflict`.
+
+## Approved networks — `scan_policies:manage`
+
+Admin-approved networks are the **only** destinations of network-tier checks (`tcp_ports`,
+`service_identification`, `tls_configuration`). Domain verification never authorises them; web-tier
+checks (TLS certificate, HTTP) do not need them. Contracts: `packages/shared/src/api/networks.ts`;
+service `apps/web/worker/services/networks.ts`. Every endpoint requires `scan_policies:manage` (admin
+only); state-changing calls need a same-origin `Origin` (CSRF).
+
+`ApprovedNetwork`:
+
+```json
+{
+  "id": "uuid",
+  "cidr": "203.0.113.0/24",
+  "label": "Primary web servers",
+  "reason": "Owned range, contract ABC-123",
+  "reference": "ABC-123",
+  "createdBy": { "id": "uuid", "email": "admin@example.com" },
+  "createdAt": "…",
+  "expiresAt": "…",
+  "revokedAt": null,
+  "revokeReason": null
+}
+```
+
+An approval is **active** while `revokedAt` is null and `expiresAt` (end of the review day, UTC) is in
+the future. Expiry is evaluated wherever the set is used (job creation, claim, heartbeat, ingestion);
+there is no status column.
+
+| Endpoint                                    | Body                                            | Response                                      | Audit              |
+| ------------------------------------------- | ----------------------------------------------- | --------------------------------------------- | ------------------ |
+| `GET /api/v1/approved-networks`             | —                                               | `{ items: ApprovedNetwork[] }` (newest first) | —                  |
+| `POST /api/v1/approved-networks`            | `{ cidr, label, reason, reference?, reviewBy }` | `201 ApprovedNetwork`                         | `network.approved` |
+| `POST /api/v1/approved-networks/:id/revoke` | `{ reason }`                                    | `ApprovedNetwork`                             | `network.revoked`  |
+
+Validation for `POST` (`400 validation_failed` with a field error unless noted):
+
+- `cidr` (2–64 chars, trimmed): an IPv4 or IPv6 network in CIDR notation, or a single address (stored
+  as `/32` / `/128`), parsed strictly (no alternative IPv4 encodings, no zone ids) and stored in
+  canonical form; host bits are cleared (`203.0.113.7/24` is stored as `203.0.113.0/24`).
+- Entirely public: it must not overlap any range in the shared prohibited table
+  (`packages/shared/src/net/prohibited-ranges.ts`) in either direction, and IPv6 must lie inside
+  `2000::/3`. The error names the category (e.g. `private`, `documentation`).
+- No broader than **/16 (IPv4)** or **/32 (IPv6)**, so one approval cannot cover a whole provider.
+- `label` 1–100 chars; `reason` 10–500 chars; `reference` ≤ 200 chars (empty → null).
+- `reviewBy` `YYYY-MM-DD`, in the future and within 24 months; the approval lapses at the end of that
+  day (UTC).
+- **`409 conflict`** if the same network is already actively approved, or if it overlaps an active
+  approval ("Revoke it first"). Approvals are serialised with a transaction-scoped advisory lock, so two
+  concurrent overlapping requests cannot both succeed. A lapsed (never revoked) approval of the same
+  CIDR is closed automatically (`revokeReason: "Expired (review date passed)."`) so it can be approved
+  again.
+
+Revocation: `reason` 10–500 chars; unknown id → `404`; already revoked → `409`. The audit metadata
+records the CIDR, the reason and whether the approval was still active.
+
+Effect on jobs: active jobs snapshot the active networks at creation; at claim and at every heartbeat
+the snapshot is intersected with the approvals active at that moment, and the heartbeat sends the
+result to the worker, which shrinks (never widens) its scope. `port` and `tls_configuration`
+observations are rejected unless their address lies in that intersection at ingestion time. Revoking or
+letting an approval lapse therefore stops further probes of it within one heartbeat interval.
 
 ## Scanning workers (administration) — `settings:manage`
 
@@ -511,14 +610,29 @@ Body: `{ "profiles"?: string[] (≤10) }` — profiles this worker can run; omit
 The oldest due `queued` job (lowest `priority` first, then `scheduledAt`) with attempts left is claimed
 atomically. `targets` are the job's targets that are not yet `succeeded`/`failed`/`skipped`. Jobs with
 an active profile are re-authorised first; a refused job is cancelled (see architecture) and the next
-candidate is tried (up to 5 per call).
+candidate is tried (up to 5 per call). For active jobs, targets whose asset is no longer `approved` are
+marked `skipped` (`errorCode: asset_not_approved`) and left out; if none remain the job is cancelled
+with `no_approved_targets`. `snapshot.approvedNetworks` in the response is the creation-time list
+intersected with the approvals active now.
 
 ### `POST /api/v1/internal/worker/heartbeat`
 
 Body: `{ jobId, attempt, progress?: { completedTargets, totalTargets (0–100000), message? (≤200) } }`.
-Extends the lease by 300 s and moves the job to `running`. Response
-`{ "leaseExpiresAt": "…", "cancelRequested": boolean }`. When `cancelRequested` is true the worker should
-stop and report a failure with `errorCode: "cancelled"`.
+Extends the lease by 300 s and moves the job to `running`. Response:
+
+```json
+{ "leaseExpiresAt": "…", "cancelRequested": false, "approvedNetworks": ["203.0.113.0/24"] }
+```
+
+- The job's authorisation is re-checked on every heartbeat (same rules as claim: server
+  `ACTIVE_SCANNING_ENABLED` for active profiles, domain present and authorised, monitoring on for
+  scheduled jobs). If it fails, `cancelRequestedAt` is set (audited `scan.cancel_requested`, system
+  actor, with the reason) and the response is still `200`.
+- `cancelRequested` is true after a user cancel or when authorisation was withdrawn; the worker should
+  stop and report a failure with `errorCode: "cancelled"`.
+- `approvedNetworks` is the job's current network scope: snapshot ∩ approvals active now; `[]` for
+  passive jobs and for jobs that are no longer authorised. The worker intersects its scope with it and
+  never widens it.
 
 ### `POST /api/v1/internal/worker/results`
 
@@ -530,6 +644,7 @@ Body:
   "attempt": 1,
   "resultId": "8–128 chars of A–Z a–z 0–9 _ -",
   "targets": [{ "targetId": "uuid", "status": "succeeded", "errorCode": "optional_snake_case" }],
+  "observations": [],
   "complete": false
 }
 ```
@@ -545,8 +660,20 @@ Body:
 - `complete: true` marks every target not reported as finished `failed` (`errorCode: not_reported`) and
   the job `succeeded` — also after a cancel request, since the work was done.
 - Response `{ "accepted": true, "status": "running" | "succeeded" }`.
+- `observations` (≤ 500, default `[]`): `dns`, `registration`, `tls`, `http`, `port` observations
+  (shapes and rules in [`worker-protocol.md`](worker-protocol.md#observations-milestone-5)), stored in
+  the same transaction. Any invalid observation rejects the whole submission (`400 validation_failed`
+  with the observation's index and field). Highlights: `tls.hostname` and the `http` URL host must equal
+  the target's hostname; addresses must be public unicast; `port` (and `tls` with
+  `check: "tls_configuration"`) addresses must lie in the job's currently approved networks; evidence
+  ≤ 16 KB (UTF-8 bytes).
+- **Authorisation withdrawn:** the job's authorisation is re-checked first. If it no longer holds, the
+  job is flagged for cancellation (committed), and a submission containing any `tls`, `http` or `port`
+  observation is refused with **`409 conflict`** ("This job is no longer authorised for active checks;
+  its active evidence was not accepted."). Status-only and passive (`dns`/`registration`) submissions
+  are still accepted. The worker treats any `409` as "stop work on this job".
 
-Milestone 4 records target status only; observation data and findings arrive in later milestones.
+Findings are not produced yet (Milestone 7).
 
 ### `POST /api/v1/internal/worker/failures`
 
