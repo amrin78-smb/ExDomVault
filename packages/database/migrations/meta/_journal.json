@@ -15,6 +15,13 @@
       "when": 1792652026263,
       "tag": "0001_domain_authorisation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792654843519,
+      "tag": "0002_scan_job_lifecycle",
+      "breakpoints": true
     }
   ]
 }

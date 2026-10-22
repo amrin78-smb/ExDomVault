@@ -45,7 +45,8 @@ export function toDomainDto(row: DomainRow): Domain {
 /** True for PostgreSQL unique-constraint violations, however the driver wraps them. */
 export function isUniqueViolation(err: unknown): boolean {
   for (let e: unknown = err, depth = 0; e && depth < 5; depth++) {
-    if (typeof e === 'object' && 'code' in e && (e as { code: unknown }).code === '23505') return true;
+    if (typeof e === 'object' && 'code' in e && (e as { code: unknown }).code === '23505')
+      return true;
     e = typeof e === 'object' && 'cause' in e ? (e as { cause: unknown }).cause : undefined;
   }
   return false;
@@ -122,14 +123,14 @@ export async function createDomain(
     return await db.transaction(async (tx) => {
       const row = firstRow(
         await tx
-        .insert(domains)
-        .values({
-          fqdn,
-          criticality: input.criticality,
-          businessOwner: input.businessOwner ?? null,
-          createdBy: actor.userId,
-        })
-        .returning(),
+          .insert(domains)
+          .values({
+            fqdn,
+            criticality: input.criticality,
+            businessOwner: input.businessOwner ?? null,
+            createdBy: actor.userId,
+          })
+          .returning(),
       );
       await writeAudit(tx as unknown as Database, {
         actorType: 'user',
@@ -177,7 +178,8 @@ export async function updateDomain(
       changes.businessOwner = { from: current.businessOwner, to: patch.businessOwner };
     }
     const monitoringChanged =
-      patch.monitoringEnabled !== undefined && patch.monitoringEnabled !== current.monitoringEnabled;
+      patch.monitoringEnabled !== undefined &&
+      patch.monitoringEnabled !== current.monitoringEnabled;
     if (monitoringChanged) set.monitoringEnabled = patch.monitoringEnabled;
 
     if (Object.keys(set).length === 0) return current;
@@ -197,7 +199,10 @@ export async function updateDomain(
       });
     if (Object.keys(changes).length > 0) await audit('domain.updated', { changes });
     if (monitoringChanged) {
-      await audit(patch.monitoringEnabled ? 'domain.monitoring_enabled' : 'domain.monitoring_disabled', {});
+      await audit(
+        patch.monitoringEnabled ? 'domain.monitoring_enabled' : 'domain.monitoring_disabled',
+        {},
+      );
     }
     return updated;
   });

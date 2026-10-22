@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, Construction } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { CriticalityLabel, VerificationBadge } from '../../components/domains/DomainBadges.tsx';
+import { DomainScansCard } from '../../components/domains/DomainScansCard.tsx';
 import { DomainSettingsCard } from '../../components/domains/DomainSettingsCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -119,10 +120,12 @@ export function DomainDetailPage() {
           )}
         </Card>
 
+        <DomainScansCard domain={domain} />
+
         <Card title="DNS, certificates, assets and findings">
           <EmptyState title="Nothing collected yet" icon={Construction}>
-            DNS records, nameservers, certificate status, discovered assets, scan history and
-            findings appear here once scanning is in place (Milestones 4–9).
+            DNS records, nameservers, certificate status, discovered assets and findings appear here
+            once the scanning worker reports results (Milestones 5–9).
           </EmptyState>
         </Card>
       </div>

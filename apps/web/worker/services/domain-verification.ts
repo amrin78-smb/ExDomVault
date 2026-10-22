@@ -176,11 +176,16 @@ export async function expireStaleChallenges(
 }
 
 /** The pending challenge if there is one, otherwise the most recent. */
-export async function latestChallenge(db: Database, domainId: string): Promise<ChallengeRow | null> {
+export async function latestChallenge(
+  db: Database,
+  domainId: string,
+): Promise<ChallengeRow | null> {
   const [pending] = await db
     .select()
     .from(domainVerifications)
-    .where(and(eq(domainVerifications.domainId, domainId), eq(domainVerifications.status, 'pending')))
+    .where(
+      and(eq(domainVerifications.domainId, domainId), eq(domainVerifications.status, 'pending')),
+    )
     .limit(1);
   if (pending) return pending;
   const [latest] = await db
@@ -219,16 +224,16 @@ export async function createChallenge(
       .returning({ id: domainVerifications.id });
     const inserted = firstRow(
       await tx
-      .insert(domainVerifications)
-      .values({
-        domainId,
-        method: 'dns_txt',
-        challengeHash,
-        createdBy: actor.userId,
-        createdAt: now,
-        expiresAt,
-      })
-      .returning(),
+        .insert(domainVerifications)
+        .values({
+          domainId,
+          method: 'dns_txt',
+          challengeHash,
+          createdBy: actor.userId,
+          createdAt: now,
+          expiresAt,
+        })
+        .returning(),
     );
     await tx.update(domains).set({ verificationStatus: 'pending' }).where(eq(domains.id, domainId));
     await writeAudit(tx as unknown as Database, {
@@ -251,7 +256,11 @@ export async function createChallenge(
 
   return {
     challenge: toChallengeDto(row, fqdn),
-    record: { type: 'TXT', name: challengeRecordName(fqdn), value: `${CHALLENGE_VALUE_PREFIX}${token}` },
+    record: {
+      type: 'TXT',
+      name: challengeRecordName(fqdn),
+      value: `${CHALLENGE_VALUE_PREFIX}${token}`,
+    },
   };
 }
 
@@ -348,10 +357,17 @@ export async function checkChallenge(
       const [updated] = await tx
         .update(domainVerifications)
         .set({ failureReason: outcome })
-        .where(and(eq(domainVerifications.id, challenge.id), eq(domainVerifications.status, 'pending')))
+        .where(
+          and(eq(domainVerifications.id, challenge.id), eq(domainVerifications.status, 'pending')),
+        )
         .returning();
       await audit('domain.verification_failed', { outcome });
-      return { outcome, message: OUTCOME_MESSAGES[outcome], domain, challenge: updated ?? challenge };
+      return {
+        outcome,
+        message: OUTCOME_MESSAGES[outcome],
+        domain,
+        challenge: updated ?? challenge,
+      };
     }
 
     // The challenge must still be the live one: not superseded or expired since the lookup began.
@@ -367,7 +383,11 @@ export async function checkChallenge(
       )
       .returning();
     if (!verified) {
-      throw new ApiError(409, 'conflict', 'The verification value changed during the check. Try again.');
+      throw new ApiError(
+        409,
+        'conflict',
+        'The verification value changed during the check. Try again.',
+      );
     }
     const updatedDomain = firstRow(
       await tx

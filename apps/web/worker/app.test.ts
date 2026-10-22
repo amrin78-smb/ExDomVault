@@ -1,11 +1,7 @@
 // @vitest-environment node
 import { createTestDatabase, type TestDatabase } from '@exdomainvault/database/testing';
 import { schema } from '@exdomainvault/database';
-import {
-  errorResponseSchema,
-  healthResponseSchema,
-  meResponseSchema,
-} from '@exdomainvault/shared';
+import { errorResponseSchema, healthResponseSchema, meResponseSchema } from '@exdomainvault/shared';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDeps } from './app.ts';

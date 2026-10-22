@@ -22,17 +22,18 @@ function validationFailed(error: z.ZodError): ApiError {
 export async function parseJsonBody<S extends z.ZodType>(
   c: Context<AppBindings>,
   schema: S,
+  maxBytes = MAX_JSON_BYTES,
 ): Promise<z.output<S>> {
   const contentType = c.req.header('Content-Type') ?? '';
   if (!/^application\/json\b/i.test(contentType)) {
     throw new ApiError(400, 'bad_request', 'Content-Type must be application/json.');
   }
   const declared = Number(c.req.header('Content-Length') ?? '0');
-  if (declared > MAX_JSON_BYTES) {
+  if (declared > maxBytes) {
     throw new ApiError(400, 'bad_request', 'The request body is too large.');
   }
   const text = await c.req.text();
-  if (text.length > MAX_JSON_BYTES) {
+  if (new TextEncoder().encode(text).byteLength > maxBytes) {
     throw new ApiError(400, 'bad_request', 'The request body is too large.');
   }
 

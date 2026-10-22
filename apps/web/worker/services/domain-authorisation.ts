@@ -45,7 +45,10 @@ interface NormalisedAuthorisation {
   deadline: Date;
 }
 
-export function prepareAuthorisation(input: AuthorisationInput, now: Date): NormalisedAuthorisation {
+export function prepareAuthorisation(
+  input: AuthorisationInput,
+  now: Date,
+): NormalisedAuthorisation {
   return {
     reason: input.reason.trim(),
     reference: input.reference?.trim() || null,
@@ -89,7 +92,9 @@ export async function authoriseWithin(
   const superseded = await tx
     .update(domainVerifications)
     .set({ status: 'superseded' })
-    .where(and(inArray(domainVerifications.domainId, ids), eq(domainVerifications.status, 'pending')))
+    .where(
+      and(inArray(domainVerifications.domainId, ids), eq(domainVerifications.status, 'pending')),
+    )
     .returning({ id: domainVerifications.id, domainId: domainVerifications.domainId });
   const records = await tx
     .insert(domainVerifications)
@@ -168,7 +173,11 @@ export async function revokeDomain(
     const [domain] = await tx.select().from(domains).where(eq(domains.id, id)).for('update');
     if (!domain) throw new ApiError(404, 'not_found', 'The requested resource was not found.');
     if (domain.verificationStatus !== 'verified') {
-      throw new ApiError(409, 'conflict', 'Only a verified domain can have its verification revoked.');
+      throw new ApiError(
+        409,
+        'conflict',
+        'Only a verified domain can have its verification revoked.',
+      );
     }
     const [updated] = await tx
       .update(domains)

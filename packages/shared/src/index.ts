@@ -3,6 +3,8 @@ export * from './api/errors.ts';
 export * from './api/health.ts';
 export * from './api/me.ts';
 export * from './api/pagination.ts';
+export * from './api/scans.ts';
+export * from './api/workers.ts';
 export * from './domain/permissions.ts';
 export * from './domain/roles.ts';
 export * from './domain/severity.ts';

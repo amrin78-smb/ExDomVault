@@ -41,7 +41,11 @@ export const requireAuth = (deps: AuthProviderDeps = {}) => {
 
     const result = await provider.authenticate(c.req.raw);
     if (!result.ok) {
-      logger.warn('auth_failed', { provider: provider.kind, reason: result.reason, detail: result.detail });
+      logger.warn('auth_failed', {
+        provider: provider.kind,
+        reason: result.reason,
+        detail: result.detail,
+      });
       throw new ApiError(401, 'unauthenticated', 'Authentication is required.');
     }
 

@@ -19,6 +19,9 @@
     // API paths must always reach the Worker, never fall back to index.html.
     "run_worker_first": ["/api/*"],
   },
+  // Housekeeping every 5 minutes: requeue jobs with expired leases, expire verification challenges,
+  // prune worker request nonces, schedule daily passive monitoring jobs.
+  "triggers": { "crons": ["*/5 * * * *"] },
   "observability": {
     "enabled": true,
   },
@@ -42,6 +45,9 @@
     "AUTH_PROVIDER": "cloudflare_access",
     "ACCESS_TEAM_DOMAIN": "fragrant-grass-4d8f.cloudflareaccess.com",
     "ACCESS_AUD": "e777f0cfe2a4f69ed8221bbbfd3fb02b0bf297b4cfc1d0247df9d5f080683b41",
+    // Jobs with active (target-contacting) scan profiles are refused until the Milestone 6 scope
+    // validator is complete. Passive monitoring jobs are unaffected.
+    "ACTIVE_SCANNING_ENABLED": "false",
     // BOOTSTRAP_ADMIN_EMAILS (comma-separated emails that become administrators on first sign-in)
     // is a Worker secret in production so it is not committed: `wrangler secret put`.
   },

@@ -1,4 +1,10 @@
 import {
+  scanJobDetailResponseSchema,
+  scanJobListResponseSchema,
+  scanProfileListResponseSchema,
+  workerCredentialCreatedResponseSchema,
+  workerListResponseSchema,
+  workerSchema,
   bulkAuthoriseResponseSchema,
   createChallengeResponseSchema,
   domainDetailResponseSchema,
@@ -12,6 +18,13 @@ import {
   type AuthorisationInput,
   type BulkAuthoriseResponse,
   type CreateChallengeResponse,
+  type CreateScanRequest,
+  type RegisterWorkerRequest,
+  type ScanJobDetailResponse,
+  type ScanJobListResponse,
+  type ScanProfileListResponse,
+  type Worker,
+  type WorkerCredentialCreatedResponse,
   type CreateDomainRequest,
   type DomainDetailResponse,
   type DomainListResponse,
@@ -23,7 +36,7 @@ import {
   type UpdateDomainRequest,
   type VerifyDomainResponse,
 } from '@exdomainvault/shared';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 export class ApiClientError extends Error {
   override name = 'ApiClientError';
@@ -154,5 +167,56 @@ export const api = {
       }),
     revoke: (id: string, reason: string): Promise<DomainDetailResponse> =>
       sendJson('POST', `${domainPath(id)}/revoke`, domainDetailResponseSchema, { reason }),
+    /** Queues a scan; returns immediately (the worker runs it asynchronously). */
+    requestScan: (id: string, body: CreateScanRequest): Promise<ScanJobDetailResponse> =>
+      sendJson('POST', `${domainPath(id)}/scans`, scanJobDetailResponseSchema, body),
+  },
+
+  scanProfiles: (init?: RequestInit): Promise<ScanProfileListResponse> =>
+    getJson('/api/v1/scan-profiles', scanProfileListResponseSchema, init),
+
+  scans: {
+    list: (
+      params: Record<string, string | number | undefined>,
+      init?: RequestInit,
+    ): Promise<ScanJobListResponse> =>
+      getJson(`/api/v1/scans${toQuery(params)}`, scanJobListResponseSchema, init),
+    get: (id: string, init?: RequestInit): Promise<ScanJobDetailResponse> =>
+      getJson(`/api/v1/scans/${encodeURIComponent(id)}`, scanJobDetailResponseSchema, init),
+    cancel: (id: string): Promise<ScanJobDetailResponse> =>
+      sendJson(
+        'POST',
+        `/api/v1/scans/${encodeURIComponent(id)}/cancel`,
+        scanJobDetailResponseSchema,
+      ),
+  },
+
+  workers: {
+    list: (init?: RequestInit): Promise<{ items: Worker[] }> =>
+      getJson('/api/v1/workers', workerListResponseSchema, init),
+    register: (body: RegisterWorkerRequest): Promise<WorkerCredentialCreatedResponse> =>
+      sendJson('POST', '/api/v1/workers', workerCredentialCreatedResponseSchema, body),
+    addKey: (id: string, publicKey: string): Promise<WorkerCredentialCreatedResponse> =>
+      sendJson(
+        'POST',
+        `/api/v1/workers/${encodeURIComponent(id)}/credentials`,
+        workerCredentialCreatedResponseSchema,
+        { publicKey },
+      ),
+    revokeKey: (id: string, credentialId: string): Promise<{ worker: Worker }> =>
+      sendJson(
+        'POST',
+        `/api/v1/workers/${encodeURIComponent(id)}/credentials/${encodeURIComponent(credentialId)}/revoke`,
+        z.object({ worker: workerSchema }),
+      ),
+    setStatus: (id: string, status: 'active' | 'disabled'): Promise<{ worker: Worker }> =>
+      sendJson(
+        'PATCH',
+        `/api/v1/workers/${encodeURIComponent(id)}`,
+        z.object({ worker: workerSchema }),
+        {
+          status,
+        },
+      ),
   },
 };

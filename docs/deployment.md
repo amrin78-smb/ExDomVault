@@ -13,7 +13,7 @@ deploy or change Cloudflare/Neon account settings without explicit permission.
 | Access team domain | `fragrant-grass-4d8f.cloudflareaccess.com`                                                             |
 | Hyperdrive         | `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) → Neon `production` direct endpoint            |
 | Database role      | `exdomainvault_app` (least privilege, see below)                                                       |
-| Neon `production`  | migrated (`0000_initial_schema`, 22 tables)                                                            |
+| Neon `production`  | migrated through `0001_domain_authorisation`; **`0002_scan_job_lifecycle` not applied yet**            |
 | Worker secrets     | `BOOTSTRAP_ADMIN_EMAILS`                                                                               |
 | Verified           | unauthenticated `/`, `/api/*` and forged assertion header → 302 to Access login; owner sign-in → admin |
 
@@ -123,6 +123,78 @@ of the Worker so unauthenticated users never reach it.
 If `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` is empty, every protected API route returns `503` and
 `/api/v1/health` reports `auth: not_configured`. The development sign-in (`AUTH_PROVIDER=dev`) is refused
 when `APP_ENV=production`.
+
+## Scan job lifecycle (Milestone 4)
+
+### Migration before deploy
+
+The Milestone 4 code reads `worker_credentials`, `worker_request_nonces`, `scan_job_results` and the
+seeded `scan_profiles`. **Apply `0002_scan_job_lifecycle` to Neon `production` before deploying this
+code** (after verifying it on `dev`, with the owner's approval; see _Migrating production_). Otherwise
+the scan and worker endpoints and every Cron run fail. The new tables are created by the owner role, so
+the default privileges give `exdomainvault_app` DML on them (the nonce pruning needs `DELETE` on
+`worker_request_nonces`); re-check that `audit_logs` and `finding_status_history` stay append-only.
+
+### Cron Trigger
+
+`apps/web/wrangler.jsonc`:
+
+```jsonc
+"triggers": { "crons": ["*/5 * * * *"] },
+```
+
+`wrangler deploy` registers it with the Worker; the `scheduled()` handler in `apps/web/worker/index.ts`
+runs lease reaping, verification expiry/lapse, nonce pruning and passive-monitoring scheduling
+([`architecture.md`](architecture.md#scan-jobs-and-the-worker-protocol)). It connects through the same
+`HYPERDRIVE` binding; without it the run logs `maintenance_skipped` and does nothing. Results appear in
+Workers observability logs as `maintenance_step` / `maintenance_step_failed`.
+
+### `ACTIVE_SCANNING_ENABLED`
+
+A Worker var in `wrangler.jsonc`, set to `"false"`. Only `"true"` or `"false"` is accepted (anything else
+fails configuration closed); unset means `false`. While `false`, jobs with active profiles are refused at
+creation (`409`) and at claim time; passive monitoring is unaffected. **Keep it `false` until the
+Milestone 6 scope validator is complete and tested.** The Python worker has its own
+`active_scanning_enabled`, hard-coded `False`.
+
+### Registering the home worker
+
+1. On the worker machine, generate a key pair (the commands are also shown in **Settings → Workers**):
+
+   ```bash
+   openssl genpkey -algorithm ed25519 -out worker.key
+   chmod 600 worker.key
+   openssl pkey -in worker.key -pubout -outform DER | tail -c 32 | base64
+   ```
+
+   The last command prints the 44-character base64 public key. The private key never leaves the machine.
+
+2. In ExDomainVault as an administrator: **Settings → Scanning workers**, enter a name (e.g. `home-1`)
+   and paste the public key, then **Register worker**. Credentials expire after 365 days by default
+   (`expiresInDays` 1–730 via the API).
+3. Note the **key id** shown after registration (also in the worker's credential table). Configure the
+   worker with this key id and the path to `worker.key`; it sends the key id in `X-EDV-Key-Id`.
+4. Rotation: add a second key with `POST /api/v1/workers/:id/credentials` (API only for now), switch the
+   worker over, then revoke the old key in Settings. **Disable** stops all of a worker's requests at once.
+
+The Python worker does not yet speak this protocol; that is Milestone 5.
+
+### Owner action for Milestone 5: Cloudflare Access service token (not configured yet)
+
+Access protects the Worker for **all traffic**, so the home worker's requests to
+`/api/v1/internal/worker/*` are redirected to the Access login before they reach the Worker's signature
+check. Before the worker can connect, the owner needs to:
+
+1. **Zero Trust → Access → Service credentials → Service Tokens → Create service token** (e.g.
+   `exdomainvault-home-worker`), and record the Client ID and Client Secret once.
+2. On the ExDomainVault Access application, add a policy with action **Service Auth** that includes that
+   service token (keep the existing Allow policy for people).
+3. Give the worker the Client ID/Secret so it sends `CF-Access-Client-Id` and `CF-Access-Client-Secret`
+   headers alongside its signature headers.
+
+The service token only gets the request through Access; the Worker still requires the Ed25519 signature
+on every internal request, and service tokens are rejected on user routes (no email). None of this is
+configured yet.
 
 ## Application deployment
 

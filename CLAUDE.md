@@ -100,6 +100,8 @@ All from the repo root unless noted.
 
 **Live:** https://exdomainvault.amrin78.workers.dev behind Cloudflare Access (see `docs/deployment.md`). Deploy = `cd apps/web && npx wrangler deploy`, only with the user's approval.
 
+**Scan wiring:** jobs live in Postgres (`services/scans.ts`, `services/job-lifecycle.ts`); the worker calls `/api/v1/internal/worker/*` signed with Ed25519 (`middleware/worker-auth.ts`, shared `workerSigningString`), never with user sessions. Cron (`worker/index.ts` `scheduled` → `services/maintenance.ts`) reaps leases, expires verifications, prunes nonces, schedules passive jobs. `ACTIVE_SCANNING_ENABLED` stays `false` until Milestone 6. Worker-API tests use `worker/testing/harness.ts` (`workerCall` signs requests).
+
 **Auth wiring:** `AUTH_PROVIDER` = `cloudflare_access` (prod; vars `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`) or `dev` (local `.dev.vars`; refused in production). Unconfigured → protected routes 503. New routes go on the `authed` sub-app in `app.ts` and must add `requirePermission(...)`; audit privileged changes with `writeAudit()` in the same transaction. DB-backed tests use `createTestDatabase()` from `@exdomainvault/database/testing` (PGlite) via `createApp({ connect })`.
 
 ## Code map

@@ -37,14 +37,22 @@ describe('resolveUser', () => {
 
   it('bootstraps a listed email as administrator, once, with an audit record', async () => {
     const first = await resolveUser(t.db, identity(), opts(['alice@example.com']));
-    expect(first).toMatchObject({ ok: true, created: true, user: { role: 'admin', email: 'alice@example.com' } });
+    expect(first).toMatchObject({
+      ok: true,
+      created: true,
+      user: { role: 'admin', email: 'alice@example.com' },
+    });
 
     const second = await resolveUser(t.db, identity(), opts(['alice@example.com']));
     expect(second).toMatchObject({ ok: true, created: false });
 
     const audit = await t.db.select().from(schema.auditLogs);
     expect(audit).toHaveLength(1);
-    expect(audit[0]).toMatchObject({ action: 'user.bootstrap_admin', actorType: 'system', requestId: 'req-1' });
+    expect(audit[0]).toMatchObject({
+      action: 'user.bootstrap_admin',
+      actorType: 'system',
+      requestId: 'req-1',
+    });
   });
 
   it('binds a pre-provisioned user on first sign-in and keeps their role', async () => {
@@ -67,7 +75,9 @@ describe('resolveUser', () => {
       authProvider: 'cloudflare_access',
       authProviderSubject: 'original-sub',
     });
-    expect(await resolveUser(t.db, identity({ subject: 'attacker-sub' }), opts(['alice@example.com']))).toEqual({
+    expect(
+      await resolveUser(t.db, identity({ subject: 'attacker-sub' }), opts(['alice@example.com'])),
+    ).toEqual({
       ok: false,
       reason: 'identity_conflict',
     });
@@ -84,9 +94,15 @@ describe('resolveUser', () => {
   });
 
   it('only refreshes last_login_at periodically', async () => {
-    await resolveUser(t.db, identity(), { ...opts(['alice@example.com']), now: new Date('2026-10-22T00:00:00Z') });
+    await resolveUser(t.db, identity(), {
+      ...opts(['alice@example.com']),
+      now: new Date('2026-10-22T00:00:00Z'),
+    });
     await resolveUser(t.db, identity(), { ...opts(), now: new Date('2026-10-22T00:05:00Z') });
-    const [row] = await t.db.select().from(schema.users).where(eq(schema.users.email, 'alice@example.com'));
+    const [row] = await t.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, 'alice@example.com'));
     expect(row!.lastLoginAt?.toISOString()).toBe('2026-10-22T00:00:00.000Z');
   });
 });

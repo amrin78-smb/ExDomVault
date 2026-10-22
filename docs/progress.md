@@ -9,7 +9,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 1   | Repository foundation                      | done        |                                         |
 | 2   | Database and authentication                | done        | Deployed; production migrated           |
 | 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
-| 4   | Scan job lifecycle                         | not started |                                         |
+| 4   | Scan job lifecycle                         | done        | Not deployed yet (needs migration 0002) |
 | 5   | Python worker                              | not started |                                         |
 | 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
 | 7   | Deterministic rules engine                 | not started |                                         |
@@ -19,6 +19,15 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
+
+- 2026-10-22 — **Worker authentication uses Ed25519 request signatures, not HMAC.** The spec asked for credentials "stored hashed" and "HMAC-signed requests", which conflict (HMAC verification needs the secret). With Ed25519 the server stores only public keys, so nothing in the database can impersonate a worker. Signing string `EDV1\nMETHOD\npath\ntimestamp\nnonce\nsha256(body)`, ±300 s window, single-use nonces (DB primary key), 120 requests/min per key, keys expire (≤730 days), rotate (several active keys) and revoke. Small-order public keys are rejected.
+- 2026-10-22 — **Fencing token = attempt number.** Heartbeat/results/failures must quote the attempt returned by claim; a worker that lost its lease is refused (409). No extra column needed.
+- 2026-10-22 — **Profiles seeded by migration** (`passive`, `quick`, `standard`, `deep`) and validated with `scanProfileConfigSchema` on every read (an invalid stored profile is ignored = fail closed). `passive` (DNS + RDAP only) never contacts target hosts, so it runs for any domain (owner decision on verification).
+- 2026-10-22 — **Active scanning is refused server-side** (`ACTIVE_SCANNING_ENABLED=false` in `wrangler.jsonc`) until Milestone 6, both at job creation and again at claim time; active jobs are also re-checked against the domain's current authorisation at claim time.
+- 2026-10-22 — **One queued/active job per domain and profile** (partial unique index) instead of idempotency keys on create: duplicate clicks and overlapping schedules collapse.
+- 2026-10-22 — **Domain verification approves the apex as an asset** (audited `asset.approved`, basis `domain_verification`) when the first active scan is requested; a rejected/suspended apex is never re-approved implicitly.
+- 2026-10-22 — **No Cloudflare Queues:** the worker polls `claim` (state stays in Postgres; avoids another resource). **Cron Trigger every 5 min** runs lease reaping, verification expiry, nonce pruning and the daily passive scheduler (23 h interval, 200 domains per run, priority 200 behind manual scans).
+- 2026-10-22 — Retries: max 3 attempts, backoff 60 s × 2^(attempt−1) capped at 30 min; non-retryable errors fail immediately; `complete: true` marks unreported targets `failed/not_reported` (never "checked").
 
 - 2026-10-22 — **Verification gates only active scanning (owner decision).** Passive monitoring (public DNS, certificates, CT logs, registration data) is allowed for every domain; monitoring no longer requires verification. Milestones 4–6 must require `verification_status = 'verified'` (either method, review date not passed) before any active scan.
 - 2026-10-22 — **Second verification method: administrator authorisation (owner decision)** for owned domains whose DNS cannot carry a TXT record (317 of the 339 portfolio domains use the registrar's CSC DNS). Requires `domains:verify`, a reason (≥10 chars), optional reference, review-by date (default 12 months, max 24); audited per domain; labelled "Authorised (admin)" everywhere, distinct from "Verified (DNS)"; lapses on the review date. Available per domain, in bulk from the list, and as an option on CSV import.
@@ -72,7 +81,12 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~First production deploy~~ — done 2026-10-22: production migrated, `exdomainvault_app` + grants, Hyperdrive, Access, bootstrap admin signed in (details in `docs/deployment.md`).
 - [ ] Optional: replace the shared `demo-allowlist` Access policy with a dedicated ExDomainVault policy.
 - [ ] Optional: delete the `BOOTSTRAP_ADMIN_EMAILS` secret now that the first admin exists.
+- [ ] Milestone 5: create a Cloudflare Access **service token** and a Service Auth policy on the Worker so the home worker can reach `/api/v1/internal/worker/*`; register the worker's public key in Settings → Workers.
 - [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
+
+## Future enhancements (owner requests)
+
+- **Exposed software / vulnerability monitoring** (asked 2026-10-22, re CSA alert AL-2026-151 "PHP2Shell", CVE-2026-109618/-109619). Approach agreed in principle, not scheduled: the worker records product/version fingerprints it already sees (HTTP `Server`/`X-Powered-By`, cookies, TLS, limited service identification) with confidence levels (M5–6); deterministic rules for EOL versions, version disclosure and advisory matches reported as "possibly affected — verify" (M7); feed data (CISA KEV + a web-stack CVE/EOL feed, ideally published by nocvault-eol, which already serves Ed25519-signed EOL and firewall-CVE feeds) after M11. Caveats: distro backports keep old version strings, hidden banners mean "unknown" never "not affected", no exploit or vulnerability probing.
 
 ## Known limitations
 
@@ -84,6 +98,9 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - Registration (RDAP) data is not collected; the UI says "Not collected yet".
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
+- No worker exists yet (Milestone 5): queued scans stay queued. Scheduled passive jobs only start once monitoring is on for a domain; with no worker they wait (one per domain, no pile-up).
+- Result submissions carry target statuses only; observation payloads (DNS/RDAP/TLS/HTTP) are added with the worker in Milestones 5–6.
+- The home worker will need a Cloudflare Access service token + Service Auth policy to reach `/api/v1/internal/worker/*` (the hostname is behind Access for all traffic).
 - No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
 
 ## Session log
@@ -158,3 +175,20 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 **Checks:** lint pass · typecheck pass · build pass · `db:check` pass, no drift · `npm test` 18 files / 235 tests pass (+ constraint and backfill migration tests, authorisation API incl. review-date validation, RBAC, bulk skip rules, lapse at end of review day, revoke, import+authorise and rollback, UI flows) · Neon `dev` migrated (`0001`) · rehearsal on `dev`: full 339-row portfolio import with authorisation → 339 created/authorised, 1.4 s, audit rows per domain.
 
 **Production (owner-approved):** Neon `production` migrated with `0001` (existing `thaiunion.com` unchanged; `exdomainvault_app` has privileges on the new columns), then deployed as version `5d9dae9a-0ec1-45d8-8b3e-226db24a33e5`. Unauthenticated requests, including a forged-token POST to `/domains/authorise`, → 302 to Access.
+
+### Milestone 4 — 2026-10-22
+
+**Built:** migration `0002_scan_job_lifecycle` (worker credentials, request nonces, processed results, one-active-job index, seeded profiles); shared contracts for profiles, jobs, snapshots, worker admin and the signed worker protocol; services for scan creation (immutable snapshot + targets, apex approval, active gating), listing/detail/cancel, claim (`FOR UPDATE SKIP LOCKED`, lease, attempt fencing, claim-time re-authorisation), heartbeat, idempotent results, failures with bounded backoff, lease reaper, passive scheduler, nonce pruning; Ed25519 worker-auth middleware (timestamp window, nonce replay, rate limit, revocation/expiry/disabled checks); worker admin API; Cron Trigger (`scheduled` handler, every 5 min); `ACTIVE_SCANNING_ENABLED` flag. UI: Scans list and detail (auto-refresh while active, cancel), Scans card on domain detail, Settings → Workers (register key, revoke, disable). Docs: API spec, architecture, database schema, deployment, scan safety.
+
+**Checks:**
+
+- `npm run lint` pass · `npm run typecheck` pass · `npm run build` pass · `npm run db:check` pass, no drift
+- `npm test` — 21 files, 279 tests pass (incl. 29 scan/worker API tests: one job to one worker, lease expiry → requeue with backoff → old attempt fenced, retry ceiling, non-retryable failure, duplicate result no-op, foreign target rejected, cancellation queued/running, claim-time refusal, active flag; signature tests: unsigned, tampered body, wrong key, stale timestamp, unknown key, replayed nonce, revoked/expired key, disabled worker, rate limit, user session refused; small-order key rejection; scheduler idempotency; UI tests)
+- Neon `dev` migrated (`0002`); local workerd + Neon `dev`: Cron handler ran all four steps and scheduled 30 passive jobs; **40 concurrent signed claims from two workers → 30 jobs claimed, 30 unique, 10 empty (real PostgreSQL `SKIP LOCKED`)**, heartbeat, results, replayed result → `accepted: false`, other worker → 409. Test data removed afterwards.
+- A unit test caught that an all-zero (small-order) Ed25519 key was accepted → now rejected.
+- A parallel docs agent reviewed the code while documenting it; fixed from its findings: body limits now in bytes and 1 MB on the worker API, refused jobs' targets marked `skipped`, scheduled jobs refused if monitoring was turned off, scheduler applies the label-boundary check, duplicate-result lookup limited to the submitting worker (no status probing), final target statuses can no longer regress, UI shows lapsed authorisations, stale schema comment. Left as documented behaviour: a job completed after a cancel request ends `succeeded`; profile `default_schedule` is not used yet (only passive is scheduled); key rotation is API-only.
+- `worker:test` not run — Python worker unchanged (Milestone 5).
+
+**Not deployed:** production needs migration `0002` then deploy (owner approval).
+
+**Next:** Milestone 5 — Python worker (`docs/prompts/05-python-worker.md`), split across parallel agents.

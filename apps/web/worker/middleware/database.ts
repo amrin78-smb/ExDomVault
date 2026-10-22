@@ -23,7 +23,11 @@ export const database = (connector: Connector = (cs) => connect(cs)) =>
           c.get('logger').error('database_connect_failed', {
             error: err instanceof Error ? err.message : String(err),
           });
-          throw new ApiError(503, 'service_unavailable', 'The database is temporarily unavailable.');
+          throw new ApiError(
+            503,
+            'service_unavailable',
+            'The database is temporarily unavailable.',
+          );
         });
       }
       return (await pending).db;

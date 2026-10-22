@@ -20,7 +20,7 @@ import { scanProfiles, workerRegistry } from './system.ts';
 import { users } from './users.ts';
 
 /**
- * Durable scan job state. PostgreSQL is the source of truth; queue messages only notify.
+ * Durable scan job state. PostgreSQL is the source of truth (workers poll; no queue is used).
  * `scope_snapshot` is immutable once created so scope changes cannot enlarge a running job.
  */
 export const scanJobs = pgTable(
@@ -62,6 +62,11 @@ export const scanJobs = pgTable(
       .on(t.leaseExpiresAt)
       .where(sql`${t.status} IN ('claimed', 'running')`),
     index('scan_jobs_domain_idx').on(t.domainId, t.createdAt),
+    // At most one queued/active job per domain and profile: duplicate requests and overlapping
+    // schedules cannot pile up work for the same target.
+    uniqueIndex('scan_jobs_one_active_per_domain_profile')
+      .on(t.domainId, t.profile)
+      .where(sql`${t.status} IN ('queued', 'claimed', 'running')`),
     check(
       'scan_jobs_attempts_bounded',
       sql`${t.attempts} >= 0 AND ${t.attempts} <= ${t.maxAttempts}`,
@@ -93,4 +98,24 @@ export const scanJobTargets = pgTable(
     unique('scan_job_targets_key').on(t.scanJobId, t.targetHostname, t.targetIp).nullsNotDistinct(),
     index('scan_job_targets_asset_idx').on(t.assetId),
   ],
+);
+
+/**
+ * Result submissions already processed, keyed by the worker's idempotency key. A duplicate delivery
+ * finds its key here and changes nothing.
+ */
+export const scanJobResults = pgTable(
+  'scan_job_results',
+  {
+    id: id(),
+    scanJobId: uuid('scan_job_id')
+      .notNull()
+      .references(() => scanJobs.id, { onDelete: 'cascade' }),
+    resultId: text('result_id').notNull(),
+    attempt: integer('attempt').notNull(),
+    workerId: uuid('worker_id').references(() => workerRegistry.id, { onDelete: 'set null' }),
+    receivedAt: ts('received_at').notNull().defaultNow(),
+    summary: jsonb('summary').$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (t) => [uniqueIndex('scan_job_results_key').on(t.scanJobId, t.resultId)],
 );

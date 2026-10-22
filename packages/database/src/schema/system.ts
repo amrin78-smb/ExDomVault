@@ -1,12 +1,21 @@
-import { boolean, integer, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { createdAt, id, ts, updatedAt } from './common.ts';
 import { confidence, severity, workerStatus } from './enums.ts';
 import { users } from './users.ts';
 
-/**
- * Registered scanning workers. Credentials are NOT stored here; worker authentication is
- * designed in Milestone 4 with its own table.
- */
+/** Registered scanning workers. Credentials live in `worker_credentials`. */
 export const workerRegistry = pgTable(
   'worker_registry',
   {
@@ -20,6 +29,53 @@ export const workerRegistry = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex('worker_registry_name_key').on(t.name)],
+);
+
+/**
+ * Worker credentials: Ed25519 **public** keys only. The private key never leaves the worker, so the
+ * database holds nothing that could be used to impersonate it. Several keys may be valid at once
+ * (rotation); each expires and can be revoked.
+ */
+export const workerCredentials = pgTable(
+  'worker_credentials',
+  {
+    id: id(),
+    workerId: uuid('worker_id')
+      .notNull()
+      .references(() => workerRegistry.id, { onDelete: 'cascade' }),
+    /** Base64 of the raw 32-byte Ed25519 public key. */
+    publicKey: text('public_key').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    expiresAt: ts('expires_at').notNull(),
+    revokedAt: ts('revoked_at'),
+    lastUsedAt: ts('last_used_at'),
+  },
+  (t) => [
+    index('worker_credentials_worker_idx').on(t.workerId),
+    uniqueIndex('worker_credentials_public_key_key').on(t.publicKey),
+    check('worker_credentials_expiry_after_creation', sql`${t.expiresAt} > ${t.createdAt}`),
+  ],
+);
+
+/**
+ * Nonces of accepted worker requests, for replay protection within the signature time window.
+ * Also used to count requests per credential for rate limiting. Pruned after the window.
+ */
+export const workerRequestNonces = pgTable(
+  'worker_request_nonces',
+  {
+    credentialId: uuid('credential_id')
+      .notNull()
+      .references(() => workerCredentials.id, { onDelete: 'cascade' }),
+    nonce: text('nonce').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.credentialId, t.nonce] }),
+    index('worker_request_nonces_rate_idx').on(t.credentialId, t.createdAt),
+    index('worker_request_nonces_created_idx').on(t.createdAt),
+  ],
 );
 
 /** Server-defined scan profiles. The UI selects a profile; it never supplies scanner flags. */

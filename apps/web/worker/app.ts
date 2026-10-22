@@ -9,7 +9,10 @@ import { requestContext } from './middleware/request-context.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
 import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
+import { internalWorkerRoutes } from './routes/internal-worker.ts';
 import { meRoutes } from './routes/me.ts';
+import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
+import { workerAdminRoutes } from './routes/workers.ts';
 import type { AppBindings } from './types.ts';
 
 export interface AppDeps {
@@ -18,6 +21,8 @@ export interface AppDeps {
   connect?: Connector;
   auth?: AuthProviderDeps;
   domains?: DomainRouteDeps;
+  /** Clock for scans, workers and the internal worker API (tests). */
+  now?: () => Date;
 }
 
 /**
@@ -35,6 +40,8 @@ export function createApp(deps: AppDeps = {}) {
   // Public: liveness and configuration status only, no data.
   const v1 = new Hono<AppBindings>();
   v1.route('/health', healthRoutes(deps.health));
+  // Scanning worker: request-signature authentication, no user session, no CSRF (no cookies).
+  v1.route('/internal/worker', internalWorkerRoutes({ now: deps.now }));
 
   // Everything else requires an authenticated, provisioned user. Unknown paths also require
   // authentication, so route existence is not revealed to anonymous clients.
@@ -42,7 +49,10 @@ export function createApp(deps: AppDeps = {}) {
   authed.use('*', sameOriginWrites());
   authed.use('*', requireAuth(deps.auth));
   authed.route('/me', meRoutes);
-  authed.route('/domains', domainRoutes(deps.domains));
+  authed.route('/domains', domainRoutes({ now: deps.now, ...deps.domains }));
+  authed.route('/scan-profiles', scanProfileRoutes());
+  authed.route('/scans', scanRoutes({ now: deps.now }));
+  authed.route('/workers', workerAdminRoutes({ now: deps.now }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

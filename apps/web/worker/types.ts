@@ -16,5 +16,7 @@ export interface AppBindings {
     /** Set by requireAuth. */
     identity: Identity;
     user: CurrentUser;
+    /** Set by requireWorker on the internal worker API. */
+    worker: { id: string; name: string; credentialId: string };
   };
 }

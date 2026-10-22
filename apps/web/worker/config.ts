@@ -17,6 +17,7 @@ const rawConfigSchema = z.object({
   DEV_AUTH_EMAIL: optionalString,
   DEV_AUTH_NAME: optionalString,
   BOOTSTRAP_ADMIN_EMAILS: optionalString,
+  ACTIVE_SCANNING_ENABLED: optionalString,
 });
 
 export type AuthConfig =
@@ -30,6 +31,11 @@ export interface AppConfig {
   auth: AuthConfig;
   /** Lowercased emails that become administrators on first sign-in. */
   bootstrapAdminEmails: ReadonlySet<string>;
+  /**
+   * Whether jobs with active (target-contacting) profiles may be created. Off unless explicitly
+   * "true": active scanning stays disabled until the Milestone 6 scope validator is complete.
+   */
+  activeScanningEnabled: boolean;
 }
 
 export class ConfigError extends Error {
@@ -79,6 +85,12 @@ function parseAuth(raw: z.infer<typeof rawConfigSchema>, environment: AppEnviron
   }
 }
 
+function parseFlag(name: string, value: string | undefined): boolean {
+  if (value === undefined || value === 'false') return false;
+  if (value === 'true') return true;
+  throw new ConfigError(`${name} must be "true" or "false"`);
+}
+
 function parseEmails(value: string | undefined): Set<string> {
   const emails = (value ?? '')
     .split(',')
@@ -109,5 +121,6 @@ export function loadConfig(env: Record<string, unknown>): AppConfig {
     version: raw.APP_VERSION,
     auth: parseAuth(raw, raw.APP_ENV),
     bootstrapAdminEmails: parseEmails(raw.BOOTSTRAP_ADMIN_EMAILS),
+    activeScanningEnabled: parseFlag('ACTIVE_SCANNING_ENABLED', raw.ACTIVE_SCANNING_ENABLED),
   };
 }

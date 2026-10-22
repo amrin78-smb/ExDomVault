@@ -5,12 +5,15 @@ import { DomainDetailPage } from './pages/domains/DomainDetailPage.tsx';
 import { DomainImportPage } from './pages/domains/DomainImportPage.tsx';
 import { DomainsPage } from './pages/domains/DomainsPage.tsx';
 import { NotFoundPage } from './pages/NotFoundPage.tsx';
+import { ScanDetailPage } from './pages/scans/ScanDetailPage.tsx';
+import { ScansPage } from './pages/scans/ScansPage.tsx';
+import { SettingsPage } from './pages/settings/SettingsPage.tsx';
 import { OverviewPage } from './pages/OverviewPage.tsx';
 import { PlaceholderPage } from './pages/PlaceholderPage.tsx';
 import { RouteErrorPage } from './pages/RouteErrorPage.tsx';
 
 /** Sections with real pages; the rest render a placeholder naming their milestone. */
-const IMPLEMENTED = new Set(['/', '/domains']);
+const IMPLEMENTED = new Set(['/', '/domains', '/scans', '/settings']);
 
 export const routes: RouteObject[] = [
   {
@@ -22,6 +25,9 @@ export const routes: RouteObject[] = [
       { path: 'domains', element: <DomainsPage /> },
       { path: 'domains/import', element: <DomainImportPage /> },
       { path: 'domains/:id', element: <DomainDetailPage /> },
+      { path: 'scans', element: <ScansPage /> },
+      { path: 'scans/:id', element: <ScanDetailPage /> },
+      { path: 'settings', element: <SettingsPage /> },
       ...NAV_ITEMS.filter((item) => !IMPLEMENTED.has(item.path)).map((item) => ({
         path: item.path.slice(1),
         element: <PlaceholderPage item={item} />,

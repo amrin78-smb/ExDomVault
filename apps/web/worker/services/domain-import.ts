@@ -68,7 +68,8 @@ export async function previewImport(db: Database, csv: string): Promise<ImportPr
       `Unknown column${unknown.length > 1 ? 's' : ''}: ${unknown.map((u) => `"${u.slice(0, 40)}"`).join(', ')}. Allowed: domain, criticality, business_owner.`,
     );
   }
-  if (!columns.includes('domain')) fileErrors.push('The header row must include a "domain" column.');
+  if (!columns.includes('domain'))
+    fileErrors.push('The header row must include a "domain" column.');
   if (new Set(columns.filter(Boolean)).size !== columns.filter(Boolean).length) {
     fileErrors.push('A column appears more than once in the header row.');
   }
@@ -130,7 +131,8 @@ export async function previewImport(db: Database, csv: string): Promise<ImportPr
       .where(inArray(domains.fqdn, candidates));
     const existingSet = new Set(existing.map((e) => e.fqdn));
     for (const r of rows) {
-      if (r.status === 'valid' && r.fqdn && existingSet.has(r.fqdn)) r.status = 'already_registered';
+      if (r.status === 'valid' && r.fqdn && existingSet.has(r.fqdn))
+        r.status = 'already_registered';
     }
   }
 
@@ -160,7 +162,11 @@ export async function confirmImport(
   const auth = opts.authorisation ? prepareAuthorisation(opts.authorisation, opts.now) : null;
   const preview = await previewImport(db, csv);
   if (preview.digest !== digest) {
-    throw new ApiError(400, 'bad_request', 'The file changed after it was previewed. Preview it again.');
+    throw new ApiError(
+      400,
+      'bad_request',
+      'The file changed after it was previewed. Preview it again.',
+    );
   }
   if (preview.fileErrors.length > 0) {
     throw new ApiError(400, 'validation_failed', 'The file cannot be imported.', [
@@ -199,7 +205,12 @@ export async function confirmImport(
         resourceType: 'domain',
         resourceId: d.id,
         requestId: actor.requestId,
-        metadata: { fqdn: d.fqdn, criticality: d.criticality, source: 'import', importDigest: digest },
+        metadata: {
+          fqdn: d.fqdn,
+          criticality: d.criticality,
+          source: 'import',
+          importDigest: digest,
+        },
       })),
     );
     await writeAudit(tx as unknown as Database, {

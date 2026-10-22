@@ -88,9 +88,9 @@ describe('App shell', () => {
 
   it('navigates to a section placeholder', async () => {
     renderApp();
-    await userEvent.click(screen.getByRole('link', { name: 'Scans' }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Scans' })).toBeInTheDocument();
-    expect(screen.getByText(/implemented in Milestone 4/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'Reports' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument();
+    expect(screen.getByText(/implemented in Milestone 10/)).toBeInTheDocument();
   });
 
   it('reports API health from the typed health endpoint', async () => {

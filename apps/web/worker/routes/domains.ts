@@ -3,6 +3,7 @@ import {
   bulkAuthoriseRequestSchema,
   createDomainRequestSchema,
   hasPermission,
+  createScanRequestSchema,
   revokeRequestSchema,
   domainListQuerySchema,
   importConfirmRequestSchema,
@@ -18,6 +19,7 @@ import { createDohResolver, type TxtResolver } from '../lib/doh.ts';
 import { parseJsonBody, parseQuery, uuidParam } from '../lib/validation.ts';
 import { requirePermission } from '../middleware/auth.ts';
 import { authoriseDomains, revokeDomain } from '../services/domain-authorisation.ts';
+import { createScan, getScan } from '../services/scans.ts';
 import { confirmImport, previewImport } from '../services/domain-import.ts';
 import { ApiError } from '../lib/errors.ts';
 import {
@@ -92,7 +94,10 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         authorisation,
         now: now(),
       });
-      c.get('logger').info('domains_imported', { created: result.created.length, skipped: result.skipped });
+      c.get('logger').info('domains_imported', {
+        created: result.created.length,
+        skipped: result.skipped,
+      });
       return c.json(result, 201);
     })
     .post('/authorise', requirePermission('domains:verify'), async (c) => {
@@ -135,7 +140,10 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
       const id = uuidParam(c, 'id');
       const db = await c.get('db')();
       const res: CreateChallengeResponse = await createChallenge(db, id, actorOf(c), now());
-      c.get('logger').info('domain_verification_started', { domainId: id, challengeId: res.challenge.id });
+      c.get('logger').info('domain_verification_started', {
+        domainId: id,
+        challengeId: res.challenge.id,
+      });
       return c.json(res, 201);
     })
     .post('/:id/authorise', requirePermission('domains:verify'), async (c) => {
@@ -161,6 +169,18 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
       await revokeDomain(db, id, reason, actorOf(c));
       return c.json(await detailOf(db, id));
     })
+    .post('/:id/scans', requirePermission('scans:request'), async (c) => {
+      const id = uuidParam(c, 'id');
+      const body = await parseJsonBody(c, createScanRequestSchema);
+      const db = await c.get('db')();
+      await expireStaleChallenges(db, now(), id);
+      const jobId = await createScan(db, id, body, actorOf(c), now(), {
+        activeScanningEnabled: c.get('config').activeScanningEnabled,
+      });
+      c.get('logger').info('scan_requested', { jobId, domainId: id, profile: body.profile });
+      // 202: the scan runs asynchronously on the worker; poll GET /scans/:id.
+      return c.json(await getScan(db, jobId), 202);
+    })
     .post('/:id/verify', requirePermission('domains:verify'), async (c) => {
       const id = uuidParam(c, 'id');
       const db = await c.get('db')();
@@ -173,7 +193,9 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         outcome: result.outcome,
         message: result.message,
         domain: toDomainDto(result.domain),
-        verification: result.challenge ? toChallengeDto(result.challenge, result.domain.fqdn) : null,
+        verification: result.challenge
+          ? toChallengeDto(result.challenge, result.domain.fqdn)
+          : null,
       };
       return c.json(res);
     });

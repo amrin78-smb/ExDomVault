@@ -28,8 +28,9 @@ lists **implemented** endpoints; the full planned surface is in `docs/design.md`
 
 ## Authentication and authorisation
 
-Every route except `/health` requires an authenticated, provisioned user. Unknown paths also require
-authentication, so route existence isn't revealed.
+Every route except `/health` and the signed internal worker API (`/api/v1/internal/worker/*`, see
+[below](#internal-worker-api--signed-requests)) requires an authenticated, provisioned user. Unknown paths
+also require authentication, so route existence isn't revealed.
 
 | Situation                                                                              | Response                                |
 | -------------------------------------------------------------------------------------- | --------------------------------------- |
@@ -39,6 +40,10 @@ authentication, so route existence isn't revealed.
 | User lacks the permission for the route                                                | `403 forbidden`                         |
 | State-changing request (`POST/PUT/PATCH/DELETE`) without a same-origin `Origin` header | `403 forbidden` (CSRF)                  |
 | Database unreachable                                                                   | `503 service_unavailable`               |
+
+Routes check their permission after authentication: scan reads need `scans:read`, requesting or
+cancelling a scan needs `scans:request`, and worker administration needs `settings:manage` (admin
+only); otherwise `403 forbidden`.
 
 **Providers** (`AUTH_PROVIDER`):
 
@@ -271,3 +276,286 @@ are inserted, in one transaction (`ON CONFLICT DO NOTHING` for names registered 
 authorisation rejects the whole import. Audited `domain.created` per domain (`source: import`), plus
 `domain.authorised` per domain when authorising, plus `domain.import_completed`. 339 rows with
 authorisation take about 1.4 s against Neon.
+
+## Scans
+
+Scans are asynchronous **jobs** run by the home scanning worker. The API only records and tracks them;
+nothing in the Cloudflare Worker contacts a scan target. Contracts: `packages/shared/src/api/scans.ts`.
+Lifecycle, leases and retries: [`architecture.md`](architecture.md#scan-jobs-and-the-worker-protocol).
+Safety rules: [`scan-safety.md`](scan-safety.md).
+
+| Permission        | Roles                  | Grants                                     |
+| ----------------- | ---------------------- | ------------------------------------------ |
+| `scans:read`      | admin, analyst, viewer | list profiles, list scans, scan detail     |
+| `scans:request`   | admin, analyst         | request a scan for a domain, cancel a scan |
+| `settings:manage` | admin                  | worker administration (`/api/v1/workers`)  |
+
+### `GET /api/v1/scan-profiles` — `scans:read`
+
+```json
+{
+  "items": [
+    {
+      "key": "passive",
+      "name": "Passive",
+      "description": "…",
+      "version": 1,
+      "defaultSchedule": "daily",
+      "enabled": true,
+      "config": {
+        "active": false,
+        "checks": ["dns", "rdap"],
+        "tcpPorts": [],
+        "timeouts": { "connectMs": 3000, "readMs": 5000, "targetSeconds": 60 },
+        "concurrency": 4,
+        "ratePerSecond": 5,
+        "maxTargets": 50
+      }
+    }
+  ],
+  "activeScanningEnabled": false
+}
+```
+
+Profiles are server-defined rows in `scan_profiles` (seeded keys in
+[`database-schema.md`](database-schema.md#seeded-scan-profiles)). A stored `config` that fails
+`scanProfileConfigSchema` is omitted (fail closed). `activeScanningEnabled` mirrors the
+`ACTIVE_SCANNING_ENABLED` Worker var.
+
+### `POST /api/v1/domains/:id/scans` — `scans:request`
+
+Body: `{ "profile": string (1–40), "reason"?: string|null (≤500; empty → null) }`. Unknown fields are
+rejected. Returns **`202 Accepted`** with the scan detail (same shape as `GET /scans/:id`); the job is
+`queued` and runs when a worker claims it.
+
+Before creating the job, pending-challenge expiry and admin-authorisation lapse are applied to the domain.
+Then, in one transaction with the domain row locked:
+
+| Condition                                                                       | Response                              |
+| ------------------------------------------------------------------------------- | ------------------------------------- |
+| Unknown or disabled profile                                                     | `400 validation_failed` (`profile`)   |
+| Active profile and `ACTIVE_SCANNING_ENABLED` is not `true`                      | `409 conflict`                        |
+| Unknown domain                                                                  | `404 not_found`                       |
+| Active profile and the domain is not `verified` (or its review date has passed) | `409 conflict`                        |
+| No approved targets                                                             | `409 conflict`                        |
+| A job for the same domain and profile is already `queued`/`claimed`/`running`   | `409 conflict` (partial unique index) |
+
+Targets: approved assets of the domain (exact label-boundary check against the domain), ordered by
+hostname, capped at the profile's `maxTargets`. Passive profiles always include the apex hostname. For
+active profiles, domain verification approves the apex as an asset (audited `asset.approved` with
+`basis: domain_verification`) unless that asset was explicitly rejected or suspended. The scope is frozen
+into the job's immutable `scopeSnapshot`. Audited `scan.requested` (domain, profile, active, target count,
+reason).
+
+### `GET /api/v1/scans` — `scans:read`
+
+Query: `page` (default 1), `pageSize` (1–100, default 25), `status` (`queued`, `claimed`, `running`,
+`succeeded`, `failed`, `cancelled`), `domainId` (UUID), `profile` (≤40). Newest first. Response:
+`{ "items": ScanJob[], "page", "pageSize", "total" }`.
+
+`ScanJob`:
+
+```json
+{
+  "id": "uuid",
+  "jobType": "scan",
+  "profile": "passive",
+  "domain": { "id": "uuid", "fqdn": "example.com" },
+  "status": "running",
+  "priority": 100,
+  "reason": null,
+  "trigger": "manual",
+  "requestedBy": { "id": "uuid", "email": "analyst@example.com" },
+  "createdAt": "…",
+  "scheduledAt": "…",
+  "startedAt": "…",
+  "completedAt": null,
+  "leaseExpiresAt": "…",
+  "attempts": 1,
+  "maxAttempts": 3,
+  "worker": { "id": "uuid", "name": "home-1" },
+  "progress": { "completedTargets": 1, "totalTargets": 3, "message": "…" },
+  "cancelRequestedAt": null,
+  "errorCode": null,
+  "errorSummary": null,
+  "targetCounts": { "pending": 2, "running": 0, "succeeded": 1, "failed": 0, "skipped": 0 }
+}
+```
+
+`trigger` is `schedule` for daily passive monitoring jobs (`requestedBy` is then `null`). `domain` is
+`null` if the domain was deleted. `errorCode`/`errorSummary` hold the last error, also while a retry is
+queued.
+
+### `GET /api/v1/scans/:id` — `scans:read`
+
+`{ "job": ScanJob, "targets": ScanJobTarget[], "scopeSnapshot": ScopeSnapshot }`.
+`ScanJobTarget`: `id`, `assetId` (null for an apex without an asset row), `hostname`, `ip`, `status`
+(`pending`, `running`, `succeeded`, `failed`, `skipped`), `startedAt`, `completedAt`, `errorCode`.
+`ScopeSnapshot` (version 1): `createdAt`, `requestedBy`, `trigger`, `domain` (`id`, `fqdn` and its
+verification status, method and expiry at request time), `profile` (`key`, `version`, full `config`),
+`targets` (`assetId`, `hostname`). Malformed or unknown ids → `404`.
+
+### `POST /api/v1/scans/:id/cancel` — `scans:request`
+
+No body. Returns the scan detail.
+
+- `queued` → `cancelled` immediately (`errorCode: cancelled`, unfinished targets `skipped`); audited
+  `scan.cancelled`.
+- `claimed`/`running` → `cancelRequestedAt` is set and the worker is told at its next heartbeat; the job
+  becomes `cancelled` when the worker reports a failure or when the lease reaper finds the lease expired.
+  Audited `scan.cancel_requested`. Repeating the request is a no-op.
+- Already `succeeded`/`failed`/`cancelled` → `409 conflict`.
+
+## Scanning workers (administration) — `settings:manage`
+
+Contracts: `packages/shared/src/api/workers.ts`. Only Ed25519 **public** keys are ever sent or stored.
+
+`Worker`: `{ id, name, status: active|disabled, version, lastSeenAt, createdAt, credentials[] }`;
+each credential: `{ id, fingerprint, createdAt, expiresAt, revokedAt, lastUsedAt }`. `fingerprint` is
+the first 8 bytes of the SHA-256 of the raw key, colon-separated hex. The credential `id` is the **key
+id** the worker sends in `X-EDV-Key-Id`.
+
+Public key format: base64 (standard or URL-safe, padding optional) of the raw 32-byte key. Keys that do
+not decode to 32 bytes, are not importable as Ed25519, or are one of the known small-order (degenerate)
+points are rejected with `400 validation_failed` (`publicKey`). Keys are stored in canonical standard
+base64; the same key cannot be registered twice.
+
+| Endpoint                                                    | Body                                  | Response                        | Audit                                |
+| ----------------------------------------------------------- | ------------------------------------- | ------------------------------- | ------------------------------------ |
+| `GET /api/v1/workers`                                       | —                                     | `{ items: Worker[] }` (by name) | —                                    |
+| `POST /api/v1/workers`                                      | `{ name, publicKey, expiresInDays? }` | `201 { worker, credentialId }`  | `worker.registered`                  |
+| `PATCH /api/v1/workers/:id`                                 | `{ status: "active" \| "disabled" }`  | `{ worker }`                    | `worker.enabled` / `worker.disabled` |
+| `POST /api/v1/workers/:id/credentials`                      | `{ publicKey, expiresInDays? }`       | `201 { worker, credentialId }`  | `worker.credential_added`            |
+| `POST /api/v1/workers/:id/credentials/:credentialId/revoke` | —                                     | `{ worker }`                    | `worker.credential_revoked`          |
+
+- `name`: 1–63 characters, lowercase letters, digits and hyphens, starting with a letter or digit;
+  unique (`409` otherwise). `expiresInDays`: 1–730, default 365.
+- Adding a credential is key rotation: the old key keeps working until it is revoked or expires.
+- Revoking an already revoked key, or setting the current status, is a no-op (no audit entry). A
+  credential that belongs to another worker → `404`.
+- A disabled worker's requests are refused; its credentials are kept.
+
+## Internal worker API — signed requests
+
+`/api/v1/internal/worker/*` is used only by the home scanning worker. It does **not** use Cloudflare
+Access user identity, user sessions or the CSRF check; every request is authenticated by an Ed25519
+signature (`middleware/worker-auth.ts`). All endpoints are `POST` with a JSON body.
+
+### Request signing
+
+Headers:
+
+| Header                 | Value                                                          |
+| ---------------------- | -------------------------------------------------------------- |
+| `X-EDV-Key-Id`         | The credential id (UUID) returned at registration              |
+| `X-EDV-Timestamp`      | Unix time in seconds (1–12 digits)                             |
+| `X-EDV-Nonce`          | 16–64 characters of `A–Z a–z 0–9 _ -`, unique per request      |
+| `X-EDV-Signature`      | Base64 of the 64-byte Ed25519 signature                        |
+| `X-EDV-Worker-Version` | Optional; first 40 characters stored as the worker's `version` |
+
+Signing string (UTF-8, fields joined by `\n`, no trailing newline):
+
+```text
+EDV1
+<METHOD, upper-case>
+<path including query string, e.g. /api/v1/internal/worker/claim>
+<X-EDV-Timestamp value>
+<X-EDV-Nonce value>
+<lower-case hex SHA-256 of the exact request body bytes>
+```
+
+Checks, in order (any failure → `401 unauthenticated`, message "Worker authentication failed.", the
+specific reason only in the server log as `worker_auth_failed`):
+
+1. Header shapes as above.
+2. Timestamp within **±300 s** of server time.
+3. Body ≤ 1 MB, measured in bytes (`400 bad_request` otherwise).
+4. Credential exists, is not revoked, has not expired, and its worker is `active`.
+5. Signature verifies against the stored public key (small-order keys never verify).
+6. Rate limit: at most **120 accepted requests per credential per rolling minute** → `429 rate_limited`.
+7. Nonce not seen before for this credential (stored in `worker_request_nonces`; a replay → `401`).
+   Nonces are kept for at least 600 s (twice the window), so a replay inside the window is always caught.
+
+A nonce is consumed once authentication succeeds, even if the request then fails (e.g. `409`), so
+retries must use a new nonce and a new signature. On success the credential's `lastUsedAt` and the
+worker's `lastSeenAt` are updated.
+
+### Fencing and errors
+
+`claim` returns an `attempt` number. Every later call for that job sends `jobId` + `attempt`; the server
+accepts it only if the job is still `claimed`/`running`, held by the same worker and `attempts` equals
+the given attempt. Otherwise → **`409 conflict`** ("The job lease is no longer held by this worker
+attempt.") — the worker must stop work on that job. An unknown `jobId` → `404`. Bodies are validated
+strictly (`400 validation_failed`).
+
+### `POST /api/v1/internal/worker/claim`
+
+Body: `{ "profiles"?: string[] (≤10) }` — profiles this worker can run; omitted or empty = all. Response
+`{ "job": ClaimedJob | null }`:
+
+```json
+{
+  "job": {
+    "id": "uuid",
+    "attempt": 1,
+    "profile": "passive",
+    "leaseExpiresAt": "…",
+    "leaseSeconds": 300,
+    "heartbeatSeconds": 60,
+    "snapshot": { "…": "ScopeSnapshot" },
+    "targets": [{ "id": "uuid", "hostname": "example.com", "ip": null }]
+  }
+}
+```
+
+The oldest due `queued` job (lowest `priority` first, then `scheduledAt`) with attempts left is claimed
+atomically. `targets` are the job's targets that are not yet `succeeded`/`failed`/`skipped`. Jobs with
+an active profile are re-authorised first; a refused job is cancelled (see architecture) and the next
+candidate is tried (up to 5 per call).
+
+### `POST /api/v1/internal/worker/heartbeat`
+
+Body: `{ jobId, attempt, progress?: { completedTargets, totalTargets (0–100000), message? (≤200) } }`.
+Extends the lease by 300 s and moves the job to `running`. Response
+`{ "leaseExpiresAt": "…", "cancelRequested": boolean }`. When `cancelRequested` is true the worker should
+stop and report a failure with `errorCode: "cancelled"`.
+
+### `POST /api/v1/internal/worker/results`
+
+Body:
+
+```json
+{
+  "jobId": "uuid",
+  "attempt": 1,
+  "resultId": "8–128 chars of A–Z a–z 0–9 _ -",
+  "targets": [{ "targetId": "uuid", "status": "succeeded", "errorCode": "optional_snake_case" }],
+  "complete": false
+}
+```
+
+- `resultId` is an idempotency key: a submission whose `(jobId, resultId)` was already processed changes
+  nothing and returns `{ "accepted": false, "status": <current job status> }`. This is checked before
+  the lease (so a retry after completion still succeeds), but only against the same worker's own
+  submissions; another worker gets the usual `409`.
+- Each `targetId` may appear once per submission (≤1000) and must belong to this job's snapshot,
+  otherwise `400 validation_failed`. `status` is `running`, `succeeded`, `failed` or `skipped`. A target
+  that already reached `succeeded`, `failed` or `skipped` keeps that status.
+- `complete: false` records target progress, renews the lease and moves the job to `running`.
+- `complete: true` marks every target not reported as finished `failed` (`errorCode: not_reported`) and
+  the job `succeeded` — also after a cancel request, since the work was done.
+- Response `{ "accepted": true, "status": "running" | "succeeded" }`.
+
+Milestone 4 records target status only; observation data and findings arrive in later milestones.
+
+### `POST /api/v1/internal/worker/failures`
+
+Body: `{ jobId, attempt, errorCode (^[a-z0-9_]{1,64}$), errorSummary (≤500), retryable: boolean }`.
+Response `{ "status": "queued" | "failed" | "cancelled", "retryAt": "…" | null }`.
+
+- Cancellation requested → `cancelled` (remaining targets `skipped`).
+- Retryable and attempts remain → `queued` again after the backoff, with running targets reset to
+  `pending`.
+- Otherwise → `failed` (remaining targets `failed` with the error code).
+
+A failed or cancelled job never resolves anything.

@@ -103,7 +103,10 @@ async function expectError(res: Response, status: number, code: string) {
 
 describe('POST /domains', () => {
   it('normalises the name, stores it and audits the creation', async () => {
-    const domain = await addDomain('  Example.COM. ', { criticality: 'high', businessOwner: ' Ops ' });
+    const domain = await addDomain('  Example.COM. ', {
+      criticality: 'high',
+      businessOwner: ' Ops ',
+    });
     expect(domain).toMatchObject({
       fqdn: 'example.com',
       criticality: 'high',
@@ -132,8 +135,14 @@ describe('POST /domains', () => {
   it('rejects duplicates, including differently written forms', async () => {
     await addDomain('example.com');
     for (const variant of ['example.com', 'EXAMPLE.com.', ' example.COM']) {
-      const err = await expectError(await call('admin', 'POST', '/domains', { fqdn: variant }), 409, 'conflict');
-      expect(err.details).toEqual([{ path: 'fqdn', message: 'This domain is already registered.' }]);
+      const err = await expectError(
+        await call('admin', 'POST', '/domains', { fqdn: variant }),
+        409,
+        'conflict',
+      );
+      expect(err.details).toEqual([
+        { path: 'fqdn', message: 'This domain is already registered.' },
+      ]);
     }
     expect(await auditActions()).toEqual(['domain.created']);
   });
@@ -145,7 +154,11 @@ describe('POST /domains', () => {
     ['https://example.com/', 'no scheme'],
     ['foo.local', 'not a public top-level domain'],
   ])('rejects %s with a field error', async (fqdn, fragment) => {
-    const err = await expectError(await call('admin', 'POST', '/domains', { fqdn }), 400, 'validation_failed');
+    const err = await expectError(
+      await call('admin', 'POST', '/domains', { fqdn }),
+      400,
+      'validation_failed',
+    );
     expect(err.details?.[0]?.path).toBe('fqdn');
     expect(err.details?.[0]?.message).toContain(fragment);
   });
@@ -157,7 +170,10 @@ describe('POST /domains', () => {
       'validation_failed',
     );
     await expectError(
-      await call('admin', 'POST', '/domains', { fqdn: 'example.com', verificationStatus: 'verified' }),
+      await call('admin', 'POST', '/domains', {
+        fqdn: 'example.com',
+        verificationStatus: 'verified',
+      }),
       400,
       'validation_failed',
     );
@@ -169,7 +185,13 @@ describe('POST /domains', () => {
   });
 
   it('requires a same-origin request', async () => {
-    const res = await call('admin', 'POST', '/domains', { fqdn: 'example.com' }, { Origin: 'https://evil.example' });
+    const res = await call(
+      'admin',
+      'POST',
+      '/domains',
+      { fqdn: 'example.com' },
+      { Origin: 'https://evil.example' },
+    );
     await expectError(res, 403, 'forbidden');
   });
 });
@@ -189,8 +211,16 @@ describe('RBAC', () => {
     for (const role of ['analyst', 'viewer'] as const) {
       expect((await call(role, 'GET', '/domains')).status).toBe(200);
       expect((await call(role, 'GET', `/domains/${domain.id}`)).status).toBe(200);
-      await expectError(await call(role, 'PATCH', `/domains/${domain.id}`, { criticality: 'low' }), 403, 'forbidden');
-      await expectError(await call(role, 'POST', `/domains/${domain.id}/verification`), 403, 'forbidden');
+      await expectError(
+        await call(role, 'PATCH', `/domains/${domain.id}`, { criticality: 'low' }),
+        403,
+        'forbidden',
+      );
+      await expectError(
+        await call(role, 'POST', `/domains/${domain.id}/verification`),
+        403,
+        'forbidden',
+      );
       await expectError(await call(role, 'POST', `/domains/${domain.id}/verify`), 403, 'forbidden');
     }
     expect(await auditActions()).toEqual(['domain.created']);
@@ -217,7 +247,9 @@ describe('GET /domains', () => {
   });
 
   it('filters by search text, criticality and status', async () => {
-    const search = domainListResponseSchema.parse(await (await call('viewer', 'GET', '/domains?q=RAV')).json());
+    const search = domainListResponseSchema.parse(
+      await (await call('viewer', 'GET', '/domains?q=RAV')).json(),
+    );
     expect(search.items.map((d) => d.fqdn)).toEqual(['bravo.org']);
 
     const crit = domainListResponseSchema.parse(
@@ -232,19 +264,33 @@ describe('GET /domains', () => {
   });
 
   it('treats LIKE wildcards in search as literal text', async () => {
-    const body = domainListResponseSchema.parse(await (await call('viewer', 'GET', '/domains?q=%25')).json());
+    const body = domainListResponseSchema.parse(
+      await (await call('viewer', 'GET', '/domains?q=%25')).json(),
+    );
     expect(body.total).toBe(0);
   });
 
   it('enforces page size limits', async () => {
-    await expectError(await call('viewer', 'GET', '/domains?pageSize=1000'), 400, 'validation_failed');
-    await expectError(await call('viewer', 'GET', '/domains?sort=password'), 400, 'validation_failed');
+    await expectError(
+      await call('viewer', 'GET', '/domains?pageSize=1000'),
+      400,
+      'validation_failed',
+    );
+    await expectError(
+      await call('viewer', 'GET', '/domains?sort=password'),
+      400,
+      'validation_failed',
+    );
   });
 });
 
 describe('GET and PATCH /domains/:id', () => {
   it('returns 404 for unknown and malformed ids', async () => {
-    await expectError(await call('viewer', 'GET', `/domains/${crypto.randomUUID()}`), 404, 'not_found');
+    await expectError(
+      await call('viewer', 'GET', `/domains/${crypto.randomUUID()}`),
+      404,
+      'not_found',
+    );
     await expectError(await call('viewer', 'GET', '/domains/not-a-uuid'), 404, 'not_found');
   });
 
@@ -280,7 +326,11 @@ describe('GET and PATCH /domains/:id', () => {
 
   it('rejects empty and unknown patches', async () => {
     const domain = await addDomain('example.com');
-    await expectError(await call('admin', 'PATCH', `/domains/${domain.id}`, {}), 400, 'validation_failed');
+    await expectError(
+      await call('admin', 'PATCH', `/domains/${domain.id}`, {}),
+      400,
+      'validation_failed',
+    );
     await expectError(
       await call('admin', 'PATCH', `/domains/${domain.id}`, { fqdn: 'other.com' }),
       400,
@@ -348,7 +398,10 @@ describe('DNS TXT verification', () => {
     const result = await verify(domain.id);
     expect(queried).toEqual(['_exdomainvault-challenge.example.com']);
     expect(result.outcome).toBe('verified');
-    expect(result.domain).toMatchObject({ verificationStatus: 'verified', verifiedAt: clock.toISOString() });
+    expect(result.domain).toMatchObject({
+      verificationStatus: 'verified',
+      verifiedAt: clock.toISOString(),
+    });
     expect(result.verification?.status).toBe('verified');
 
     const [audit] = await t.db
@@ -361,10 +414,17 @@ describe('DNS TXT verification', () => {
     expect(await t.db.select().from(schema.assets)).toEqual([]);
 
     // Already verified: no new challenge, no re-check.
-    await expectError(await call('admin', 'POST', `/domains/${domain.id}/verification`), 409, 'conflict');
+    await expectError(
+      await call('admin', 'POST', `/domains/${domain.id}/verification`),
+      409,
+      'conflict',
+    );
     await expectError(await call('admin', 'POST', `/domains/${domain.id}/verify`), 409, 'conflict');
 
-    expect(result.domain).toMatchObject({ verificationMethod: 'dns_txt', verificationExpiresAt: null });
+    expect(result.domain).toMatchObject({
+      verificationMethod: 'dns_txt',
+      verificationExpiresAt: null,
+    });
   });
 
   it('reports a missing record, a wrong value and DNS errors without verifying', async () => {
@@ -388,9 +448,13 @@ describe('DNS TXT verification', () => {
     dns = async () => ({ status: 'error', detail: 'TimeoutError' });
     expect((await verify(domain.id)).outcome).toBe('dns_error');
 
-    const detail = domainDetailResponseSchema.parse(await (await call('admin', 'GET', `/domains/${domain.id}`)).json());
+    const detail = domainDetailResponseSchema.parse(
+      await (await call('admin', 'GET', `/domains/${domain.id}`)).json(),
+    );
     expect(detail.domain.verificationStatus).toBe('pending');
-    expect((await auditActions()).filter((a) => a === 'domain.verification_failed')).toHaveLength(3);
+    expect((await auditActions()).filter((a) => a === 'domain.verification_failed')).toHaveLength(
+      3,
+    );
   });
 
   it('does not accept a value from a different (superseded) challenge', async () => {
@@ -402,7 +466,9 @@ describe('DNS TXT verification', () => {
     dns = async () => ({ status: 'ok', records: [first.record.value], authenticated: false });
     expect((await verify(domain.id)).outcome).toBe('value_mismatch');
 
-    const statuses = (await t.db.select().from(schema.domainVerifications)).map((r) => r.status).sort();
+    const statuses = (await t.db.select().from(schema.domainVerifications))
+      .map((r) => r.status)
+      .sort();
     expect(statuses).toEqual(['pending', 'superseded']);
   });
 
@@ -495,7 +561,11 @@ describe('CSV import', () => {
     const res = await call('admin', 'POST', '/domains/import', { csv, digest: preview.digest });
     expect(res.status).toBe(201);
     const result = importConfirmResponseSchema.parse(await res.json());
-    expect(result.created.map((d) => d.fqdn).sort()).toEqual(['alpha.com', 'bravo.org', 'echo.com']);
+    expect(result.created.map((d) => d.fqdn).sort()).toEqual([
+      'alpha.com',
+      'bravo.org',
+      'echo.com',
+    ]);
     expect(result.skipped).toBe(4);
     expect(result.authorised).toBe(0);
 
@@ -509,7 +579,10 @@ describe('CSV import', () => {
       await (await call('admin', 'POST', '/domains/import/preview', { csv })).json(),
     );
     await expectError(
-      await call('admin', 'POST', '/domains/import', { csv: `${csv}\nfoxtrot.com,,`, digest: preview.digest }),
+      await call('admin', 'POST', '/domains/import', {
+        csv: `${csv}\nfoxtrot.com,,`,
+        digest: preview.digest,
+      }),
       400,
       'bad_request',
     );
@@ -581,9 +654,16 @@ describe('administrator authorisation', () => {
     const domain = await addDomain('example.com');
     await call('admin', 'POST', `/domains/${domain.id}/verification`);
     expect((await call('admin', 'POST', `/domains/${domain.id}/authorise`, auth)).status).toBe(200);
-    const statuses = (await t.db.select().from(schema.domainVerifications)).map((r) => [r.method, r.status]);
+    const statuses = (await t.db.select().from(schema.domainVerifications)).map((r) => [
+      r.method,
+      r.status,
+    ]);
     expect(statuses).toContainEqual(['dns_txt', 'superseded']);
-    await expectError(await call('admin', 'POST', `/domains/${domain.id}/authorise`, auth), 409, 'conflict');
+    await expectError(
+      await call('admin', 'POST', `/domains/${domain.id}/authorise`, auth),
+      409,
+      'conflict',
+    );
     await expectError(await call('admin', 'POST', `/domains/${domain.id}/verify`), 409, 'conflict');
   });
 
@@ -606,14 +686,20 @@ describe('administrator authorisation', () => {
   it('is limited to roles with domains:verify', async () => {
     const domain = await addDomain('example.com');
     for (const role of ['analyst', 'viewer', 'asset_owner'] as const) {
-      await expectError(await call(role, 'POST', `/domains/${domain.id}/authorise`, auth), 403, 'forbidden');
+      await expectError(
+        await call(role, 'POST', `/domains/${domain.id}/authorise`, auth),
+        403,
+        'forbidden',
+      );
       await expectError(
         await call(role, 'POST', '/domains/authorise', { ...auth, domainIds: [domain.id] }),
         403,
         'forbidden',
       );
       await expectError(
-        await call(role, 'POST', `/domains/${domain.id}/revoke`, { reason: 'No longer ours, sold' }),
+        await call(role, 'POST', `/domains/${domain.id}/revoke`, {
+          reason: 'No longer ours, sold',
+        }),
         403,
         'forbidden',
       );
@@ -625,7 +711,10 @@ describe('administrator authorisation', () => {
     const b = await addDomain('bravo.com');
     await call('admin', 'POST', `/domains/${b.id}/authorise`, auth);
     const missing = crypto.randomUUID();
-    const res = await call('admin', 'POST', '/domains/authorise', { ...auth, domainIds: [a.id, b.id, missing] });
+    const res = await call('admin', 'POST', '/domains/authorise', {
+      ...auth,
+      domainIds: [a.id, b.id, missing],
+    });
     expect(res.status).toBe(200);
     const body = bulkAuthoriseResponseSchema.parse(await res.json());
     expect(body.authorised).toEqual([{ id: a.id, fqdn: 'alpha.com' }]);
@@ -637,17 +726,32 @@ describe('administrator authorisation', () => {
 
   it('lapses on the review date, audited as a system action', async () => {
     const domain = await addDomain('example.com');
-    await call('admin', 'POST', `/domains/${domain.id}/authorise`, { ...auth, reviewBy: '2026-11-01' });
+    await call('admin', 'POST', `/domains/${domain.id}/authorise`, {
+      ...auth,
+      reviewBy: '2026-11-01',
+    });
 
     clock = new Date('2026-11-01T23:59:59.000Z');
-    let detail = domainDetailResponseSchema.parse(await (await call('viewer', 'GET', `/domains/${domain.id}`)).json());
+    let detail = domainDetailResponseSchema.parse(
+      await (await call('viewer', 'GET', `/domains/${domain.id}`)).json(),
+    );
     expect(detail.domain.verificationStatus).toBe('verified');
 
     clock = new Date('2026-11-02T00:00:00.000Z');
-    const list = domainListResponseSchema.parse(await (await call('viewer', 'GET', '/domains')).json());
-    expect(list.items[0]).toMatchObject({ verificationStatus: 'unverified', verificationMethod: null });
-    detail = domainDetailResponseSchema.parse(await (await call('viewer', 'GET', `/domains/${domain.id}`)).json());
-    expect(detail.verification).toMatchObject({ status: 'expired', failureReason: 'review_date_passed' });
+    const list = domainListResponseSchema.parse(
+      await (await call('viewer', 'GET', '/domains')).json(),
+    );
+    expect(list.items[0]).toMatchObject({
+      verificationStatus: 'unverified',
+      verificationMethod: null,
+    });
+    detail = domainDetailResponseSchema.parse(
+      await (await call('viewer', 'GET', `/domains/${domain.id}`)).json(),
+    );
+    expect(detail.verification).toMatchObject({
+      status: 'expired',
+      failureReason: 'review_date_passed',
+    });
     expect(await auditActions()).toContain('domain.authorisation_lapsed');
   });
 
@@ -659,19 +763,30 @@ describe('administrator authorisation', () => {
       400,
       'validation_failed',
     );
-    const res = await call('admin', 'POST', `/domains/${domain.id}/revoke`, { reason: 'Domain was transferred out' });
+    const res = await call('admin', 'POST', `/domains/${domain.id}/revoke`, {
+      reason: 'Domain was transferred out',
+    });
     expect(res.status).toBe(200);
     const body = domainDetailResponseSchema.parse(await res.json());
-    expect(body.domain).toMatchObject({ verificationStatus: 'revoked', verificationMethod: null, verifiedAt: null });
+    expect(body.domain).toMatchObject({
+      verificationStatus: 'revoked',
+      verificationMethod: null,
+      verifiedAt: null,
+    });
     expect(body.verification?.status).toBe('revoked');
     const [audit] = await t.db
       .select()
       .from(schema.auditLogs)
       .where(eq(schema.auditLogs.action, 'domain.verification_revoked'));
-    expect(audit?.metadata).toMatchObject({ reason: 'Domain was transferred out', previousMethod: 'admin_attestation' });
+    expect(audit?.metadata).toMatchObject({
+      reason: 'Domain was transferred out',
+      previousMethod: 'admin_attestation',
+    });
 
     await expectError(
-      await call('admin', 'POST', `/domains/${domain.id}/revoke`, { reason: 'Domain was transferred out' }),
+      await call('admin', 'POST', `/domains/${domain.id}/revoke`, {
+        reason: 'Domain was transferred out',
+      }),
       409,
       'conflict',
     );
@@ -690,16 +805,22 @@ describe('administrator authorisation', () => {
       authorisation: auth,
     });
     expect(res.status).toBe(201);
-    expect(importConfirmResponseSchema.parse(await res.json())).toMatchObject({ skipped: 1, authorised: 2 });
+    expect(importConfirmResponseSchema.parse(await res.json())).toMatchObject({
+      skipped: 1,
+      authorised: 2,
+    });
     const rows = await t.db.select().from(schema.domains).orderBy(schema.domains.fqdn);
     expect(rows.map((r) => [r.fqdn, r.verificationMethod])).toEqual([
       ['alpha.com', 'admin_attestation'],
       ['bravo.org', 'admin_attestation'],
       ['existing.com', null],
     ]);
-    const sources = (await t.db.select().from(schema.auditLogs).where(eq(schema.auditLogs.action, 'domain.authorised'))).map(
-      (a) => a.metadata.source,
-    );
+    const sources = (
+      await t.db
+        .select()
+        .from(schema.auditLogs)
+        .where(eq(schema.auditLogs.action, 'domain.authorised'))
+    ).map((a) => a.metadata.source);
     expect(sources).toEqual(['import', 'import']);
   });
 

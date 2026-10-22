@@ -78,13 +78,16 @@ describe('migrations', () => {
       'notification_preferences',
       'port_observations',
       'registration_observations',
+      'scan_job_results',
       'scan_job_targets',
       'scan_jobs',
       'scan_profiles',
       'security_rules',
       'tls_observations',
       'users',
+      'worker_credentials',
       'worker_registry',
+      'worker_request_nonces',
     ]);
   });
 
@@ -244,13 +247,33 @@ describe('constraints', () => {
     ).toMatch(/invalid input syntax for type inet/);
   });
 
+  it('seeds the server-defined scan profiles', async () => {
+    const rows = await t.db.select().from(scanProfiles).orderBy(scanProfiles.key);
+    expect(rows.map((r) => [r.key, (r.config as { active: boolean }).active])).toEqual([
+      ['deep', true],
+      ['passive', false],
+      ['quick', true],
+      ['standard', true],
+    ]);
+  });
+
+  it('allows one queued or active job per domain and profile', async () => {
+    const [d] = await t.db.insert(domains).values({ fqdn: 'jobs.example' }).returning();
+    const job = {
+      jobType: 'scan' as const,
+      profile: 'passive',
+      domainId: d!.id,
+      scopeSnapshot: {},
+    };
+    await t.db.insert(scanJobs).values(job);
+    expect(await violation(() => t.db.insert(scanJobs).values(job))).toBe(
+      'scan_jobs_one_active_per_domain_profile',
+    );
+    await t.db.insert(scanJobs).values({ ...job, status: 'succeeded' });
+    await t.db.insert(scanJobs).values({ ...job, profile: 'quick' });
+  });
+
   it('requires a lease and worker for claimed jobs', async () => {
-    await t.db.insert(scanProfiles).values({
-      key: 'quick',
-      name: 'Quick',
-      description: 'Test profile',
-      config: {},
-    });
     expect(
       await violation(() =>
         t.db.insert(scanJobs).values({

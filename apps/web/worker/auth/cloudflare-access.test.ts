@@ -30,15 +30,22 @@ function token(claims: Record<string, unknown> = {}, opts: { key?: CryptoKey; ex
     .sign(opts.key ?? privateKey);
 }
 
-const provider = () => cloudflareAccessProvider({ issuer: ISSUER, audience: AUDIENCE, getKey: jwks });
-const req = (headers: Record<string, string>) => new Request('https://app.example/api/v1/me', { headers });
+const provider = () =>
+  cloudflareAccessProvider({ issuer: ISSUER, audience: AUDIENCE, getKey: jwks });
+const req = (headers: Record<string, string>) =>
+  new Request('https://app.example/api/v1/me', { headers });
 
 describe('Cloudflare Access provider', () => {
   it('accepts a valid token from the Access header and normalises the email', async () => {
     const result = await provider().authenticate(req({ 'Cf-Access-Jwt-Assertion': await token() }));
     expect(result).toEqual({
       ok: true,
-      identity: { provider: 'cloudflare_access', subject: 'sub-1', email: 'analyst@example.com', name: null },
+      identity: {
+        provider: 'cloudflare_access',
+        subject: 'sub-1',
+        email: 'analyst@example.com',
+        name: null,
+      },
     });
   });
 

@@ -10,7 +10,10 @@ export interface AuthProviderDeps {
 }
 
 /** Builds the provider for the configured mechanism; `null` when authentication is unconfigured. */
-export function createAuthProvider(auth: AuthConfig, deps: AuthProviderDeps = {}): AuthProvider | null {
+export function createAuthProvider(
+  auth: AuthConfig,
+  deps: AuthProviderDeps = {},
+): AuthProvider | null {
   switch (auth.kind) {
     case 'cloudflare_access':
       return cloudflareAccessProvider({
