@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { workerSigningString } from '@exdomainvault/shared';
 import { describe, expect, it } from 'vitest';
 import { generateWorkerKey } from '../testing/harness.ts';
 import {
@@ -6,6 +7,7 @@ import {
   decodeBase64,
   encodeBase64,
   keyFingerprint,
+  sha256HexBytes,
   verifyEd25519,
 } from './ed25519.ts';
 
@@ -47,5 +49,27 @@ describe('ed25519 helpers', () => {
     const { publicKey } = await generateWorkerKey();
     expect(await keyFingerprint(publicKey)).toMatch(/^([0-9a-f]{2}:){7}[0-9a-f]{2}$/);
     expect(encodeBase64(decodeBase64(publicKey)!)).toBe(publicKey);
+  });
+});
+
+describe('cross-language signing vector (docs/worker-protocol.md)', () => {
+  const vector = {
+    publicKeyB64: '11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=',
+    body: '{"profiles":["passive"]}',
+    bodySha256: 'def6b531b6f37f9c565098a3ac8c254408e4ed44786231270b37aa796805b174',
+    signatureB64:
+      'ZezimbXKZPd6JLSnkaX3KsoP2/w/b/UCe2jDS3DGdsbswJ3XZ5nzjH//t/NgiZ2N15xQyUS/JW0704Lw+gTMBw==',
+  };
+
+  it('produces the documented signing string and verifies the documented signature', async () => {
+    expect(await sha256HexBytes(vector.body)).toBe(vector.bodySha256);
+    const message = workerSigningString(
+      'post',
+      '/api/v1/internal/worker/claim',
+      '1792656000',
+      'vector-nonce-0123456789abcdef',
+      vector.bodySha256,
+    );
+    expect(await verifyEd25519(vector.publicKeyB64, vector.signatureB64, message)).toBe(true);
   });
 });

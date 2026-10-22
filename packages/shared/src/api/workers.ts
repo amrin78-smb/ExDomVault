@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_OBSERVATIONS_PER_SUBMISSION, observationSchema } from './observations.ts';
 import { scanTargetStatusSchema, scopeSnapshotSchema } from './scans.ts';
 
 const isoDateTime = z.iso.datetime();
@@ -156,6 +157,11 @@ export const resultsRequestSchema = z.strictObject({
       }),
     )
     .max(1000),
+  /**
+   * Evidence collected for this job's targets. Ingested idempotently with the submission (a
+   * duplicate `resultId` stores nothing twice).
+   */
+  observations: z.array(observationSchema).max(MAX_OBSERVATIONS_PER_SUBMISSION).default([]),
   /** The worker has submitted everything for this attempt. */
   complete: z.boolean(),
 });
