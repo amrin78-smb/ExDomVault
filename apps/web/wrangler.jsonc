@@ -36,11 +36,12 @@
     // Production default. Local development overrides this in .dev.vars.
     "APP_ENV": "production",
     "APP_VERSION": "0.1.0",
-    // Production authentication: Cloudflare Access. Until ACCESS_TEAM_DOMAIN and ACCESS_AUD are set,
+    // Production authentication: Cloudflare Access (Worker "Access" tab, policy allows the owner only).
+    // These are public identifiers, not secrets. If ACCESS_TEAM_DOMAIN or ACCESS_AUD is emptied,
     // every protected API route returns 503 (fail closed). See docs/deployment.md.
     "AUTH_PROVIDER": "cloudflare_access",
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": "",
+    "ACCESS_TEAM_DOMAIN": "fragrant-grass-4d8f.cloudflareaccess.com",
+    "ACCESS_AUD": "e777f0cfe2a4f69ed8221bbbfd3fb02b0bf297b4cfc1d0247df9d5f080683b41",
     // BOOTSTRAP_ADMIN_EMAILS (comma-separated emails that become administrators on first sign-in)
     // is a Worker secret in production so it is not committed: `wrangler secret put`.
   },
