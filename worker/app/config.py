@@ -59,14 +59,29 @@ class WorkerConfig:
         return urlsplit(self.api_base_url).hostname or ""
 
 
-def _check_private_key_file(path: str) -> None:
+def _in_credentials_dir(path: str, credentials_dir: str | None) -> bool:
+    """True when ``path`` is inside systemd's per-service credentials directory."""
+    if not credentials_dir:
+        return False
+    base = os.path.realpath(credentials_dir)
+    return os.path.commonpath([os.path.realpath(path), base]) == base
+
+
+def _check_private_key_file(path: str, credentials_dir: str | None = None) -> None:
     try:
         info = os.stat(path)
     except OSError as exc:
         raise ConfigError("EXDV_PRIVATE_KEY_FILE does not exist or cannot be accessed") from exc
     if not stat.S_ISREG(info.st_mode):
         raise ConfigError("EXDV_PRIVATE_KEY_FILE must be a regular file")
-    if info.st_mode & 0o077:
+    if _in_credentials_dir(path, credentials_dir):
+        # systemd LoadCredential= copies are group-readable (0440) inside a per-service directory
+        # that only the service can enter. Accept that, but require the directory itself and the
+        # file to be closed to others.
+        dir_mode = os.stat(os.path.realpath(credentials_dir or "")).st_mode
+        if dir_mode & 0o007 or info.st_mode & 0o007:
+            raise ConfigError("EXDV_PRIVATE_KEY_FILE credential must not be accessible by others")
+    elif info.st_mode & 0o077:
         raise ConfigError(
             "EXDV_PRIVATE_KEY_FILE must not be readable or writable by group or others (chmod 600)"
         )
@@ -114,7 +129,7 @@ def load_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         raise ConfigError("EXDV_KEY_ID must be the credential UUID shown at registration")
 
     private_key_file = required("EXDV_PRIVATE_KEY_FILE")
-    _check_private_key_file(private_key_file)
+    _check_private_key_file(private_key_file, source.get("CREDENTIALS_DIRECTORY"))
 
     access_id = source.get("EXDV_ACCESS_CLIENT_ID", "").strip() or None
     access_secret = source.get("EXDV_ACCESS_CLIENT_SECRET", "").strip() or None

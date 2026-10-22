@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 
@@ -143,3 +144,33 @@ def test_access_secret_is_not_in_repr(valid_env):
 def test_system_resolvers_opt_in(valid_env):
     config = load_config({**valid_env, "EXDV_DNS_RESOLVERS": "system"})
     assert config.dns_resolvers == ()
+
+
+def test_accepts_group_readable_key_inside_systemd_credentials_dir(valid_env, key_file, tmp_path):
+    creds = tmp_path / "credentials"
+    creds.mkdir(mode=0o750)
+    key = creds / "worker.key"
+    key.write_bytes(Path(key_file).read_bytes())
+    os.chmod(key, 0o440)
+    env = {**valid_env, "EXDV_PRIVATE_KEY_FILE": str(key), "CREDENTIALS_DIRECTORY": str(creds)}
+    assert load_config(env).private_key_file == str(key)
+
+
+@pytest.mark.parametrize(("dir_mode", "file_mode"), [(0o755, 0o440), (0o750, 0o444)])
+def test_rejects_credentials_open_to_others(valid_env, key_file, tmp_path, dir_mode, file_mode):
+    creds = tmp_path / "credentials"
+    creds.mkdir()
+    key = creds / "worker.key"
+    key.write_bytes(Path(key_file).read_bytes())
+    os.chmod(key, file_mode)
+    os.chmod(creds, dir_mode)
+    env = {**valid_env, "EXDV_PRIVATE_KEY_FILE": str(key), "CREDENTIALS_DIRECTORY": str(creds)}
+    with pytest.raises(ConfigError, match="accessible by others"):
+        load_config(env)
+
+
+def test_group_readable_key_outside_credentials_dir_still_rejected(valid_env, key_file, tmp_path):
+    os.chmod(key_file, 0o440)
+    env = {**valid_env, "CREDENTIALS_DIRECTORY": str(tmp_path / "elsewhere")}
+    with pytest.raises(ConfigError, match="group or others"):
+        load_config(env)
