@@ -10,6 +10,10 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-19",
   "compatibility_flags": ["nodejs_compat"],
+  // Served at https://exdomainvault.amrin78.workers.dev behind Cloudflare Access. Per-version preview
+  // URLs are disabled so no unprotected alternate hostname exists.
+  "workers_dev": true,
+  "preview_urls": false,
   "assets": {
     "not_found_handling": "single-page-application",
     // API paths must always reach the Worker, never fall back to index.html.
@@ -21,12 +25,11 @@
   "upload_source_maps": true,
   "hyperdrive": [
     {
-      // Neon PostgreSQL via Cloudflare Hyperdrive (pooled at the edge, origin = Neon direct endpoint).
-      // PLACEHOLDER id: replace with the real id from `wrangler hyperdrive create` before deploying
-      // (see docs/deployment.md). Local dev ignores the id and connects straight to Neon using
-      // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE, set by vite.config.ts.
+      // Neon PostgreSQL (production branch) via Cloudflare Hyperdrive "exdomainvault-db", connecting as
+      // the least-privilege role exdomainvault_app to Neon's direct endpoint. Local dev ignores this id
+      // and connects straight to the checked-out Neon branch (see vite.config.ts).
       "binding": "HYPERDRIVE",
-      "id": "00000000000000000000000000000000",
+      "id": "c43bce859dcd405c9aaca22897818529",
     },
   ],
   "vars": {
@@ -38,7 +41,7 @@
     "AUTH_PROVIDER": "cloudflare_access",
     "ACCESS_TEAM_DOMAIN": "",
     "ACCESS_AUD": "",
-    // Comma-separated emails that become administrators on first sign-in.
-    "BOOTSTRAP_ADMIN_EMAILS": "",
+    // BOOTSTRAP_ADMIN_EMAILS (comma-separated emails that become administrators on first sign-in)
+    // is a Worker secret in production so it is not committed: `wrangler secret put`.
   },
 }
