@@ -13,7 +13,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 5   | Python worker                              | done        | Deployed; worker live on this host      |
 | 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
 | 7   | Deterministic rules engine                 | done        | Deployed 2026-10-22 (`7dff53fc`)        |
-| 8   | Finding lifecycle                          | done        | Built; not yet deployed                 |
+| 8   | Finding lifecycle                          | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
 | 9   | Passive subdomain discovery                | not started |                                         |
 | 10  | Frontend integration                       | not started |                                         |
 | 11  | Production hardening                       | not started |                                         |
@@ -26,6 +26,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 - 2026-10-22 — **Optimistic concurrency:** PATCH carries `expectedStatus`; a finding changed meanwhile (user or scan) → `409 conflict` with `details[0].path = expectedStatus` and nothing changes. Error codes stay within the shared `ERROR_CODES`; the specific cause is in `details[0].path`. Evaluation now locks the findings it touches (`FOR UPDATE`) so history never records a stale "from" status.
 - 2026-10-22 — **History reasons are codes** (`detected`, `recurrence`, `condition_absent`, `accepted_risk_expired`, `manual`); a user's explanation goes in `note`. Remediation notes are a separate append-only `finding_comments` table (production role: INSERT/SELECT only).
 - 2026-10-22 — **Bulk triage** (`POST /findings/bulk`, ≤ 500 ids) for the 339-domain portfolio, set-based (few statements) to stay within the Workers CPU budget; per-finding skip reasons returned.
+- 2026-10-22 — **Vitest capped at 2 workers** (PGlite per file; the default one-per-core run exhausted memory and killed other sessions on the scan host).
 - 2026-10-22 — **Hyperdrive query caching disabled** (owner-approved): cached reads showed stale state for up to 60 s, including authorisation/kill-switch re-checks.
 - 2026-10-22 — **Workers free plan CPU limit (10 ms/request) observed in production** with 339 monitored domains: result uploads and some page loads fail with `exceededCpu` and are retried. Recommended Workers Paid ($5/month) — owner decision pending. Moving to another host was considered and rejected (Access, Hyperdrive, cron rework).
 
@@ -116,7 +117,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~Install the worker on this host~~ — done by the owner 2026-10-22 (`install.sh`, key registered as `home-worker-01`, service token in `worker.env`, systemd unit enabled).
 - [x] ~~Install Nmap on the scan host~~ — done 2026-10-22 (7.94).
 - [ ] **Upgrade to Workers Paid** (Cloudflare dashboard → Workers & Pages → Plans) — the free plan's 10 ms CPU limit kills some requests (see Decisions, 2026-10-22).
-- [ ] After migrating production to 0005: `REVOKE UPDATE, DELETE ON finding_comments FROM exdomainvault_app;` (Claude runs it with the migration, with approval).
+- [x] ~~Production migrated to 0005 and `finding_comments` made append-only for `exdomainvault_app`~~ — done 2026-10-22 (verified: INSERT, SELECT only).
 
 ## Future enhancements (owner requests)
 
@@ -154,7 +155,7 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Checks:** `npm run lint` pass; `npm run typecheck` pass; `npm run db:check` pass; `npm run rules:docs:check` pass; `npm test` 47 files, 1311 tests pass (incl. 28 server lifecycle tests covering every from/to pair for all four roles, concurrency, recurrence after manual resolve, failed scans never resolving; 26 UI lifecycle tests); `npm run build` pass. Worker (Python) unchanged.
 
-**Not yet done:** production migration (0005) and deploy — need owner approval; Workers Paid upgrade recommended first.
+**Production (owner-approved):** migrated to 0005 (6 migrations), `REVOKE UPDATE, DELETE ON finding_comments` verified, deployed version `9e0ed55b-59c0-4ff5-9081-2911a90486f5` on the free plan (Workers Paid still recommended). Root `vitest.config.ts` caps workers at 2 (`VITEST_MAX_WORKERS`): the default exhausted the 16 GB host's memory; full suite now 56 s, 1.4 GB peak, 1311 pass.
 
 **Next:** Milestone 9 — passive subdomain discovery (CT logs). Proposed small follow-up: opt-in scheduled Quick scans.
 
