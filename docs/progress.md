@@ -4,21 +4,29 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Milestone status
 
-| #   | Milestone                                  | Status      | Notes                                   |
-| --- | ------------------------------------------ | ----------- | --------------------------------------- |
-| 1   | Repository foundation                      | done        |                                         |
-| 2   | Database and authentication                | done        | Deployed; production migrated           |
-| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
-| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
-| 5   | Python worker                              | done        | Deployed; worker live on this host      |
-| 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
-| 7   | Deterministic rules engine                 | not started |                                         |
-| 8   | Finding lifecycle                          | not started |                                         |
-| 9   | Passive subdomain discovery                | not started |                                         |
-| 10  | Frontend integration                       | not started |                                         |
-| 11  | Production hardening                       | not started |                                         |
+| #   | Milestone                                  | Status      | Notes                                 |
+| --- | ------------------------------------------ | ----------- | ------------------------------------- |
+| 1   | Repository foundation                      | done        |                                       |
+| 2   | Database and authentication                | done        | Deployed; production migrated         |
+| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)      |
+| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)      |
+| 5   | Python worker                              | done        | Deployed; worker live on this host    |
+| 6   | Scanning and target safety (security gate) | done        | Gate PASSED; enabling in prod pending |
+| 7   | Deterministic rules engine                 | not started |                                       |
+| 8   | Finding lifecycle                          | not started |                                       |
+| 9   | Passive subdomain discovery                | not started |                                       |
+| 10  | Frontend integration                       | not started |                                       |
+| 11  | Production hardening                       | not started |                                       |
 
 ## Decisions log
+
+- 2026-10-22 — **SECURITY GATE (Milestone 6): PASSED.** Scope validator implemented and tested (worker `policy.py`/`net.py`, server re-validation), two independent red-team reviews (worker 497 + server 500 attack tests, kept in the suite), all Critical/High/Medium findings fixed, and a real end-to-end active scan behaved as designed (below). Active scanning may now be enabled — in production only with the owner's explicit approval (server `ACTIVE_SCANNING_ENABLED` + worker `EXDV_ACTIVE_SCANNING_ENABLED`).
+- 2026-10-22 — **Tiered third-party policy (owner decision):** browser-like web checks (TLS handshake, HTTP GET) may reach any public address of an in-scope hostname; network checks (ports, service identification, TLS configuration) only admin-approved networks (`approved_networks`, reason + review date ≤ 24 months, audited; IPv4 ≤ /16, IPv6 ≤ /32, never overlapping prohibited space).
+- 2026-10-22 — **Port scanning with Nmap `-sT` (owner decision):** TCP connect, `--unprivileged`, fixed argv templates from profile data only, explicit validated IPs, `-n -Pn`, rate/parallelism/host-timeout caps, 2 MB output cap, rlimits via an exec stub, process-group kill. `-sV --version-light` runs Nmap's "version" NSE category (46 scripts on 7.94, none intrusive).
+- 2026-10-22 — **Redirects:** never automatic; followed only to http/https on default or original ports and only to approved target hostnames; out-of-domain → `redirect_out_of_scope`, unapproved in-domain → `redirect_not_approved_target`, recorded but never contacted.
+- 2026-10-22 — **Kill switches act mid-job:** heartbeat/results re-check authorisation; revoking/lapsing a domain flags its in-flight active jobs; heartbeat returns the effective approved networks (scope only shrinks).
+- 2026-10-22 — **Home self-protection:** the worker always denies its own interface addresses/IPv6 /64s and its egress IP (DNS `whoami.cloudflare`); unknown egress IP + empty `EXDV_DENY_NETWORKS` → active checks refused (fail closed).
+- 2026-10-22 — **Out-of-scope CNAME targets are always refused** (no "separately approved CNAME" mechanism yet) — sites behind third-party CNAMEs get passive data only for now.
 
 - 2026-10-22 — **Milestone 5 built by four parallel agents** (server ingestion, Python worker, deployment/docs, UI) after I fixed the shared contract first: `packages/shared/src/api/observations.ts` + `docs/worker-protocol.md`, with an RFC 8032-based signing test vector asserted by both the TypeScript and Python test suites.
 - 2026-10-22 — **Observations ride on `results` submissions**, ingested in the same transaction after the idempotency row (duplicates store nothing); row ids `jobId:resultId:index`. DNS hostnames must be within the job's domain on a label boundary; registration only for the apex target; `observedAt` within −7 days/+5 min of server time. The newest successful RDAP observation updates the domain's registrar/dates/status (never regressing; `unavailable` doesn't erase known data).
@@ -232,3 +240,18 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 **Production worker (2026-10-22):** first start failed `--check-config`: systemd `LoadCredential=` copies are `0440` inside the per-service credentials directory, which the strict `0600` key check rejected → fixed (`f2c57c5`: inside `$CREDENTIALS_DIRECTORY` the directory and file must be closed to others; elsewhere `0600` still required). After `install.sh` + restart the worker started, passed Access with the service token and the signature check, and completed the queued passive scan of `alstertor.info` (11 DNS + 1 registration observation; registrar CSC, expiry 2027-03-04, data status `redacted`).
 
 **Next:** Milestone 6 — scanning and target safety (the security gate for active scanning).
+
+### Milestone 6 — 2026-10-22 (security gate)
+
+**Built (parallel agents on fixed contracts, then two red-team agents, two fix agents, two docs agents):** worker scope validator (`policy.py`: strict parsing, prohibited ranges incl. all IPv4-in-IPv6 forms and alternative encodings, label boundaries, CNAME hop validation, deny list, tiers, approved networks; `net.py`: pinned TCP/TLS/HTTP with manual redirect validation and bounded I/O; `self_protection.py`), active checks (TLS certificate, HTTP availability/headers, Nmap ports/service identification), server `approved_networks` (migration `0003`, admin API, audit), snapshot networks with claim-time intersection, validated ingestion of tls/http/port observations, shared prohibited-range table with a TS↔Python parity test, in-flight cancellation, UI (Settings → Approved networks; TLS/HTTP/Ports cards), `docs/threat-model.md`, rewritten `docs/scan-safety.md`.
+
+**Checks:**
+
+- `npm run lint` pass · `npm run typecheck` pass · `npm run build` pass · `npm run db:check` pass
+- `npm test` 31 files / 1032 tests pass (incl. 500 server red-team tests) · `worker:lint` pass · `worker:test` 1250 passed (incl. 497 worker red-team tests) · `systemd-analyze verify` clean
+- Red team, worker: GATE PASS (no Critical/High); Medium RT-1 (redirect to arbitrary ports), RT-2 (redirect to unapproved hosts), RT-5 (home network self-exposure) fixed, Lows fixed. Server: GATE FAIL → fixed: High F1 (in-flight jobs ignored kill switch/revocation), Medium F2–F4, Lows F5–F7.
+- **End to end (real worker → local workerd → Neon `dev`, active scanning enabled locally only):** quick scan of `armoric.com` — every decision logged; TLS/HTTP connected only to the validated CSC addresses; the HTTP `301` to `meralliance.com` refused (`redirect_out_of_scope`); port 443 unanswered → recorded as `timeout` with evidence. Standard scan — port probes refused for both addresses (`network_not_approved` → `no_allowed_address`), Nmap never started. Local flag and test data removed afterwards.
+
+**Not yet done:** production migration `0003`, deploy, and enabling active scanning (owner approval); `tls_configuration` accepted but not run.
+
+**Next:** Milestone 7 — deterministic rules engine.
