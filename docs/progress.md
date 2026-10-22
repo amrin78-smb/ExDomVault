@@ -8,7 +8,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | --- | ------------------------------------------ | ----------- | --------------------------------------- |
 | 1   | Repository foundation                      | done        |                                         |
 | 2   | Database and authentication                | done        | Deployed; production migrated           |
-| 3   | Domain inventory                           | not started |                                         |
+| 3   | Domain inventory                           | done        | Not deployed yet (no migration needed)  |
 | 4   | Scan job lifecycle                         | not started |                                         |
 | 5   | Python worker                              | not started |                                         |
 | 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
@@ -19,6 +19,15 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
+
+- 2026-10-22 — **Only registrable domains (eTLD+1) can be registered**; subdomains are rejected with a suggestion (they become assets later). PSL via `tldts` 7.4.17, ICANN section only: private-section suffixes (`github.io`, `workers.dev`), unknown/special-use TLDs and `.arpa` are rejected.
+- 2026-10-22 — **IDN handling:** WHATWG URL (UTS #46) produces A-labels; ASCII input is pre-filtered to `[a-z0-9.-]` first so percent-encoding and numeric IP shorthands never reach the parser; `xn--` labels must round-trip. Canonical A-label is shown first; Unicode form is secondary; mixed-script labels are flagged (`mixed_script`) but allowed, because DNS verification proves control anyway.
+- 2026-10-22 — **Verification by DoH from the Worker** (Cloudflare `dns-query` JSON), not a worker job: one passive query to a public resolver, no scanning infrastructure needed. Record `_exdomainvault-challenge.<domain>` TXT `exdomainvault-verification=<token>`.
+- 2026-10-22 — **Challenge secrecy:** 256-bit token shown once, SHA-256 stored (no pepper: the token is high-entropy). Lost value → issue a new challenge (old one `superseded`). **72 h expiry**, applied lazily on reads/writes and audited as a system action. Checks throttled to one per 10 s per challenge (atomic UPDATE). Failed checks are audited (`domain.verification_failed`).
+- 2026-10-22 — **Monitoring can only be enabled on verified domains** (409 otherwise). Turning it on/off requires a UI confirmation. Monitoring has no scanning effect until later milestones.
+- 2026-10-22 — **Permissions unchanged:** domain create/edit/import need `domains:write`, verification `domains:verify` (admin only today); analysts and viewers read. Asset owners have no domain access.
+- 2026-10-22 — **CSV import is stateless:** preview returns the file's SHA-256; confirm must send the same file + digest, is re-validated, inserts only valid rows in one transaction (`ON CONFLICT DO NOTHING`). Unknown/repeated columns block the whole file. Limits 1000 rows / 256 KB.
+- 2026-10-22 — `revoked` verification status exists in the schema but nothing sets it yet.
 
 - 2026-10-22 — **Production deployed** to `exdomainvault.amrin78.workers.dev`, protected by the Worker's Access tab (All traffic, owner-only Allow policy). Preview URLs disabled so no unprotected alternate hostname exists.
 - 2026-10-22 — **`exdomainvault_app` created with SQL, not the Neon CLI/console** — those add `neon_superuser` membership (read/write all data, CREATEROLE, BYPASSRLS).
@@ -62,6 +71,10 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 - Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
 - No user-management UI/API yet: non-bootstrap users must be inserted into `users` manually.
+- Domain verification has been exercised end to end locally only up to `record_not_found` against real DNS; a positive verification has only been tested with a mocked resolver (needs a domain whose DNS you control).
+- Challenge expiry is lazy (applied when domain data is read or changed); no scheduled sweep until Cron Triggers arrive (Milestone 4).
+- No revoke/re-verify flow, no domain deletion, no rate limit on domain creation beyond permissions.
+- Registration (RDAP) data is not collected; the UI says "Not collected yet".
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
 - No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
@@ -111,3 +124,20 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 **Done (owner-approved):** Neon `production` migrated (22 tables); `exdomainvault_app` created via SQL after the CLI-created role turned out to inherit `neon_superuser` (deleted); grants verified (append-only tables enforced, no DDL/role creation); Hyperdrive `exdomainvault-db`; Worker deployed (first with auth unconfigured → `/me` 503, health `database: ok`); owner enabled Access on the Worker; `ACCESS_TEAM_DOMAIN`/`ACCESS_AUD` set, `BOOTSTRAP_ADMIN_EMAILS` secret, redeployed (version `fc72fb76`).
 
 **Verified live:** unauthenticated `/`, `/api/v1/health`, `/api/v1/me` and a forged `Cf-Access-Jwt-Assertion` → 302 to Access login; owner signed in → UI shows Administrator, API healthy, `production`; Neon `production` has one admin user bound to the Access subject and one `user.bootstrap_admin` audit row.
+
+### Milestone 3 — 2026-10-22
+
+**Built:** domain normalisation + label-boundary helper (`packages/shared/src/hostname`, `tldts` + `punycode`); shared domain/pagination/import contracts; Worker routes `GET/POST /domains`, `GET/PATCH /domains/:id`, `POST /domains/:id/verification`, `POST /domains/:id/verify`, `POST /domains/import/preview`, `POST /domains/import`; services for domains, DNS TXT verification (DoH resolver, hashing, expiry, throttle) and CSV import (RFC 4180 parser); request validation helpers; audit events `domain.created|updated|monitoring_enabled|monitoring_disabled|verification_started|verification_failed|verification_expired|verified|import_completed`. UI: session/permission context, Domains list (search, filters, sort, pagination), add form, detail page (verification panel with one-time value, owner/criticality edit, confirmed monitoring toggle, registration status, empty states), CSV import with preview/confirm. Docs: `api-specification.md` (domains), `architecture.md`. No schema change, so no migration.
+
+**Checks (all run locally):**
+
+- `npm run lint` pass · `npm run typecheck` pass · `npm run build` pass (PSL only in the Worker bundle, 1.0 MB / 278 KB gzip; none in the browser bundle)
+- `npm test` — 18 files, 215 tests pass (+58 normalisation incl. `evil-example.com`, `example.com.evil.net`, Cyrillic homograph, IDN, PSL boundaries, IP shorthands; +40 domain API incl. RBAC denials per role, duplicates, CSRF, hash-only storage, superseded value rejected, expiry at exactly 72 h vs 1 ms before, throttle, import preview/confirm/digest mismatch; DoH/CSV/hash unit tests; 11 UI tests)
+- Mutation checks: disabling the throttle and the expiry sweep each made the corresponding test fail
+- `npm run dev` (workerd + Neon `dev`): create (normalised), duplicate → 409, subdomain → 400 with suggestion, start verification, real DoH check → `record_not_found`, second check → `too_soon`, monitoring before verification → 409, list/search, import preview/confirm; detail page checked in a browser
+- Bug found by that run and fixed: Workers `fetch` rejects `redirect: 'error'` (Node accepts it) → DoH returned `dns_error`; now `redirect: 'manual'` with redirects treated as failures (unit-tested)
+- `worker:test` not run — Python worker unchanged
+
+**Not deployed:** production still runs Milestone 2. Deploying needs your go-ahead (no migration required).
+
+**Next:** Milestone 4 — scan job lifecycle (`docs/prompts/04-scan-job-lifecycle.md`).

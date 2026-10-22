@@ -12,7 +12,12 @@ export class ApiError extends Error {
   readonly code: ErrorCode;
   readonly details?: FieldError[];
 
-  constructor(status: ContentfulStatusCode, code: ErrorCode, message: string, details?: FieldError[]) {
+  constructor(
+    status: ContentfulStatusCode,
+    code: ErrorCode,
+    message: string,
+    details?: FieldError[],
+  ) {
     super(message);
     this.status = status;
     this.code = code;
@@ -64,7 +69,10 @@ export const handleError: ErrorHandler<AppBindings> = (err, c) => {
   const logger = c.get('logger');
   const fields = { errorName: err.name, errorMessage: err.message, stack: err.stack };
   if (logger) logger.error('unhandled_error', fields);
-  else console.error(JSON.stringify({ level: 'error', message: 'unhandled_error', requestId, ...fields }));
+  else
+    console.error(
+      JSON.stringify({ level: 'error', message: 'unhandled_error', requestId, ...fields }),
+    );
 
   return c.json(errorBody(requestId, 'internal_error', 'An internal error occurred.'), 500);
 };

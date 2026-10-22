@@ -1,7 +1,7 @@
 import { ROLE_LABELS } from '@exdomainvault/shared';
 import { CircleUserRound, ShieldAlert } from 'lucide-react';
-import { ApiClientError, api } from '../../lib/api.ts';
-import { useAsync } from '../../lib/use-async.ts';
+import { ApiClientError } from '../../lib/api.ts';
+import { useSession } from '../../lib/session.ts';
 
 /** Explains, in plain terms, why the API refused to identify the user. */
 function deniedLabel(error: Error): string {
@@ -19,7 +19,7 @@ function deniedLabel(error: Error): string {
 }
 
 export function CurrentUser() {
-  const state = useAsync((signal) => api.me({ signal }), []);
+  const state = useSession();
 
   if (state.status === 'loading') {
     return <span className="text-xs text-slate-400">Signing in…</span>;

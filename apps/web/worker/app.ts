@@ -7,6 +7,7 @@ import { sameOriginWrites } from './middleware/csrf.ts';
 import { database, type Connector } from './middleware/database.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
+import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import { meRoutes } from './routes/me.ts';
 import type { AppBindings } from './types.ts';
@@ -16,6 +17,7 @@ export interface AppDeps {
   /** Opens a database connection (defaults to node-postgres via Hyperdrive). */
   connect?: Connector;
   auth?: AuthProviderDeps;
+  domains?: DomainRouteDeps;
 }
 
 /**
@@ -40,6 +42,7 @@ export function createApp(deps: AppDeps = {}) {
   authed.use('*', sameOriginWrites());
   authed.use('*', requireAuth(deps.auth));
   authed.route('/me', meRoutes);
+  authed.route('/domains', domainRoutes(deps.domains));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

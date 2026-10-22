@@ -1,9 +1,24 @@
 import {
+  createChallengeResponseSchema,
+  domainDetailResponseSchema,
+  domainListResponseSchema,
   errorResponseSchema,
   healthResponseSchema,
+  importConfirmResponseSchema,
+  importPreviewResponseSchema,
   meResponseSchema,
+  verifyDomainResponseSchema,
+  type CreateChallengeResponse,
+  type CreateDomainRequest,
+  type DomainDetailResponse,
+  type DomainListResponse,
+  type FieldError,
   type HealthResponse,
+  type ImportConfirmResponse,
+  type ImportPreviewResponse,
   type MeResponse,
+  type UpdateDomainRequest,
+  type VerifyDomainResponse,
 } from '@exdomainvault/shared';
 import type { z } from 'zod';
 
@@ -13,12 +28,20 @@ export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
   readonly requestId?: string;
+  readonly details?: FieldError[];
 
-  constructor(message: string, status: number, code: string, requestId?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    requestId?: string,
+    details?: FieldError[],
+  ) {
     super(message);
     this.status = status;
     this.code = code;
     this.requestId = requestId;
+    this.details = details;
   }
 }
 
@@ -40,8 +63,8 @@ export async function getJson<T>(
   if (!res.ok) {
     const parsed = errorResponseSchema.safeParse(body);
     if (parsed.success) {
-      const { message, code, requestId } = parsed.data.error;
-      throw new ApiClientError(message, res.status, code, requestId);
+      const { message, code, requestId, details } = parsed.data.error;
+      throw new ApiClientError(message, res.status, code, requestId, details);
     }
     throw new ApiClientError(`Unexpected API response (${res.status}).`, res.status, 'unknown');
   }
@@ -57,8 +80,56 @@ export async function getJson<T>(
   return parsed.data;
 }
 
+/** Sends a JSON body (POST/PATCH). Same-origin fetch carries the Origin header the API requires. */
+export function sendJson<T>(
+  method: 'POST' | 'PATCH',
+  path: string,
+  schema: z.ZodType<T>,
+  body?: unknown,
+): Promise<T> {
+  return getJson(path, schema, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+/** Builds a query string, omitting empty values. */
+export function toQuery(params: Record<string, string | number | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
+const domainPath = (id: string) => `/api/v1/domains/${encodeURIComponent(id)}`;
+
 export const api = {
   health: (init?: RequestInit): Promise<HealthResponse> =>
     getJson('/api/v1/health', healthResponseSchema, init),
   me: (init?: RequestInit): Promise<MeResponse> => getJson('/api/v1/me', meResponseSchema, init),
+
+  domains: {
+    list: (
+      params: Record<string, string | number | undefined>,
+      init?: RequestInit,
+    ): Promise<DomainListResponse> =>
+      getJson(`/api/v1/domains${toQuery(params)}`, domainListResponseSchema, init),
+    get: (id: string, init?: RequestInit): Promise<DomainDetailResponse> =>
+      getJson(domainPath(id), domainDetailResponseSchema, init),
+    create: (body: CreateDomainRequest): Promise<DomainDetailResponse> =>
+      sendJson('POST', '/api/v1/domains', domainDetailResponseSchema, body),
+    update: (id: string, body: UpdateDomainRequest): Promise<DomainDetailResponse> =>
+      sendJson('PATCH', domainPath(id), domainDetailResponseSchema, body),
+    startVerification: (id: string): Promise<CreateChallengeResponse> =>
+      sendJson('POST', `${domainPath(id)}/verification`, createChallengeResponseSchema),
+    verify: (id: string): Promise<VerifyDomainResponse> =>
+      sendJson('POST', `${domainPath(id)}/verify`, verifyDomainResponseSchema),
+    previewImport: (csv: string): Promise<ImportPreviewResponse> =>
+      sendJson('POST', '/api/v1/domains/import/preview', importPreviewResponseSchema, { csv }),
+    confirmImport: (csv: string, digest: string): Promise<ImportConfirmResponse> =>
+      sendJson('POST', '/api/v1/domains/import', importConfirmResponseSchema, { csv, digest }),
+  },
 };

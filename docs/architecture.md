@@ -40,7 +40,26 @@ Request pipeline (`app.ts`):
 7. `handleNotFound` / `handleError` — standard error envelope; unknown errors are logged with stack
    server-side and returned as a generic `internal_error`.
 
-Endpoints: `GET /health` (public), `GET /me`. Full contract: [`api-specification.md`](api-specification.md).
+Endpoints: `GET /health` (public), `GET /me`, domains (`routes/domains.ts`: list, create, detail, update,
+DNS TXT verification, CSV import). Full contract: [`api-specification.md`](api-specification.md).
+
+Request bodies and query strings are validated with the shared zod schemas (`lib/validation.ts`: JSON
+content type and a 300 KB body limit enforced; malformed UUID params → 404).
+
+## Domain inventory
+
+- **Normalisation** (`packages/shared/src/hostname/normalise.ts`, subpath export
+  `@exdomainvault/shared/hostname`, server-only because it bundles the Public Suffix List): ASCII
+  pre-filter → WHATWG URL IDNA → strict LDH/A-label checks → PSL registrable-domain boundary (`tldts`,
+  ICANN section only). `isWithinDomain()` is the exact label-boundary check later reused for scope.
+- **Verification** (`services/domain-verification.ts`): random 256-bit token, SHA-256 stored, 72 h
+  expiry, superseding, atomic 10 s check throttle, lookup through DoH (`lib/doh.ts`) from the Worker.
+  Chosen over a home-worker job because it is a single passive query to a public resolver, needs no
+  scanning infrastructure (Milestone 5) and gives immediate feedback. Expiry is applied lazily on reads
+  and writes (no cron yet).
+- **Import** (`services/domain-import.ts`, `lib/csv.ts`): stateless two-step preview/confirm bound by a
+  SHA-256 digest of the file; confirm re-validates and inserts valid rows in one transaction.
+- Every change writes its audit record in the same transaction (`domain.*` actions).
 
 ## Authentication and authorisation
 
@@ -68,6 +87,11 @@ Details: [`database-schema.md`](database-schema.md). Neon/Hyperdrive setup: [`de
   error boundary.
 - Navigation: Overview, Domains, Assets, Scans, Findings, Advisories, Reports, Settings. Unbuilt sections
   render a placeholder naming their milestone.
+- Domains: list (`/domains`, filters/sort/page in the URL), detail (`/domains/:id`: verification panel,
+  owner/criticality, monitoring with confirmation, registration status, honest empty states for data not
+  collected yet) and CSV import (`/domains/import`).
+- `SessionProvider` loads `/api/v1/me` once; `usePermission()` hides actions the user's role cannot
+  perform (the API still enforces every permission).
 - The top bar shows API health (`/api/v1/health`) and the signed-in user and role (`/api/v1/me`), or why
   sign-in failed (not signed in / access not granted / sign-in unavailable).
 - **Development fixtures** (`lib/fixtures/`, RFC 2606 names) render only when

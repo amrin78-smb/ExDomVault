@@ -6,16 +6,10 @@ import { PageHeader } from '../components/ui/PageHeader.tsx';
 import { SeverityBadge } from '../components/ui/SeverityBadge.tsx';
 import { StatCard } from '../components/ui/StatCard.tsx';
 import { useDataMode } from '../lib/data-mode.ts';
+import { formatDateTime as formatDate } from '../lib/format.ts';
 import { overviewFixture, type OverviewSummary } from '../lib/fixtures/overview.ts';
 
-const dateFmt = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-  timeZone: 'UTC',
-});
-const formatDate = (iso: string) => `${dateFmt.format(new Date(iso))} UTC`;
-
-const NO_DATA_HINT = 'No data yet — add and verify a domain first (Milestone 3).';
+const NO_DATA_HINT = 'No data yet — dashboard data arrives once scanning is in place.';
 
 export function OverviewPage() {
   const { fixtures } = useDataMode();

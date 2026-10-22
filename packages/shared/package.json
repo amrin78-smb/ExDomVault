@@ -5,12 +5,18 @@
   "type": "module",
   "description": "Shared API contracts, validation schemas and domain constants",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./hostname": "./src/hostname/normalise.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "punycode": "2.3.1",
+    "tldts": "7.4.17",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/punycode": "^2.1.4"
   }
 }

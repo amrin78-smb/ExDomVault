@@ -21,3 +21,10 @@ export function compareSeverityDesc(a: Severity, b: Severity): number {
 export const CRITICALITIES = ['low', 'medium', 'high', 'critical'] as const;
 export const criticalitySchema = z.enum(CRITICALITIES);
 export type Criticality = z.infer<typeof criticalitySchema>;
+
+export const CRITICALITY_LABELS: Record<Criticality, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  critical: 'Critical',
+};
