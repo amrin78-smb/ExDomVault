@@ -8,7 +8,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | --- | ------------------------------------------ | ----------- | --------------------------------------- |
 | 1   | Repository foundation                      | done        |                                         |
 | 2   | Database and authentication                | done        | Deployed; production migrated           |
-| 3   | Domain inventory                           | done        | Not deployed yet (no migration needed)  |
+| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
 | 4   | Scan job lifecycle                         | not started |                                         |
 | 5   | Python worker                              | not started |                                         |
 | 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
@@ -138,6 +138,6 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 - Bug found by that run and fixed: Workers `fetch` rejects `redirect: 'error'` (Node accepts it) → DoH returned `dns_error`; now `redirect: 'manual'` with redirects treated as failures (unit-tested)
 - `worker:test` not run — Python worker unchanged
 
-**Not deployed:** production still runs Milestone 2. Deploying needs your go-ahead (no migration required).
+**Deployed** 2026-10-22 on request, version `cf062f76-4896-4c7a-be8a-50d813fbd696` (no migration needed). Unauthenticated `/`, `/domains`, `/api/v1/domains` and a forged-token POST → 302 to the Access login.
 
 **Next:** Milestone 4 — scan job lifecycle (`docs/prompts/04-scan-job-lifecycle.md`).
