@@ -84,9 +84,15 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
           </div>
         )}
         {profiles.status === 'success' && (
-          <p className="text-xs text-slate-500">
-            {profiles.data.items.find((p) => p.key === profile)?.description}
-          </p>
+          <div className="space-y-1 text-xs text-slate-500">
+            <p>{profiles.data.items.find((p) => p.key === profile)?.description}</p>
+            {profiles.data.items.find((p) => p.key === profile)?.config.active && (
+              <p data-testid="tier-note">
+                TLS and HTTP checks connect like a normal visitor; ports are probed only on approved
+                networks.
+              </p>
+            )}
+          </div>
         )}
         {error && <ErrorAlert error={error} title="The scan was not requested" />}
 

@@ -20,6 +20,7 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'domains:verify',
     'scans:read',
     'scans:request',
+    'scan_policies:manage',
     'settings:manage',
   ],
   analyst: ['domains:read', 'scans:read', 'scans:request'],

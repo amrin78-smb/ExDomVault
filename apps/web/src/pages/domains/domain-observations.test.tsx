@@ -14,6 +14,10 @@ const JOB_ID = '7d1f8c2e-3b4a-4c5d-9e6f-0a1b2c3d4e5f';
 const OBS_PATH = `GET /api/v1/domains/${DOMAIN_ID}/observations`;
 const DAY_MS = 86_400_000;
 
+/** Active-check arrays default to empty, as the API schema does for older responses. */
+type ObservationsFixture = Omit<DomainObservationsResponse, 'tls' | 'http' | 'ports'> &
+  Partial<Pick<DomainObservationsResponse, 'tls' | 'http' | 'ports'>>;
+
 const domain = (overrides: Partial<Domain> = {}): Domain => ({
   id: DOMAIN_ID,
   fqdn: 'example.com',
@@ -59,7 +63,7 @@ const record = (overrides: Partial<DnsRecordSet> = {}): DnsRecordSet => ({
 });
 
 function stubPage(
-  observations: Handler | DomainObservationsResponse,
+  observations: Handler | ObservationsFixture,
   domainOverrides: Partial<Domain> = {},
 ) {
   return stubApi('viewer', {
@@ -74,7 +78,10 @@ function stubPage(
       pageSize: 5,
       total: 0,
     }),
-    [OBS_PATH]: typeof observations === 'function' ? observations : ok(observations),
+    [OBS_PATH]:
+      typeof observations === 'function'
+        ? observations
+        : ok({ tls: [], http: [], ports: [], ...observations }),
   });
 }
 

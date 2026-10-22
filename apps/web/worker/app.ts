@@ -11,6 +11,7 @@ import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import { internalWorkerRoutes } from './routes/internal-worker.ts';
 import { meRoutes } from './routes/me.ts';
+import { approvedNetworkRoutes } from './routes/networks.ts';
 import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
 import { workerAdminRoutes } from './routes/workers.ts';
 import type { AppBindings } from './types.ts';
@@ -53,6 +54,7 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/scan-profiles', scanProfileRoutes());
   authed.route('/scans', scanRoutes({ now: deps.now }));
   authed.route('/workers', workerAdminRoutes({ now: deps.now }));
+  authed.route('/approved-networks', approvedNetworkRoutes({ now: deps.now }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

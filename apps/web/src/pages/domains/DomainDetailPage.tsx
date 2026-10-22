@@ -6,7 +6,10 @@ import { DnsRecordsCard } from '../../components/domains/DnsRecordsCard.tsx';
 import { CriticalityLabel, VerificationBadge } from '../../components/domains/DomainBadges.tsx';
 import { DomainScansCard } from '../../components/domains/DomainScansCard.tsx';
 import { DomainSettingsCard } from '../../components/domains/DomainSettingsCard.tsx';
+import { HttpCard } from '../../components/domains/HttpCard.tsx';
+import { PortsCard } from '../../components/domains/PortsCard.tsx';
 import { RegistrationCard } from '../../components/domains/RegistrationCard.tsx';
+import { TlsCard } from '../../components/domains/TlsCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
@@ -91,10 +94,15 @@ export function DomainDetailPage() {
 
         <DnsRecordsCard apex={domain.fqdn} state={observations} />
 
-        <Card title="Certificates, assets and findings">
+        <TlsCard state={observations} />
+
+        <HttpCard state={observations} />
+
+        <PortsCard state={observations} />
+
+        <Card title="Assets and findings">
           <EmptyState title="Not available yet" icon={Construction}>
-            Certificate status arrives with active scanning (Milestone 6); discovered assets and
-            findings arrive with discovery (Milestone 9).
+            Discovered assets and findings arrive with discovery (Milestone 9).
           </EmptyState>
         </Card>
       </div>

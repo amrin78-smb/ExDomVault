@@ -1,4 +1,8 @@
 import {
+  approvedNetworkListResponseSchema,
+  approvedNetworkSchema,
+  type ApprovedNetwork,
+  type CreateApprovedNetworkRequest,
   scanJobDetailResponseSchema,
   scanJobListResponseSchema,
   scanProfileListResponseSchema,
@@ -175,6 +179,21 @@ export const api = {
     /** Queues a scan; returns immediately (the worker runs it asynchronously). */
     requestScan: (id: string, body: CreateScanRequest): Promise<ScanJobDetailResponse> =>
       sendJson('POST', `${domainPath(id)}/scans`, scanJobDetailResponseSchema, body),
+  },
+
+  /** Networks that network-tier checks (port probes, service identification) may contact. */
+  approvedNetworks: {
+    list: (init?: RequestInit): Promise<{ items: ApprovedNetwork[] }> =>
+      getJson('/api/v1/approved-networks', approvedNetworkListResponseSchema, init),
+    create: (body: CreateApprovedNetworkRequest): Promise<ApprovedNetwork> =>
+      sendJson('POST', '/api/v1/approved-networks', approvedNetworkSchema, body),
+    revoke: (id: string, reason: string): Promise<ApprovedNetwork> =>
+      sendJson(
+        'POST',
+        `/api/v1/approved-networks/${encodeURIComponent(id)}/revoke`,
+        approvedNetworkSchema,
+        { reason },
+      ),
   },
 
   scanProfiles: (init?: RequestInit): Promise<ScanProfileListResponse> =>

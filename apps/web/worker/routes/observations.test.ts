@@ -43,6 +43,7 @@ beforeEach(async () => {
   await t.db.delete(schema.assets);
   await t.db.delete(schema.domains);
   await t.db.delete(schema.workerRegistry);
+  await t.db.delete(schema.approvedNetworks);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -337,7 +338,13 @@ describe('GET /domains/:id/observations', () => {
   it('returns empty results for a domain without observations', async () => {
     const [d] = await t.db.insert(schema.domains).values({ fqdn: 'example.org' }).returning();
     const res = await call('analyst', 'GET', `/domains/${d!.id}/observations`);
-    expect(await res.json()).toEqual({ dns: [], registration: null });
+    expect(await res.json()).toEqual({
+      dns: [],
+      registration: null,
+      tls: [],
+      http: [],
+      ports: [],
+    });
   });
 
   it('enforces RBAC and returns 404 for an unknown domain', async () => {
@@ -353,5 +360,275 @@ describe('GET /domains/:id/observations', () => {
       404,
       'not_found',
     );
+  });
+});
+
+// --- Active observations (Milestone 6) ----------------------------------------------------------
+
+const ACTIVE_ON = { ACTIVE_SCANNING_ENABLED: 'true' };
+
+/** Verified example.com with www approved, 8.8.8.0/24 approved, an active scan claimed. */
+async function setupActive(profile = 'standard'): Promise<Setup> {
+  const [d] = await t.db
+    .insert(schema.domains)
+    .values({
+      fqdn: 'example.com',
+      verificationStatus: 'verified',
+      verifiedAt: clock,
+      verificationMethod: 'dns_txt',
+    })
+    .returning();
+  const [a] = await t.db
+    .insert(schema.assets)
+    .values({
+      domainId: d!.id,
+      hostname: 'www.example.com',
+      assetType: 'subdomain',
+      discoverySource: 'dns',
+      verificationStatus: 'approved',
+      approvedAt: clock,
+      approvedBy: await ensureUser(t, 'admin'),
+    })
+    .returning();
+  const net = await userCall(h, t, 'admin', 'POST', '/approved-networks', {
+    cidr: '8.8.8.0/24',
+    label: 'Hosting',
+    reason: 'Our own servers in the rack',
+    reviewBy: '2027-06-30',
+  });
+  expect(net.status).toBe(201);
+  const key = await generateWorkerKey();
+  const reg = await call('admin', 'POST', '/workers', {
+    name: `obs-${workerSeq++}`,
+    publicKey: key.publicKey,
+  });
+  const w = {
+    key,
+    keyId: workerCredentialCreatedResponseSchema.parse(await reg.json()).credentialId,
+  };
+  const res = await userCall(
+    h,
+    t,
+    'analyst',
+    'POST',
+    `/domains/${d!.id}/scans`,
+    { profile },
+    ACTIVE_ON,
+  );
+  expect(res.status).toBe(202);
+  const claimed = await workerCall(
+    h,
+    w.key,
+    w.keyId,
+    'claim',
+    {},
+    { now: clock, envExtra: ACTIVE_ON },
+  );
+  const job = claimResponseSchema.parse(await claimed.json()).job!;
+  expect(job.snapshot.approvedNetworks).toEqual(['8.8.8.0/24']);
+  const byHost = (name: string) => job.targets.find((x) => x.hostname === name)!.id;
+  return {
+    w,
+    domainId: d!.id,
+    wwwAssetId: a!.id,
+    job,
+    apex: byHost('example.com'),
+    www: byHost('www.example.com'),
+  };
+}
+
+const base = (targetId: string, at = iso()) => ({
+  targetId,
+  observedAt: at,
+  checkerVersion: '0.2.0',
+  resultStatus: 'success',
+});
+
+const tlsObs = (targetId: string, over: Record<string, unknown> = {}) => ({
+  kind: 'tls',
+  ...base(targetId),
+  evidence: { trusted: true, chainLength: 2 },
+  hostname: 'www.example.com',
+  ipAddress: '2606:4700:0:0:0:0:0:1111',
+  port: 443,
+  protocolVersion: 'TLSv1.3',
+  notBefore: '2026-09-01T00:00:00.000Z',
+  notAfter: '2026-12-01T00:00:00.000Z',
+  issuer: 'CN=Example CA',
+  subject: 'CN=www.example.com',
+  subjectAltNames: ['www.example.com'],
+  fingerprintSha256: 'a'.repeat(64),
+  hostnameMatches: true,
+  ...over,
+});
+
+const httpObs = (targetId: string, over: Record<string, unknown> = {}) => ({
+  kind: 'http',
+  ...base(targetId),
+  evidence: { 'strict-transport-security': 'max-age=31536000', hops: [] },
+  url: 'https://www.example.com/',
+  ipAddress: '8.8.4.4',
+  statusCode: 200,
+  finalUrl: 'https://www.example.com/',
+  redirectCount: 0,
+  hstsEnabled: true,
+  ...over,
+});
+
+const portObs = (targetId: string, over: Record<string, unknown> = {}) => ({
+  kind: 'port',
+  ...base(targetId),
+  evidence: { product: 'nginx', method: 'nmap-sT' },
+  ipAddress: '8.8.8.8',
+  port: 443,
+  protocol: 'tcp',
+  state: 'open',
+  service: 'https',
+  ...over,
+});
+
+const activeCounts = async () => ({
+  tls: (await t.db.select().from(schema.tlsObservations)).length,
+  http: (await t.db.select().from(schema.httpObservations)).length,
+  port: (await t.db.select().from(schema.portObservations)).length,
+  results: (await t.db.select().from(schema.scanJobResults)).length,
+});
+
+describe('active observation ingestion', () => {
+  it('stores tls, http and port observations idempotently', async () => {
+    const s = await setupActive();
+    const observations = [tlsObs(s.www), httpObs(s.www), portObs(s.apex)];
+    const first = await submit(s, 'result-0001', observations);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ accepted: true, status: 'running' });
+    expect(await activeCounts()).toEqual({ tls: 1, http: 1, port: 1, results: 1 });
+
+    const [tls] = await t.db.select().from(schema.tlsObservations);
+    expect(tls).toMatchObject({
+      resultId: `${s.job.id}:result-0001:0`,
+      assetId: s.wwwAssetId,
+      scanJobTargetId: s.www,
+      checker: 'tls',
+      hostname: 'www.example.com',
+      ipAddress: '2606:4700::1111',
+      port: 443,
+      evidence: { trusted: true, chainLength: 2 },
+    });
+    const [port] = await t.db.select().from(schema.portObservations);
+    expect(port).toMatchObject({ checker: 'port', ipAddress: '8.8.8.8', port: 443, state: 'open' });
+
+    const again = await submit(s, 'result-0001', observations);
+    expect(await again.json()).toEqual({ accepted: false, status: 'running' });
+    expect(await activeCounts()).toEqual({ tls: 1, http: 1, port: 1, results: 1 });
+  });
+
+  it.each([
+    ['a private tls address', () => tlsObs('', { ipAddress: '10.0.0.5' })],
+    ['an IPv4-mapped tls address', () => tlsObs('', { ipAddress: '::ffff:8.8.8.8' })],
+    ['a loopback http address', () => httpObs('', { ipAddress: '127.0.0.1' })],
+    ['a CGNAT http address', () => httpObs('', { ipAddress: '100.64.1.1' })],
+    ['a link-local port address', () => portObs('', { ipAddress: '169.254.169.254' })],
+    ['an out-of-domain tls hostname', () => tlsObs('', { hostname: 'www.example.com.evil.net' })],
+    ['a lookalike tls hostname', () => tlsObs('', { hostname: 'evil-example.com' })],
+    ['an out-of-domain http url', () => httpObs('', { url: 'https://evil.net/' })],
+    ['a suffix-trick http url', () => httpObs('', { url: 'https://example.com.evil.net/' })],
+    ['userinfo in the url', () => httpObs('', { url: 'https://evil.net@example.com/' })],
+    ['an ftp url', () => httpObs('', { url: 'ftp://www.example.com/' })],
+    ['an IP literal url', () => httpObs('', { url: 'http://0x7f.1/' })],
+    ['an uppercase url host', () => httpObs('', { url: 'https://WWW.example.com/' })],
+    ['a url with whitespace', () => httpObs('', { url: 'https://www.example.com/ x' })],
+    ['a bad url port', () => httpObs('', { url: 'https://www.example.com:99999/' })],
+    ['a non-http final url', () => httpObs('', { finalUrl: 'javascript:alert(1)' })],
+    ['a port not in the profile', () => portObs('', { port: 12345 })],
+    ['a port address outside approved networks', () => portObs('', { ipAddress: '8.8.4.4' })],
+  ])('rejects the whole submission for %s', async (_label, make) => {
+    const s = await setupActive();
+    const bad = { ...make(), targetId: s.www };
+    await expectError(
+      await submit(s, 'result-0001', [tlsObs(s.www), bad]),
+      400,
+      'validation_failed',
+    );
+    expect(await activeCounts()).toEqual({ tls: 0, http: 0, port: 0, results: 0 });
+  });
+
+  it('rejects port observations once the network approval is revoked', async () => {
+    const s = await setupActive();
+    const list = (await (await userCall(h, t, 'admin', 'GET', '/approved-networks')).json()) as {
+      items: { id: string }[];
+    };
+    const revoked = await userCall(
+      h,
+      t,
+      'admin',
+      'POST',
+      `/approved-networks/${list.items[0]!.id}/revoke`,
+      { reason: 'Servers moved elsewhere' },
+    );
+    expect(revoked.status).toBe(200);
+    await expectError(await submit(s, 'result-0001', [portObs(s.apex)]), 400, 'validation_failed');
+    // Web-tier observations do not depend on approved networks.
+    expect((await submit(s, 'result-0002', [tlsObs(s.www)])).status).toBe(200);
+  });
+
+  it('rejects port observations for a profile without port checks', async () => {
+    const s = await setupActive('quick');
+    await expectError(await submit(s, 'result-0001', [portObs(s.apex)]), 400, 'validation_failed');
+    // quick has no http_headers but does have http_availability.
+    expect((await submit(s, 'result-0002', [httpObs(s.www)])).status).toBe(200);
+  });
+
+  it.each([
+    ['tls', tlsObs],
+    ['http', httpObs],
+    ['port', portObs],
+  ])('rejects %s observations on a passive job', async (_kind, make) => {
+    const s = await setup();
+    await expectError(await submit(s, 'result-0001', [make(s.www)]), 400, 'validation_failed');
+    expect(await activeCounts()).toEqual({ tls: 0, http: 0, port: 0, results: 0 });
+  });
+});
+
+describe('GET /domains/:id/observations (active)', () => {
+  it('returns the latest tls, http and port observation per key with evidence', async () => {
+    const s = await setupActive();
+    await submit(s, 'result-0001', [
+      tlsObs(s.www, { observedAt: iso(-600), protocolVersion: 'TLSv1.2' }),
+      tlsObs(s.apex, { observedAt: iso(-600), hostname: 'example.com' }),
+      httpObs(s.www, { observedAt: iso(-600), statusCode: 500 }),
+      portObs(s.apex, { observedAt: iso(-600), state: 'closed' }),
+      portObs(s.apex, { observedAt: iso(-600), port: 22, state: 'filtered', service: null }),
+    ]);
+    await submit(s, 'result-0002', [
+      tlsObs(s.www, { observedAt: iso(-60) }),
+      httpObs(s.www, { observedAt: iso(-60) }),
+      httpObs(s.www, { observedAt: iso(-60), url: 'http://www.example.com/', statusCode: 301 }),
+      portObs(s.apex, { observedAt: iso(-60) }),
+    ]);
+
+    const res = await call('viewer', 'GET', `/domains/${s.domainId}/observations`);
+    expect(res.status).toBe(200);
+    const body = domainObservationsResponseSchema.parse(await res.json());
+    expect(body.tls.map((r) => [r.hostname, r.ipAddress, r.port, r.protocolVersion])).toEqual([
+      ['example.com', '2606:4700::1111', 443, 'TLSv1.3'],
+      ['www.example.com', '2606:4700::1111', 443, 'TLSv1.3'],
+    ]);
+    expect(body.tls[1]).toMatchObject({
+      observedAt: iso(-60),
+      scanJobId: s.job.id,
+      evidence: { trusted: true, chainLength: 2 },
+    });
+    expect(body.http.map((r) => [r.url, r.statusCode])).toEqual([
+      ['http://www.example.com/', 301],
+      ['https://www.example.com/', 200],
+    ]);
+    expect(body.http[1]!.evidence).toMatchObject({
+      'strict-transport-security': 'max-age=31536000',
+    });
+    expect(body.ports.map((r) => [r.ipAddress, r.port, r.state, r.service])).toEqual([
+      ['8.8.8.8', 22, 'filtered', null],
+      ['8.8.8.8', 443, 'open', 'https'],
+    ]);
+    expect(body.ports[1]!.evidence).toMatchObject({ method: 'nmap-sT' });
   });
 });

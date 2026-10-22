@@ -1,8 +1,8 @@
 """Worker configuration loaded from environment variables (see ``docs/worker-protocol.md``).
 
 Configuration is validated at start-up and invalid values stop the worker (fail closed).
-Active network scanning is not configurable: it stays disabled until the scope validator
-(Milestone 6) is implemented and tested.
+Active (target-connecting) checks run only when ``EXDV_ACTIVE_SCANNING_ENABLED=true``; the default
+is off, and every connection still passes the Milestone 6 scope validator (``app.policy``).
 """
 
 from __future__ import annotations
@@ -16,11 +16,14 @@ from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import urlsplit
 
+from app.policy import parse_network
+
 Environment = Literal["development", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 DEFAULT_HEALTH_FILE = "/var/lib/exdomainvault-worker/health.json"
 DEFAULT_DNS_RESOLVERS = "1.1.1.1,9.9.9.9,2606:4700:4700::1111,2620:fe::fe"
+DEFAULT_NMAP_PATH = "/usr/bin/nmap"
 
 _WORKER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -30,6 +33,7 @@ _LOG_LEVELS: tuple[LogLevel, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _MAX_PROFILES = 10
 _MAX_RESOLVERS = 10
+_MAX_DENY_NETWORKS = 100
 
 
 class ConfigError(ValueError):
@@ -51,12 +55,20 @@ class WorkerConfig:
     access_client_id: str | None = None
     # Secret: never shown in repr() or logs.
     access_client_secret: str | None = field(default=None, repr=False)
-    # Hard-coded off until Milestone 6 passes its security gate. Not read from the environment.
+    # EXDV_ACTIVE_SCANNING_ENABLED; off unless explicitly "true".
     active_scanning_enabled: bool = False
+    # EXDV_DENY_NETWORKS: canonical CIDRs never contacted, on top of the built-in prohibited ranges.
+    deny_networks: tuple[str, ...] = ()
+    nmap_path: str = DEFAULT_NMAP_PATH
 
     @property
     def api_host(self) -> str:
         return urlsplit(self.api_base_url).hostname or ""
+
+    @property
+    def nmap_available(self) -> bool:
+        """True when ``nmap_path`` is an executable regular file (checked on each call)."""
+        return os.path.isfile(self.nmap_path) and os.access(self.nmap_path, os.X_OK)
 
 
 def _in_credentials_dir(path: str, credentials_dir: str | None) -> bool:
@@ -178,6 +190,28 @@ def load_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
     if not os.path.isabs(health_file):
         raise ConfigError("EXDV_HEALTH_FILE must be an absolute path")
 
+    raw_active = source.get("EXDV_ACTIVE_SCANNING_ENABLED", "").strip() or "false"
+    if raw_active not in ("true", "false"):
+        raise ConfigError("EXDV_ACTIVE_SCANNING_ENABLED must be 'true' or 'false'")
+
+    deny: list[str] = []
+    for raw in _csv(source.get("EXDV_DENY_NETWORKS", "")):
+        try:
+            deny.append(str(parse_network(raw)))
+        except ValueError as exc:
+            raise ConfigError(
+                "EXDV_DENY_NETWORKS must be comma-separated canonical CIDRs (host bits zero) "
+                "or addresses"
+            ) from exc
+    deny = list(dict.fromkeys(deny))
+    if len(deny) > _MAX_DENY_NETWORKS:
+        raise ConfigError(f"EXDV_DENY_NETWORKS may list at most {_MAX_DENY_NETWORKS} networks")
+
+    nmap_path = source.get("EXDV_NMAP_PATH", "").strip() or DEFAULT_NMAP_PATH
+    if not os.path.isabs(nmap_path) or "\x00" in nmap_path or any(c.isspace() for c in nmap_path):
+        raise ConfigError("EXDV_NMAP_PATH must be an absolute path without whitespace")
+    nmap_path = os.path.normpath(nmap_path)
+
     log_level = source.get("EXDV_LOG_LEVEL", "INFO").strip().upper()
     if log_level not in _LOG_LEVELS:
         raise ConfigError(f"EXDV_LOG_LEVEL must be one of {', '.join(_LOG_LEVELS)}")
@@ -195,4 +229,7 @@ def load_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         health_file=health_file,
         access_client_id=access_id,
         access_client_secret=access_secret,
+        active_scanning_enabled=raw_active == "true",
+        deny_networks=tuple(deny),
+        nmap_path=nmap_path,
     )

@@ -88,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         worker_id=config.worker_id, environment=config.environment, api_host=config.api_host,
         profiles=list(config.profiles), cf_access_configured=config.access_client_id is not None,
         active_scanning_enabled=config.active_scanning_enabled, version=__version__,
+        activeScanningEnabled=config.active_scanning_enabled, nmapAvailable=config.nmap_available,
     )  # fmt: skip
     if args.check_config:
         return 0

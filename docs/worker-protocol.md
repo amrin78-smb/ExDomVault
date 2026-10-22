@@ -118,12 +118,16 @@ Additional observation kinds (all with the common fields):
   `subject`, `subjectAltNames`, `fingerprintSha256` (lowercase hex), `hostnameMatches`. Evidence:
   `{ trusted, verifyError?, chainLength }`.
 - `http`: `url` (first request), `ipAddress` (first hop), `statusCode`, `finalUrl`, `redirectCount`,
-  `hstsEnabled`. Evidence: security headers present/values (`strict-transport-security`,
-  `content-security-policy`, `x-content-type-options`, `x-frame-options`, `referrer-policy`,
-  `permissions-policy`), `server` and `x-powered-by` values (version disclosure), and `hops`
-  (each `{ url, ip, status, decision }`).
+  `hstsEnabled`. Evidence (as implemented): `hops` (each `{ url, ip, status, decision, error? }`,
+  decision `followed|final|redirect_out_of_scope|scheme_not_allowed|too_many_redirects|…`); with
+  `http_headers` also `securityHeaders` (`strict-transport-security`, `content-security-policy`,
+  `x-content-type-options`, `x-frame-options`, `referrer-policy`, `permissions-policy` → value or null),
+  `server` and `xPoweredBy` (version disclosure; values ≤ 512 printable ASCII chars). Never cookies or
+  bodies.
 - `port`: `ipAddress`, `port` (must be in the profile's `tcpPorts`), `protocol: "tcp"`,
-  `state` (`open|closed|filtered`), `service`. Evidence: `{ product?, version?, method: "nmap-sT" }`.
+  `state` (`open|closed|filtered`), `service`. Evidence: `{ method: "nmap-sT", reason?, product?,
+version?, serviceMethod? }`. `tls_configuration` is accepted but not run yet (no per-version
+  handshakes); the negotiated version is recorded in `tls.protocolVersion`.
 
 The server re-validates: hostnames within the domain, addresses public, ports in the profile, and port
 observations' addresses inside the job's approved networks.
@@ -145,6 +149,6 @@ observations' addresses inside the job's approved networks.
 | `EXDV_HEALTH_FILE`           | no       | health JSON path, default `/var/lib/exdomainvault-worker/health.json`                                              |
 | `EXDV_LOG_LEVEL`             | no       | `DEBUG INFO WARNING ERROR`, default `INFO`                                                                         |
 
-| `EXDV_ACTIVE_SCANNING_ENABLED`  | no       | `true` to run active checks (Milestone 6 gate); default `false`. The server has its own flag |
-| `EXDV_DENY_NETWORKS`            | no       | extra CIDRs never to contact (e.g. this home's public IP), comma-separated                  |
-| `EXDV_NMAP_PATH`                | no       | default `/usr/bin/nmap`; network checks are refused if Nmap is missing                       |
+| `EXDV_ACTIVE_SCANNING_ENABLED` | no | `true` to run active checks (Milestone 6 gate); default `false`. The server has its own flag |
+| `EXDV_DENY_NETWORKS` | no | extra CIDRs never to contact (e.g. this home's public IP), comma-separated |
+| `EXDV_NMAP_PATH` | no | default `/usr/bin/nmap`; network checks are refused if Nmap is missing |

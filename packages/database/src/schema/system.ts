@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  cidr,
   index,
   integer,
   jsonb,
@@ -112,3 +113,38 @@ export const applicationSettings = pgTable('application_settings', {
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
   updatedAt: updatedAt(),
 });
+
+/**
+ * Admin-approved networks: the only destinations network-tier checks (port probes, service
+ * identification, TLS configuration enumeration) may contact. Each approval has a reason and a
+ * review date (`expires_at`), is audited, and can be revoked. An approval is active while
+ * `revoked_at` is null and `expires_at` is in the future (expiry is evaluated lazily).
+ */
+export const approvedNetworks = pgTable(
+  'approved_networks',
+  {
+    id: id(),
+    /** Canonical network (host bits zero), validated as public unicast by the application. */
+    cidr: cidr('cidr').notNull(),
+    label: text('label').notNull(),
+    reason: text('reason').notNull(),
+    reference: text('reference'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    expiresAt: ts('expires_at').notNull(),
+    revokedAt: ts('revoked_at'),
+    revokeReason: text('revoke_reason'),
+    revokedBy: uuid('revoked_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => [
+    uniqueIndex('approved_networks_cidr_active_key')
+      .on(t.cidr)
+      .where(sql`${t.revokedAt} is null`),
+    check('approved_networks_reason_not_empty', sql`length(btrim(${t.reason})) > 0`),
+    check('approved_networks_expiry_after_creation', sql`${t.expiresAt} > ${t.createdAt}`),
+    check(
+      'approved_networks_revoke_reason',
+      sql`${t.revokedAt} is null or ${t.revokeReason} is not null`,
+    ),
+  ],
+);

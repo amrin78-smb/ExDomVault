@@ -26,6 +26,15 @@ class TargetTimeout(Exception):
     """The per-target time budget (``profile.timeouts.targetSeconds``) is exhausted."""
 
 
+class CheckFailed(Exception):
+    """A check could not produce any observation. ``code`` becomes the target's ``errorCode``
+    (``^[a-z0-9_]{1,64}$``); the message is for logs only and never contains target data."""
+
+    def __init__(self, code: str, message: str = "") -> None:
+        super().__init__(message or code)
+        self.code = code
+
+
 class RateLimiter:
     """Spaces operations at most ``rate_per_second`` apart across all threads of a job."""
 
@@ -71,6 +80,10 @@ class CheckContext:
 
     def remaining(self) -> float:
         return self.deadline - self.monotonic()
+
+    def bounded(self, seconds: float) -> float:
+        """``seconds`` clipped to the remaining budget (never below 0.1 s)."""
+        return max(0.1, min(seconds, self.remaining()))
 
     def before_network_call(self) -> None:
         """Checks stop/deadline and waits for a rate-limit slot."""

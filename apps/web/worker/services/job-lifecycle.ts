@@ -8,7 +8,13 @@ import {
 import { and, asc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
-import { ingestObservations, type JobTargetRef, type ObservationCounts } from './observations.ts';
+import { activeNetworkCidrs, intersectNetworks } from './networks.ts';
+import {
+  EMPTY_OBSERVATION_COUNTS,
+  ingestObservations,
+  type JobTargetRef,
+  type ObservationCounts,
+} from './observations.ts';
 import { domainAuthorisedForActive, type ScanJobRow, type ScanPolicy } from './scans.ts';
 
 const { domains, scanJobResults, scanJobs, scanJobTargets } = schema;
@@ -129,6 +135,14 @@ export async function claimJob(
         )
         .orderBy(asc(scanJobTargets.targetHostname));
 
+      // Revocation or expiry since creation shrinks the job's network scope; nothing is added.
+      const approvedNetworks =
+        snapshot.data.approvedNetworks.length > 0
+          ? intersectNetworks(
+              snapshot.data.approvedNetworks,
+              await activeNetworkCidrs(tx as unknown as Database, now),
+            )
+          : [];
       const claimed: ClaimedJob = {
         id: job.id,
         attempt,
@@ -136,7 +150,7 @@ export async function claimJob(
         leaseExpiresAt: leaseExpiresAt.toISOString(),
         leaseSeconds: LEASE_SECONDS,
         heartbeatSeconds: HEARTBEAT_SECONDS,
-        snapshot: snapshot.data,
+        snapshot: { ...snapshot.data, approvedNetworks },
         targets: targets.map((t) => ({ id: t.id, hostname: t.targetHostname, ip: t.targetIp })),
       };
       return { kind: 'claimed' as const, job: claimed };
@@ -253,7 +267,7 @@ export async function submitResultsDetailed(
   req: ResultsSubmission,
   now: Date,
 ): Promise<{ accepted: boolean; status: string; observations: ObservationCounts }> {
-  const none: ObservationCounts = { dns: 0, registration: 0 };
+  const none: ObservationCounts = EMPTY_OBSERVATION_COUNTS;
   return db.transaction(async (tx) => {
     const t = tx as unknown as Database;
     // Duplicate delivery: already processed, whatever state the job is in now.
@@ -328,7 +342,7 @@ export async function submitResultsDetailed(
       counts = await ingestObservations(
         t,
         job,
-        snapshot.data.domain.fqdn,
+        snapshot.data,
         targetsById,
         observations,
         req.resultId,

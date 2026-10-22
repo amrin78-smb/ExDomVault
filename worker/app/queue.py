@@ -5,8 +5,17 @@ while it holds the lease (``attempt`` is the fencing token). A ``409`` stops wor
 nothing further is reported for that job. Failed or incomplete work is never reported as success:
 targets that could not be checked are reported ``failed`` with an error code.
 
-Milestone 5 runs passive checks only (``dns``, ``rdap``). A job whose profile is active or lists
-a network-connecting check is refused with ``active_scanning_disabled`` before any check runs.
+Checks run per target, grouped by tier (``app.policy``): passive (``dns``, ``rdap``), web
+(``tls_certificate``, ``http_availability``, ``http_headers``) and network (``tcp_ports`` with
+``service_identification``; ``tls_configuration`` is accepted but not run, see ``tls_checks``).
+Every connecting check goes through a per-job :class:`ScopePolicy`; a refusal (``ScopeError``) or
+a check failure (``CheckFailed``) is recorded as the target's ``errorCode`` without stopping the
+job. While active scanning is disabled in the worker configuration, a job whose profile is active
+or lists a connecting check is refused with ``active_scanning_disabled`` before any check runs.
+
+Target status: ``succeeded`` when at least one observation is ``success``/``partial`` (with the
+first refusal/failure code, if any, as ``errorCode``); otherwise ``failed`` with the first
+refusal/failure code (or ``checks_failed``); ``skipped`` when nothing applied.
 """
 
 from __future__ import annotations
@@ -19,18 +28,31 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.checks import CheckContext, CheckStopped, RateLimiter, TargetTimeout
+from app.checks import CheckContext, CheckFailed, CheckStopped, RateLimiter, TargetTimeout
 from app.client import ApiError, AuthError, LeaseLost, WorkerApiClient
 from app.config import WorkerConfig
 from app.dns_checks import DnsResolver, check_dns
 from app.health import HealthReporter
+from app.http_checks import check_http
 from app.logging_config import get_logger, log_event
+from app.policy import ScopePolicy
+from app.port_checks import PortScanSettings, check_tcp_ports
 from app.rdap_checks import RdapClient, check_rdap
 from app.result_upload import ResultUploader
-from app.scope import ScopeError, assert_passive_allowed, normalise_hostname, validate_job_targets
+from app.scope import (
+    KNOWN_CHECKS,
+    PASSIVE_CHECKS,
+    ScopeError,
+    normalise_hostname,
+    validate_job_targets,
+)
+from app.tls_checks import check_tls_certificate
 
 AUTH_BACKOFF_SECONDS = 300
-_FAILED_STATUSES = frozenset({"error", "timeout"})
+_GOOD_STATUSES = frozenset({"success", "partial"})
+_MAX_TCP_PORTS = 1024
+
+PolicyFactory = Callable[..., ScopePolicy]
 
 
 class InvalidJob(Exception):
@@ -64,6 +86,12 @@ class JobSpec:
     max_targets: int
     targets: tuple[JobTarget, ...]
     snapshot_hostnames: tuple[str, ...]
+    tcp_ports: tuple[int, ...] = ()
+    snapshot: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+
+    @property
+    def active_checks(self) -> tuple[str, ...]:
+        return tuple(c for c in self.checks if c not in PASSIVE_CHECKS)
 
 
 def _get(obj: Any, *path: str) -> Any:
@@ -105,6 +133,12 @@ def parse_job(raw: dict[str, Any]) -> JobSpec:
         active = _get(config, "active")
         if not isinstance(active, bool):
             raise ValueError("active")
+        raw_ports = config.get("tcpPorts", [])
+        if not isinstance(raw_ports, list) or len(raw_ports) > _MAX_TCP_PORTS:
+            raise ValueError("tcpPorts")
+        tcp_ports = tuple(int(_num(p, 1, 65535, "tcpPorts")) for p in raw_ports)
+        if any(not isinstance(p, int) for p in raw_ports):
+            raise ValueError("tcpPorts")
         return JobSpec(
             id=job_id,
             attempt=attempt,
@@ -122,6 +156,8 @@ def parse_job(raw: dict[str, Any]) -> JobSpec:
             max_targets=int(_num(_get(config, "maxTargets"), 1, 1000, "maxTargets")),
             targets=targets,
             snapshot_hostnames=tuple(str(_get(t, "hostname")) for t in snapshot_targets),
+            tcp_ports=tcp_ports,
+            snapshot=_get(raw, "snapshot"),
         )
     except (KeyError, ValueError, TypeError) as exc:
         raise InvalidJob("The claimed job is malformed.", job_id, attempt) from exc
@@ -168,6 +204,7 @@ class Worker:
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         logger: logging.Logger | None = None,
+        policy_factory: PolicyFactory = ScopePolicy.from_job,
     ) -> None:
         self._config = config
         self._api = api
@@ -179,6 +216,7 @@ class Worker:
         self._monotonic = monotonic
         self._sleep = sleep
         self._log = logger or get_logger("queue")
+        self._policy_factory = policy_factory
         self._completed = 0
         self._total = 0
 
@@ -250,17 +288,20 @@ class Worker:
         """Why this worker must not run the job, as (errorCode, summary, retryable)."""
         if spec.profile not in self._config.profiles:
             return ("profile_not_supported", "This worker is not configured for the profile.", True)
-        if spec.active or self._config.active_scanning_enabled is not False:
+        if any(check not in KNOWN_CHECKS for check in spec.checks):
+            return (
+                "unsupported_check",
+                "The profile lists a check this worker does not know.",
+                False,
+            )
+        if (spec.active or spec.active_checks) and self._config.active_scanning_enabled is not True:
             return (
                 "active_scanning_disabled",
                 "The profile is active; active scanning is disabled on this worker.",
                 False,
             )
-        for check in spec.checks:
-            try:
-                assert_passive_allowed(check)
-            except ScopeError as exc:
-                return (exc.code, str(exc), False)
+        if spec.active_checks and not spec.active:
+            return ("invalid_profile", "A non-active profile lists connecting checks.", False)
         if len(spec.targets) > spec.max_targets:
             return ("scope_rejected", "The job has more targets than the profile allows.", False)
         try:
@@ -289,10 +330,23 @@ class Worker:
         if refusal is not None:
             self._report_failure(spec.id, spec.attempt, *refusal)
             return
+        policy: ScopePolicy | None = None
+        if spec.active_checks:
+            try:
+                policy = self._policy_factory(
+                    job_id=spec.id,
+                    snapshot=spec.snapshot,
+                    target_hostnames=[t.hostname for t in spec.targets],
+                    deny_networks=self._config.deny_networks,
+                    active_scanning_enabled=self._config.active_scanning_enabled,
+                )
+            except ScopeError as exc:
+                self._report_failure(spec.id, spec.attempt, exc.code, str(exc), False)
+                return
 
         control = JobControl(self.shutdown)
         try:
-            self._run_job(spec, control)
+            self._run_job(spec, control, policy)
         except LeaseLost:
             control.lease_lost.set()
             log_event(self._log, logging.WARNING, "lease_lost", jobId=spec.id)
@@ -336,7 +390,9 @@ class Worker:
             if control.lease_lost.is_set():
                 return
 
-    def _run_job(self, spec: JobSpec, control: JobControl) -> None:
+    def _run_job(
+        self, spec: JobSpec, control: JobControl, policy: ScopePolicy | None = None
+    ) -> None:
         self._completed = 0
         self._total = len(spec.targets)
         uploader = ResultUploader(self._api, spec.id, spec.attempt)
@@ -350,7 +406,7 @@ class Worker:
             heartbeater.start()
         try:
             if not control.should_stop():
-                self._run_targets(spec, control, uploader)
+                self._run_targets(spec, control, uploader, policy)
         finally:
             control.done.set()
             if heartbeater.is_alive():
@@ -378,16 +434,36 @@ class Worker:
             jobId=spec.id, attempt=spec.attempt, batches=uploader.batches_sent,
         )  # fmt: skip
 
-    def _run_targets(self, spec: JobSpec, control: JobControl, uploader: ResultUploader) -> None:
+    def _run_targets(
+        self,
+        spec: JobSpec,
+        control: JobControl,
+        uploader: ResultUploader,
+        policy: ScopePolicy | None = None,
+    ) -> None:
         limiter = RateLimiter(spec.rate_per_second, monotonic=self._monotonic, sleep=self._sleep)
         resolver = self._resolver_factory(spec.connect_seconds)
         apex = normalise_hostname(spec.domain)
+        run = _TargetRun(
+            spec=spec,
+            apex=apex,
+            limiter=limiter,
+            resolver=resolver,
+            control=control,
+            policy=policy,
+            ports=PortScanSettings(
+                ports=spec.tcp_ports,
+                service_identification="service_identification" in spec.checks,
+                rate_per_second=spec.rate_per_second,
+                concurrency=spec.concurrency,
+                target_seconds=spec.target_seconds,
+                nmap_path=self._config.nmap_path,
+                nmap_available=self._config.nmap_available if "tcp_ports" in spec.checks else False,
+            ),
+        )
         executor = ThreadPoolExecutor(max_workers=spec.concurrency, thread_name_prefix="check")
         try:
-            futures = [
-                executor.submit(self._check_target, spec, t, apex, limiter, resolver, control)
-                for t in spec.targets
-            ]
+            futures = [executor.submit(self._check_target, run, t) for t in spec.targets]
             for future in as_completed(futures):
                 result = future.result()
                 if control.should_stop():
@@ -408,33 +484,95 @@ class Worker:
             # Running checks observe should_stop() between queries; queued ones are cancelled.
             executor.shutdown(wait=True, cancel_futures=True)
 
-    def _check_target(
-        self,
-        spec: JobSpec,
-        target: JobTarget,
-        apex: str,
-        limiter: RateLimiter,
-        resolver: DnsResolver,
-        control: JobControl,
-    ) -> TargetResult | None:
+    def _check_target(self, run: _TargetRun, target: JobTarget) -> TargetResult | None:
+        spec, control = run.spec, run.control
         if control.should_stop():
             return None
         hostname = normalise_hostname(target.hostname)
-        is_apex = hostname == apex
+        is_apex = hostname == run.apex
         observations: list[dict[str, Any]] = []
+        codes: list[str] = []
+        sink = observations.append
         ctx = CheckContext(
             deadline=self._monotonic() + spec.target_seconds,
             connect_seconds=spec.connect_seconds,
             read_seconds=spec.read_seconds,
-            rate_limiter=limiter,
+            rate_limiter=run.limiter,
             should_stop=control.should_stop,
             monotonic=self._monotonic,
         )
+        checks = spec.checks
+        policy = run.policy
+        resolver = run.resolver
+
+        def guarded(names: tuple[str, ...], fn: Callable[[], None]) -> None:
+            """Runs one check; refusals and failures become target error codes."""
+            try:
+                if policy is not None:
+                    for name in names:
+                        policy.assert_check_allowed(name)
+                fn()
+            except ScopeError as exc:
+                codes.append(exc.code)
+                log_event(
+                    self._log, logging.WARNING, "check_refused",
+                    jobId=spec.id, targetId=target.id, check=names[0], errorCode=exc.code,
+                )  # fmt: skip
+            except CheckFailed as exc:
+                codes.append(exc.code)
+                log_event(
+                    self._log, logging.WARNING, "check_failed",
+                    jobId=spec.id, targetId=target.id, check=names[0], errorCode=exc.code,
+                )  # fmt: skip
+
         try:
-            if "dns" in spec.checks:
-                check_dns(resolver, target.id, hostname, is_apex, ctx, observations.append)
-            if "rdap" in spec.checks and is_apex:
-                check_rdap(self._rdap, target.id, hostname, ctx, observations.append)
+            # Passive tier: resolvers and registries only.
+            if "dns" in checks:
+                guarded(
+                    ("dns",),
+                    lambda: check_dns(resolver, target.id, hostname, is_apex, ctx, sink),
+                )
+            if "rdap" in checks and is_apex:
+                guarded(("rdap",), lambda: check_rdap(self._rdap, target.id, hostname, ctx, sink))
+            if policy is not None:
+                # Web tier: any public address of the in-scope hostname.
+                if "tls_certificate" in checks:
+                    guarded(
+                        ("tls_certificate",),
+                        lambda: check_tls_certificate(
+                            policy, resolver, target.id, hostname, ctx, sink
+                        ),
+                    )
+                http_names = tuple(c for c in ("http_availability", "http_headers") if c in checks)
+                if http_names:
+                    guarded(
+                        http_names,
+                        lambda: check_http(
+                            policy,
+                            resolver,
+                            target.id,
+                            hostname,
+                            ctx,
+                            sink,
+                            include_headers="http_headers" in checks,
+                        ),
+                    )
+                # Network tier: approved networks only.
+                if "tcp_ports" in checks:
+                    port_names = ("tcp_ports",) + (
+                        ("service_identification",) if "service_identification" in checks else ()
+                    )
+                    guarded(
+                        port_names,
+                        lambda: check_tcp_ports(
+                            policy, resolver, target.id, hostname, ctx, sink, run.ports
+                        ),
+                    )
+                if "tls_configuration" in checks:
+                    log_event(
+                        self._log, logging.INFO, "check_not_implemented",
+                        jobId=spec.id, targetId=target.id, check="tls_configuration",
+                    )  # fmt: skip
         except CheckStopped:
             return None
         except TargetTimeout:
@@ -445,8 +583,31 @@ class Worker:
                 jobId=spec.id, targetId=target.id, error=type(exc).__name__,
             )  # fmt: skip
             return TargetResult(target.id, "failed", "check_error", observations)
-        if not observations:
-            return TargetResult(target.id, "skipped", None, observations)
-        if all(o["resultStatus"] in _FAILED_STATUSES for o in observations):
-            return TargetResult(target.id, "failed", "checks_failed", observations)
-        return TargetResult(target.id, "succeeded", None, observations)
+        return target_outcome(target.id, observations, codes)
+
+
+@dataclass(frozen=True)
+class _TargetRun:
+    """Everything shared by the targets of one job run."""
+
+    spec: JobSpec
+    apex: str
+    limiter: RateLimiter
+    resolver: DnsResolver
+    control: JobControl
+    policy: ScopePolicy | None
+    ports: PortScanSettings
+
+
+def target_outcome(
+    target_id: str, observations: list[dict[str, Any]], codes: list[str]
+) -> TargetResult:
+    """Target status from what the checks produced (see the module docstring)."""
+    first_code = codes[0] if codes else None
+    if any(o["resultStatus"] in _GOOD_STATUSES for o in observations):
+        return TargetResult(target_id, "succeeded", first_code, observations)
+    if first_code is not None:
+        return TargetResult(target_id, "failed", first_code, observations)
+    if observations:
+        return TargetResult(target_id, "failed", "checks_failed", observations)
+    return TargetResult(target_id, "skipped", None, observations)

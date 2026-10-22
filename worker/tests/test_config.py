@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.config import DEFAULT_HEALTH_FILE, ConfigError, load_config
+from app.config import DEFAULT_HEALTH_FILE, DEFAULT_NMAP_PATH, ConfigError, load_config
 
 
 def test_valid_config_applies_defaults(valid_env):
@@ -21,9 +21,93 @@ def test_valid_config_applies_defaults(valid_env):
     assert config.api_host == "exdomainvault.example.com"
 
 
-def test_active_scanning_is_always_disabled(valid_env):
-    config = load_config({**valid_env, "EXDV_ACTIVE_SCANNING_ENABLED": "true"})
+def test_active_scanning_defaults_off(valid_env):
+    config = load_config(valid_env)
     assert config.active_scanning_enabled is False
+    assert load_config(
+        {**valid_env, "EXDV_ACTIVE_SCANNING_ENABLED": ""}
+    ).active_scanning_enabled is (False)
+    assert load_config(
+        {**valid_env, "EXDV_ACTIVE_SCANNING_ENABLED": "false"}
+    ).active_scanning_enabled is (False)
+
+
+def test_active_scanning_explicit_true(valid_env):
+    config = load_config({**valid_env, "EXDV_ACTIVE_SCANNING_ENABLED": " true "})
+    assert config.active_scanning_enabled is True
+
+
+@pytest.mark.parametrize(
+    "value", ["TRUE", "True", "1", "yes", "on", "enabled", "truee", "false,true"]
+)
+def test_active_scanning_accepts_only_true_or_false(valid_env, value):
+    with pytest.raises(ConfigError, match="EXDV_ACTIVE_SCANNING_ENABLED"):
+        load_config({**valid_env, "EXDV_ACTIVE_SCANNING_ENABLED": value})
+
+
+def test_deny_networks_parsed_and_canonical(valid_env):
+    config = load_config(
+        {
+            **valid_env,
+            "EXDV_DENY_NETWORKS": " 203.0.113.0/24, 198.51.100.7 ,2001:DB8::/32,203.0.113.0/24",
+        }
+    )
+    assert config.deny_networks == ("203.0.113.0/24", "198.51.100.7/32", "2001:db8::/32")
+    assert load_config(valid_env).deny_networks == ()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "203.0.113.1/24",  # host bits set
+        "203.0.113.0/33",
+        "203.0.113.0/024",
+        "10.0.0.0/255.0.0.0",
+        "0x7f.0.0.0/8",
+        "127.1",
+        "2130706433",
+        "fe80::%eth0/64",
+        "home.example.com",
+        "203.0.113.0/24;rm -rf /",
+    ],
+)
+def test_deny_networks_strict(valid_env, value):
+    with pytest.raises(ConfigError, match="EXDV_DENY_NETWORKS"):
+        load_config({**valid_env, "EXDV_DENY_NETWORKS": value})
+
+
+def test_deny_networks_count_capped(valid_env):
+    many = ",".join(f"203.0.{i}.0/24" for i in range(101))
+    with pytest.raises(ConfigError, match="at most"):
+        load_config({**valid_env, "EXDV_DENY_NETWORKS": many})
+
+
+def test_nmap_path_default_and_availability(valid_env, tmp_path):
+    config = load_config(valid_env)
+    assert config.nmap_path == DEFAULT_NMAP_PATH
+    fake = tmp_path / "nmap"
+    custom = load_config({**valid_env, "EXDV_NMAP_PATH": str(fake)})
+    assert custom.nmap_path == str(fake)
+    assert custom.nmap_available is False  # missing file is not a config error
+    fake.write_text("#!/bin/sh\n")
+    os.chmod(fake, 0o644)
+    assert custom.nmap_available is False  # not executable
+    os.chmod(fake, 0o700)
+    assert custom.nmap_available is True
+    assert load_config({**valid_env, "EXDV_NMAP_PATH": str(tmp_path)}).nmap_available is False
+
+
+@pytest.mark.parametrize(
+    "value", ["nmap", "bin/nmap", "/usr/bin/nmap --script x", "/usr/bin/nm\tap"]
+)
+def test_nmap_path_must_be_absolute_without_whitespace(valid_env, value):
+    with pytest.raises(ConfigError, match="EXDV_NMAP_PATH"):
+        load_config({**valid_env, "EXDV_NMAP_PATH": value})
+
+
+def test_nmap_path_is_normalised(valid_env):
+    config = load_config({**valid_env, "EXDV_NMAP_PATH": "/usr/local/../bin//nmap"})
+    assert config.nmap_path == "/usr/bin/nmap"
 
 
 @pytest.mark.parametrize(

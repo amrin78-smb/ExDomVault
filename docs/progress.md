@@ -95,6 +95,15 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 - **Exposed software / vulnerability monitoring** (asked 2026-10-22, re CSA alert AL-2026-151 "PHP2Shell", CVE-2026-109618/-109619). Approach agreed in principle, not scheduled: the worker records product/version fingerprints it already sees (HTTP `Server`/`X-Powered-By`, cookies, TLS, limited service identification) with confidence levels (M5–6); deterministic rules for EOL versions, version disclosure and advisory matches reported as "possibly affected — verify" (M7); feed data (CISA KEV + a web-stack CVE/EOL feed, ideally published by nocvault-eol, which already serves Ed25519-signed EOL and firewall-CVE feeds) after M11. Caveats: distro backports keep old version strings, hidden banners mean "unknown" never "not affected", no exploit or vulnerability probing.
 
+- **Built-in intelligence (deterministic "AI")** (asked 2026-10-22). Our own explainable logic, no LLM, every output traceable to evidence and a versioned rule (fits CLAUDE.md: severity only from deterministic rules). Builds on Milestone 7 (rules) and 8 (lifecycle):
+  - _Correlation:_ group related findings into one issue (e.g. 40 parked CSC domains all missing DMARC → one portfolio-wide recommendation; a cert expiring on a hostname that also serves HTTP without HSTS).
+  - _Change detection and baselines:_ diff each scan against the previous successful one (new open port, nameserver change, MX change, certificate issuer change, new subdomain) and flag deviations from a domain's own history.
+  - _Prioritisation:_ risk score from stored inputs (asset criticality, exposure tier, exploitability signals such as KEV listing, time open, recurrence), kept separate from severity; a ranked "fix this first" list with the reasoning shown.
+  - _Recommendations engine:_ rule-driven advisories with concrete remediation steps, templated per provider where detectable (e.g. CSC-managed DNS, Cloudflare), grouped into playbooks.
+  - _Portfolio insights:_ coverage and hygiene scores per business unit (DMARC/SPF/DNSSEC/CAA adoption, expiry runway, registrar lock), trends over time.
+  - _Explainability:_ every finding/recommendation shows "why": the observations, rule id/version, inputs to the score, and what would resolve it.
+    Fits after Milestone 8; parts (change detection, correlation) can start in Milestone 7.
+
 ## Known limitations
 
 - Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.

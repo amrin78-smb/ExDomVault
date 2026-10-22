@@ -12,15 +12,26 @@ import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from app import net, port_checks
 from app.client import Signer, WorkerApiClient
 from app.config import load_config
 from app.dns_checks import DnsAnswer
 from app.health import HealthReporter
 from app.queue import Worker
 from app.rdap_checks import BOOTSTRAP_URL, RdapClient
+from app.scope import ScopeError
 
 from .conftest import KEY_ID
+from .test_port_checks import host, nmap_xml, port
 from .test_rdap_checks import AVAILABLE, BOOTSTRAP
+from .test_tls_checks import (
+    FakePolicy,
+    assert_http_schema,
+    assert_port_schema,
+    assert_tls_schema,
+    make_cert,
+    tls_result,
+)
 
 JOB_ID = "6f1f8f7e-1d1b-4d55-8a0e-0d3f6a1b2c3d"
 APEX_ID = "11111111-1111-4111-8111-111111111111"
@@ -159,7 +170,10 @@ class FakeResolver:
 
 @pytest.fixture
 def setup(valid_env, tmp_path):
-    def build(job, *, resolver=None, heartbeat_interval=None, rdap_routes=None):
+    def build(
+        job, *, resolver=None, heartbeat_interval=None, rdap_routes=None, env=None,
+        policy_factory=None,
+    ):  # fmt: skip
         key = Ed25519PrivateKey.generate()
         api = FakeApi(key, job)
         client = WorkerApiClient(
@@ -181,14 +195,16 @@ def setup(valid_env, tmp_path):
             return routes.get(str(request.url), httpx.Response(404))
 
         resolver = resolver or FakeResolver()
+        extra = {} if policy_factory is None else {"policy_factory": policy_factory}
         worker = Worker(
-            load_config(valid_env),
+            load_config({**valid_env, **(env or {})}),
             client,
             resolver_factory=lambda _timeout: resolver,
             rdap_client=RdapClient(transport=httpx.MockTransport(rdap_handler)),
             health=HealthReporter(str(tmp_path / "health.json"), "home-worker-01"),
             heartbeat_interval=heartbeat_interval,
             sleep=lambda _s: None,
+            **extra,
         )
         return worker, api, resolver, rdap_seen
 
@@ -481,3 +497,260 @@ def test_auth_error_on_claim(setup):
     worker._api._http._transport = httpx.MockTransport(lambda r: httpx.Response(401))
     assert worker.run_once() == "auth_error"
     assert worker._health.last_error == "auth_failed"
+
+
+# -- Milestone 6: active checks (all network primitives faked) ---------------------------------
+
+QUICK_CONFIG = {
+    **PASSIVE_CONFIG,
+    "active": True,
+    "checks": ["dns", "rdap", "tls_certificate", "http_availability"],
+}
+STANDARD_CONFIG = {
+    **PASSIVE_CONFIG,
+    "active": True,
+    "checks": [
+        "dns", "rdap", "tls_certificate", "http_availability", "http_headers", "tcp_ports",
+        "service_identification",
+    ],
+    "tcpPorts": [22, 80, 443],
+    "concurrency": 2,
+}  # fmt: skip
+WEB_ADDRESSES = {"example.com": ["203.0.113.10"], "www.example.com": ["203.0.113.20"]}
+
+
+@pytest.fixture
+def active(setup, valid_env, tmp_path, monkeypatch):
+    """Worker with active scanning enabled, a fake policy and fake net/Nmap primitives."""
+    nmap = tmp_path / "nmap"
+    nmap.write_text("#!/bin/sh\nexit 1\n")  # never executed: run_nmap is faked
+    nmap.chmod(0o755)
+    calls = {"tls": [], "http": [], "nmap": [], "factory": []}
+    der = make_cert(sans=("example.com", "*.example.com"))
+
+    def fake_tls(policy, hostname, address, port, *, timeout, tier="web"):
+        calls["tls"].append((hostname, str(address), port))
+        return tls_result(der, address=str(address))
+
+    def fake_http(policy, url, resolver, *, timeout, tier="web", **_kw):
+        # Mirrors net.http_get: resolution goes through the policy; a refusal becomes a hop.
+        calls["http"].append(url)
+        try:
+            resolved = policy.resolve(url.split("/")[2], resolver, tier=tier, lifetime=timeout)
+        except ScopeError as exc:
+            return net.HttpResult(hops=(net.HttpHop(url, None, None, decision=exc.code),))
+        headers = {"strict-transport-security": "max-age=600", "set-cookie": "sid=SECRET"}
+        return net.HttpResult(hops=(net.HttpHop(url, resolved.addresses[0], 200, headers),))
+
+    def fake_nmap(argv, *, timeout, should_stop=lambda: False, **_kw):
+        calls["nmap"].append(argv)
+        return nmap_xml(
+            host(argv[-1], port(22, "open", service='<service name="ssh" method="probed"/>')
+                 + port(80, "closed") + port(443, "filtered"))
+        )  # fmt: skip
+
+    monkeypatch.setattr(net, "tls_handshake", fake_tls)
+    monkeypatch.setattr(net, "http_get", fake_http)
+    monkeypatch.setattr(port_checks, "run_nmap", fake_nmap)
+
+    def build(job, *, policy=None, env=None, factory_error=None):
+        policy = policy or FakePolicy({"web": WEB_ADDRESSES})
+
+        def factory(**kwargs):
+            calls["factory"].append(kwargs)
+            if factory_error:
+                raise ScopeError(factory_error, "refused")
+            return policy
+
+        worker, api, _resolver, _ = setup(
+            job,
+            env={
+                "EXDV_ACTIVE_SCANNING_ENABLED": "true",
+                "EXDV_PROFILES": "passive,quick,standard,deep",
+                "EXDV_NMAP_PATH": str(nmap),
+                **(env or {}),
+            },
+            policy_factory=factory,
+        )
+        worker.run_once()
+        results = api.endpoint_calls("results")
+        targets = {t["targetId"]: t for r in results for t in r["targets"]}
+        observations = [o for r in results for o in r["observations"]]
+        return api, targets, observations, policy
+
+    return build, calls
+
+
+def test_quick_job_runs_web_checks(active):
+    build, calls = active
+    api, targets, observations, policy = build(make_job(QUICK_CONFIG, profile="quick"))
+    assert "failures" not in [e for e, _ in api.calls]
+    assert api.endpoint_calls("results")[-1]["complete"] is True
+    assert targets[APEX_ID] == {"targetId": APEX_ID, "status": "succeeded"}
+    assert targets[WWW_ID] == {"targetId": WWW_ID, "status": "succeeded"}
+    # gone.example.com: DNS evidence (NXDOMAIN) but every connecting check refused.
+    assert targets[GONE_ID] == {
+        "targetId": GONE_ID, "status": "succeeded", "errorCode": "no_allowed_address",
+    }  # fmt: skip
+
+    (factory_kwargs,) = calls["factory"]
+    assert factory_kwargs["job_id"] == JOB_ID
+    assert factory_kwargs["deny_networks"] == ()
+    assert factory_kwargs["active_scanning_enabled"] is True
+    assert factory_kwargs["target_hostnames"] == [
+        "example.com", "www.example.com", "gone.example.com",
+    ]  # fmt: skip
+    assert factory_kwargs["snapshot"]["domain"]["fqdn"] == "example.com"
+
+    tls = [o for o in observations if o["kind"] == "tls"]
+    http = [o for o in observations if o["kind"] == "http"]
+    for o in tls:
+        assert_tls_schema(o)
+    for o in http:
+        assert_http_schema(o)
+        assert set(o["evidence"]) == {"hops"}  # http_headers not in the quick profile
+    assert {(o["hostname"], o["ipAddress"], o["hostnameMatches"]) for o in tls} == {
+        ("example.com", "203.0.113.10", True),
+        ("www.example.com", "203.0.113.20", True),
+    }
+    # gone.example.com is refused before connecting, so no plain-HTTP retry either.
+    assert sorted(calls["http"]) == [
+        "https://example.com/", "https://gone.example.com/", "https://www.example.com/",
+    ]  # fmt: skip
+    assert calls["nmap"] == []
+    assert "SECRET" not in json.dumps(observations)
+    assert not any(o["kind"] == "port" for o in observations)
+    checked = [c[1] for c in policy.calls if c[0] == "assert_check_allowed"]
+    assert set(checked) == {"dns", "rdap", "tls_certificate", "http_availability"}
+
+
+def test_standard_job_runs_web_and_network_checks(active):
+    build, calls = active
+    policy = FakePolicy(
+        {
+            "web": WEB_ADDRESSES,
+            "network": {
+                "www.example.com": ["198.51.100.7"],
+                "example.com": "network_not_approved",
+            },
+        }
+    )
+    _api, targets, observations, _ = build(
+        make_job(STANDARD_CONFIG, profile="standard"), policy=policy
+    )
+    assert targets[WWW_ID] == {"targetId": WWW_ID, "status": "succeeded"}
+    assert targets[APEX_ID] == {
+        "targetId": APEX_ID, "status": "succeeded", "errorCode": "network_not_approved",
+    }  # fmt: skip
+    (argv,) = calls["nmap"]
+    assert argv[:5] == [argv[0], "-sT", "-Pn", "-n", "--unprivileged"]
+    assert argv[argv.index("-p") + 1] == "22,80,443"
+    assert "-sV" in argv and argv[-1] == "198.51.100.7"
+    ports = [o for o in observations if o["kind"] == "port"]
+    for o in ports:
+        assert_port_schema(o)
+    assert [(o["targetId"], o["port"], o["state"], o["service"]) for o in ports] == [
+        (WWW_ID, 22, "open", "ssh"), (WWW_ID, 80, "closed", None), (WWW_ID, 443, "filtered", None),
+    ]  # fmt: skip
+    http = [o for o in observations if o["kind"] == "http"]
+    assert all("securityHeaders" in o["evidence"] for o in http)
+    assert all(o["hstsEnabled"] is True for o in http)
+    assert ("assert_destination", "198.51.100.7", "network") in policy.calls
+
+
+def test_only_refused_checks_fail_the_target_with_the_refusal_code(active):
+    build, calls = active
+    config = {**QUICK_CONFIG, "checks": ["tls_certificate"]}
+    targets_in = [{"id": WWW_ID, "hostname": "www.example.com", "ip": None}]
+    policy = FakePolicy({"web": {"www.example.com": "cname_out_of_scope"}})
+    _api, targets, observations, _ = build(
+        make_job(config, targets=targets_in, profile="quick"), policy=policy
+    )
+    assert targets == {
+        WWW_ID: {"targetId": WWW_ID, "status": "failed", "errorCode": "cname_out_of_scope"}
+    }
+    assert observations == []
+    assert calls["tls"] == []
+
+
+def test_check_refused_by_policy_is_recorded(active):
+    build, calls = active
+    policy = FakePolicy({"web": WEB_ADDRESSES}, denied_checks=("tls_certificate",))
+    _api, targets, observations, _ = build(make_job(QUICK_CONFIG, profile="quick"), policy=policy)
+    assert calls["tls"] == []
+    assert targets[WWW_ID]["errorCode"] == "check_not_allowed"
+    assert targets[WWW_ID]["status"] == "succeeded"  # DNS + HTTP evidence still collected
+    assert not any(o["kind"] == "tls" for o in observations)
+
+
+def test_missing_nmap_fails_network_checks_only(active):
+    build, calls = active
+    policy = FakePolicy({"web": WEB_ADDRESSES, "network": {"www.example.com": ["198.51.100.7"]}})
+    _api, targets, observations, _ = build(
+        make_job(STANDARD_CONFIG, profile="standard"),
+        policy=policy,
+        env={"EXDV_NMAP_PATH": "/nonexistent/nmap"},
+    )
+    assert calls["nmap"] == []
+    assert targets[WWW_ID] == {
+        "targetId": WWW_ID, "status": "succeeded", "errorCode": "nmap_unavailable",
+    }  # fmt: skip
+    assert any(o["kind"] == "tls" for o in observations)
+
+
+def test_policy_build_refusal_fails_the_job(active):
+    build, calls = active
+    api, targets, _, _ = build(
+        make_job(QUICK_CONFIG, profile="quick"), factory_error="scope_rejected"
+    )
+    failure = api.endpoint_calls("failures")[0]
+    assert failure["errorCode"] == "scope_rejected"
+    assert failure["retryable"] is False
+    assert targets == {}
+    assert calls["tls"] == [] and calls["http"] == []
+
+
+def test_tls_configuration_is_accepted_but_not_run(active):
+    build, calls = active
+    config = {**QUICK_CONFIG, "checks": ["dns", "tls_configuration"]}
+    api, targets, observations, _ = build(make_job(config, profile="deep"))
+    assert "failures" not in [e for e, _ in api.calls]
+    assert all(t["status"] == "succeeded" and "errorCode" not in t for t in targets.values())
+    assert {o["kind"] for o in observations} == {"dns"}
+    assert calls["tls"] == [] and calls["nmap"] == []
+
+
+def test_non_active_profile_with_connecting_checks_is_refused(active):
+    build, calls = active
+    config = {**PASSIVE_CONFIG, "checks": ["dns", "tls_certificate"]}
+    api, _, _, _ = build(make_job(config))
+    failure = api.endpoint_calls("failures")[0]
+    assert failure["errorCode"] == "invalid_profile"
+    assert calls["factory"] == []
+
+
+def test_unknown_check_is_refused(active):
+    build, calls = active
+    config = {**QUICK_CONFIG, "checks": ["dns", "nmap_script"]}
+    api, _, _, _ = build(make_job(config, profile="quick"))
+    assert api.endpoint_calls("failures")[0]["errorCode"] == "unsupported_check"
+    assert calls["factory"] == []
+
+
+@pytest.mark.parametrize("ports", [[0], [True], ["22"], list(range(1, 1100))])
+def test_malformed_tcp_ports_make_the_job_invalid(active, ports):
+    build, _ = active
+    api, _, _, _ = build(make_job({**STANDARD_CONFIG, "tcpPorts": ports}, profile="standard"))
+    assert api.endpoint_calls("failures")[0]["errorCode"] == "invalid_job"
+
+
+def test_active_profile_refused_when_worker_disables_active_scanning(active):
+    build, calls = active
+    api, _, _, _ = build(
+        make_job(QUICK_CONFIG, profile="quick"), env={"EXDV_ACTIVE_SCANNING_ENABLED": "false"}
+    )
+    assert [e for e, _ in api.calls] == ["claim", "failures"]
+    failure = api.endpoint_calls("failures")[0]
+    assert failure["errorCode"] == "active_scanning_disabled"
+    assert failure["retryable"] is False
+    assert calls["factory"] == [] and calls["tls"] == []

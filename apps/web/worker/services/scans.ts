@@ -17,6 +17,7 @@ import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
 import type { Actor } from './domains.ts';
 import { isUniqueViolation } from './domains.ts';
+import { activeNetworkCidrs } from './networks.ts';
 
 const { assets, domains, scanJobs, scanJobTargets, scanProfiles, users, workerRegistry } = schema;
 
@@ -148,6 +149,8 @@ export function buildSnapshot(
   trigger: 'manual' | 'schedule',
   requestedBy: string | null,
   now: Date,
+  /** Active approved networks (active profiles only; passive snapshots never carry any). */
+  approvedNetworks: readonly string[] = [],
 ): ScopeSnapshot {
   return {
     version: 1,
@@ -163,6 +166,7 @@ export function buildSnapshot(
     },
     profile: { key: profile.key, version: profile.version, config: profile.config },
     targets,
+    approvedNetworks: profile.config.active ? [...approvedNetworks] : [],
   };
 }
 
@@ -212,7 +216,17 @@ export async function createScan(
           'There are no approved targets to scan for this domain.',
         );
       }
-      const snapshot = buildSnapshot(domain, profile, targets, 'manual', actor.userId, now);
+      // Networks are organisation-wide: an active job may probe any currently approved network.
+      const networks = profile.config.active ? await activeNetworkCidrs(db2, now) : [];
+      const snapshot = buildSnapshot(
+        domain,
+        profile,
+        targets,
+        'manual',
+        actor.userId,
+        now,
+        networks,
+      );
       const job = firstRow(
         await tx
           .insert(scanJobs)
@@ -248,6 +262,7 @@ export async function createScan(
           profile: profile.key,
           active: profile.config.active,
           targets: targets.length,
+          approvedNetworks: networks.length,
           reason: input.reason ?? null,
         },
       });

@@ -1,6 +1,7 @@
 import type { Worker } from '@exdomainvault/shared';
 import { Construction, KeyRound, Server } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { ApprovedNetworksSection } from '../../components/settings/ApprovedNetworksSection.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
@@ -19,6 +20,7 @@ openssl pkey -in worker.key -pubout -outform DER | tail -c 32 | base64`;
 
 export function SettingsPage() {
   const canManage = usePermission('settings:manage');
+  const canManagePolicies = usePermission('scan_policies:manage');
   return (
     <>
       <PageHeader title="Settings" description="Scanning workers and operational settings." />
@@ -32,6 +34,7 @@ export function SettingsPage() {
             </EmptyState>
           </Card>
         )}
+        {canManagePolicies && <ApprovedNetworksSection />}
         <Card title="Users, scan policies and integrations">
           <EmptyState title="Not available yet" icon={Construction}>
             These settings are implemented in Milestone 10.

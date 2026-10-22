@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  approvedNetworks,
   assetIps,
   assets,
   domainVerifications,
@@ -65,6 +66,7 @@ describe('migrations', () => {
     expect(rows.map((r) => r.table_name)).toEqual([
       'advisories',
       'application_settings',
+      'approved_networks',
       'asset_ips',
       'assets',
       'audit_logs',
@@ -284,6 +286,63 @@ describe('constraints', () => {
         }),
       ),
     ).toBe('scan_jobs_lease_when_active');
+  });
+});
+
+describe('0003_approved_networks', () => {
+  const network = (cidr: string, over: Partial<typeof approvedNetworks.$inferInsert> = {}) => ({
+    cidr,
+    label: 'Office',
+    reason: 'Our own server range',
+    createdAt: new Date('2026-10-01T00:00:00Z'),
+    expiresAt: new Date('2027-10-01T00:00:00Z'),
+    ...over,
+  });
+
+  it('stores networks as cidr and rejects host bits or garbage', async () => {
+    const [row] = await t.db.insert(approvedNetworks).values(network('8.8.4.0/24')).returning();
+    expect(row!.cidr).toBe('8.8.4.0/24');
+    expect(
+      await violation(() => t.db.insert(approvedNetworks).values(network('8.8.5.1/24'))),
+    ).toMatch(/invalid cidr value/);
+    expect(await violation(() => t.db.insert(approvedNetworks).values(network('nope')))).toMatch(
+      /invalid input syntax for type cidr/,
+    );
+  });
+
+  it('allows one active (unrevoked) approval per network', async () => {
+    await t.db.insert(approvedNetworks).values(network('9.9.9.0/24'));
+    expect(await violation(() => t.db.insert(approvedNetworks).values(network('9.9.9.0/24')))).toBe(
+      'approved_networks_cidr_active_key',
+    );
+    await t.db.insert(approvedNetworks).values(
+      network('9.9.9.0/24', {
+        revokedAt: new Date('2026-10-02T00:00:00Z'),
+        revokeReason: 'gone',
+      }),
+    );
+  });
+
+  it('requires a reason, an expiry after creation and a revoke reason', async () => {
+    expect(
+      await violation(() =>
+        t.db.insert(approvedNetworks).values(network('1.0.0.0/24', { reason: '   ' })),
+      ),
+    ).toBe('approved_networks_reason_not_empty');
+    expect(
+      await violation(() =>
+        t.db
+          .insert(approvedNetworks)
+          .values(network('1.0.1.0/24', { expiresAt: new Date('2026-09-01T00:00:00Z') })),
+      ),
+    ).toBe('approved_networks_expiry_after_creation');
+    expect(
+      await violation(() =>
+        t.db
+          .insert(approvedNetworks)
+          .values(network('1.0.2.0/24', { revokedAt: new Date('2026-10-02T00:00:00Z') })),
+      ),
+    ).toBe('approved_networks_revoke_reason');
   });
 });
 

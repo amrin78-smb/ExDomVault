@@ -6,7 +6,8 @@
   "description": "Shared API contracts, validation schemas and domain constants",
   "exports": {
     ".": "./src/index.ts",
-    "./hostname": "./src/hostname/normalise.ts"
+    "./hostname": "./src/hostname/normalise.ts",
+    "./net": "./src/net/ip.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

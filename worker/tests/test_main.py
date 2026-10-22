@@ -26,7 +26,26 @@ def test_check_config_succeeds(env, capsys):
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out["message"] == "config_ok"
     assert out["active_scanning_enabled"] is False
+    assert out["activeScanningEnabled"] is False
+    assert isinstance(out["nmapAvailable"], bool)
     assert out["api_host"] == "exdomainvault.example.com"
+
+
+def test_check_config_reports_active_scanning_and_nmap(env, monkeypatch, tmp_path, capsys):
+    nmap = tmp_path / "nmap"
+    nmap.write_text("#!/bin/sh\nexit 0\n")  # never executed
+    nmap.chmod(0o755)
+    monkeypatch.setenv("EXDV_ACTIVE_SCANNING_ENABLED", "true")
+    monkeypatch.setenv("EXDV_NMAP_PATH", str(nmap))
+    assert main(["--check-config"]) == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["activeScanningEnabled"] is True
+    assert out["nmapAvailable"] is True
+
+    monkeypatch.setenv("EXDV_NMAP_PATH", str(tmp_path / "missing-nmap"))
+    assert main(["--check-config"]) == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["nmapAvailable"] is False
 
 
 def test_invalid_config_exits_non_zero(env, monkeypatch, capsys):

@@ -1,6 +1,5 @@
 import pytest
 
-from app import http_checks, port_checks, tls_checks
 from app.scope import (
     NETWORK_CHECKS,
     ScopeError,
@@ -27,23 +26,6 @@ def test_unknown_checks_are_refused():
     with pytest.raises(ScopeError) as err:
         assert_passive_allowed("nmap -sS")
     assert err.value.code == "unsupported_check"
-
-
-@pytest.mark.parametrize(
-    "entry",
-    [
-        tls_checks.check_tls_certificate,
-        tls_checks.check_tls_configuration,
-        http_checks.check_http_availability,
-        http_checks.check_http_headers,
-        port_checks.check_tcp_ports,
-        port_checks.check_service_identification,
-    ],
-)
-def test_active_check_entry_points_refuse(entry):
-    with pytest.raises(ScopeError) as err:
-        entry("www.example.com")
-    assert err.value.code == "active_scanning_disabled"
 
 
 @pytest.mark.parametrize(
