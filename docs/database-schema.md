@@ -1,0 +1,54 @@
+# Database schema
+
+Source of truth: `packages/database/src/schema/*.ts` (Drizzle). SQL migrations are generated into
+`packages/database/migrations/` and committed. Never edit an applied migration; add a new one.
+
+Conventions: UUID primary keys (`gen_random_uuid()`), `timestamptz` everywhere (UTC), PostgreSQL enums
+for closed value sets, JSONB for extensible evidence with important attributes in typed columns,
+`inet` for IP addresses.
+
+## Workflow
+
+```bash
+# 1. Edit packages/database/src/schema/*.ts
+npm run db:generate      # writes a new SQL migration (no DB connection needed)
+npm run db:check         # drizzle-kit consistency check of the migration history
+npm test                 # migration + constraint tests run against PGlite (in-process Postgres)
+npm run db:migrate       # applies to the Neon branch in .env.local (direct URL)
+```
+
+`db:migrate` refuses to run when `NEON_BRANCH=production` unless `ALLOW_PRODUCTION_MIGRATION=yes`, and
+refuses pooled (`-pooler`) URLs. Apply and verify on a development branch (`neon checkout dev --create`)
+first. CI fails if the schema and committed migrations drift apart.
+
+## Tables
+
+| Area         | Table                                                                            | Purpose and key rules                                                                                                                                                                                                                                                                                                                     |
+| ------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity     | `users`                                                                          | No passwords. `email` unique and lowercase (check). `(auth_provider, auth_provider_subject)` unique. `role` ∈ admin/analyst/asset_owner/viewer.                                                                                                                                                                                           |
+|              | `notification_preferences`                                                       | `(user_id, channel, event_type)` unique.                                                                                                                                                                                                                                                                                                  |
+| Inventory    | `domains`                                                                        | `fqdn` unique, normalised (lowercase, no trailing dot, ≤253; check). `verified_at` set **iff** `verification_status='verified'` (check). `registration_data_status` distinguishes unknown / available / privacy-redacted / unavailable. Monitoring off by default.                                                                        |
+|              | `domain_verifications`                                                           | Stores only `challenge_hash`. `expires_at > created_at` (check). At most one `pending` challenge per domain and method (partial unique index).                                                                                                                                                                                            |
+|              | `assets`                                                                         | `(domain_id, hostname)` unique; hostname normalised (check). `verification_status` ∈ pending/approved/rejected/suspended. `approved` requires `approved_by` + `approved_at`; `monitoring_enabled` requires `approved` (checks), so discovered hosts can never be monitored without approval.                                              |
+|              | `asset_ips`                                                                      | `inet`; `(asset_id, ip_address)` unique; history kept via first/last seen + `is_current`.                                                                                                                                                                                                                                                 |
+| Scanning     | `scan_profiles`                                                                  | Server-defined profiles keyed `quick`/`standard`/`deep` (seeded in Milestone 4). JSON `config` holds ports/timeouts/limits.                                                                                                                                                                                                               |
+|              | `scan_jobs`                                                                      | Durable job state. Immutable `scope_snapshot`. `idempotency_key` unique. `attempts ≤ max_attempts` (check). `claimed`/`running` require `lease_expires_at` and `worker_id` (check). Partial indexes for claiming (`status='queued'`) and lease reaping.                                                                                   |
+|              | `scan_job_targets`                                                               | Snapshot of approved targets; `(scan_job_id, target_hostname, target_ip)` unique with NULLS NOT DISTINCT.                                                                                                                                                                                                                                 |
+|              | `worker_registry`                                                                | Workers and last health. **No credentials** here (designed in Milestone 4).                                                                                                                                                                                                                                                               |
+| Observations | `dns_` / `registration_` / `tls_` / `http_` / `port_` / `discovery_observations` | Shared columns: `result_id` (unique — idempotent result submission), `asset_id`, `scan_job_id`, `scan_job_target_id`, `observed_at`, `checker`, `checker_version`, `result_status` (success/partial/error/timeout/skipped), `evidence` JSONB. Typed columns per check (record type/values, cert dates/SANs, status code, ip/port/state…). |
+| Findings     | `findings`                                                                       | `fingerprint` + **partial unique index where `status <> 'resolved'`** → one active finding per logical issue. `risk_score` 0–100 (check), separate from `severity`; `risk_inputs` stored. `resolved_at` set iff resolved; `accepted_risk` requires reason, approver and review date (checks).                                             |
+|              | `finding_status_history`                                                         | Append-only transitions with actor, reason and scan job.                                                                                                                                                                                                                                                                                  |
+|              | `advisories`                                                                     | One per finding; recommended actions and reference links (JSONB arrays).                                                                                                                                                                                                                                                                  |
+| Ops          | `audit_logs`                                                                     | Append-only: actor type/user, action, resource, request ID, metadata.                                                                                                                                                                                                                                                                     |
+|              | `security_rules`                                                                 | Operator enable/disable for rules defined in code (Milestone 7).                                                                                                                                                                                                                                                                          |
+|              | `application_settings`                                                           | Non-secret settings only.                                                                                                                                                                                                                                                                                                                 |
+
+## Database roles
+
+| Role                              | Used by                             | Privileges                                                                                     |
+| --------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `neondb_owner`                    | Migrations, local development today | Owner                                                                                          |
+| `exdomainvault_app` _(to create)_ | Production Worker via Hyperdrive    | DML on application tables; **INSERT/SELECT only** on `audit_logs` and `finding_status_history` |
+| —                                 | Home worker                         | **None.** The worker only talks to the API.                                                    |
+
+Grant SQL is in [`deployment.md`](deployment.md).

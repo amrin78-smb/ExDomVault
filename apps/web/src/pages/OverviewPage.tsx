@@ -15,7 +15,7 @@ const dateFmt = new Intl.DateTimeFormat(undefined, {
 });
 const formatDate = (iso: string) => `${dateFmt.format(new Date(iso))} UTC`;
 
-const NO_DATA_HINT = 'No data yet — the database is connected in Milestone 2.';
+const NO_DATA_HINT = 'No data yet — add and verify a domain first (Milestone 3).';
 
 export function OverviewPage() {
   const { fixtures } = useDataMode();

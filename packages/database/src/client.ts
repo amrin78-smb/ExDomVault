@@ -1,9 +1,18 @@
-import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import pg from 'pg';
+import * as schema from './schema/index.ts';
+
+export type Schema = typeof schema;
+
+/**
+ * Any Drizzle PostgreSQL database using this schema: node-postgres in the Worker, PGlite in tests.
+ * Application code depends on this type, never on a specific driver.
+ */
+export type Database = PgDatabase<PgQueryResultHKT, Schema>;
 
 export interface DatabaseConnection {
-  db: NodePgDatabase;
-  client: pg.Client;
+  db: Database;
   /** Closes the connection. Call once per request; Hyperdrive pools connections upstream. */
   close(): Promise<void>;
 }
@@ -26,8 +35,7 @@ export async function connect(
   const client = new pg.Client({ connectionString, connectionTimeoutMillis: connectTimeoutMs });
   await client.connect();
   return {
-    db: drizzle(client),
-    client,
+    db: drizzle(client, { schema }),
     close: () => client.end(),
   };
 }

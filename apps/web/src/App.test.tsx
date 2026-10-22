@@ -5,6 +5,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DataModeProvider } from './lib/DataModeProvider.tsx';
 import { routes } from './routes.tsx';
 
+const meBody = {
+  user: {
+    id: '6653a094-599d-49ac-ad24-759b9c891c20',
+    email: 'analyst@example.com',
+    displayName: 'Ana Lyst',
+    role: 'analyst',
+  },
+  permissions: ['domains:read'],
+  authProvider: 'cloudflare_access',
+};
+
+/** Routes fetch calls to canned API responses by path. */
+function stubApi(responses: Record<string, { status: number; body: unknown }>) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString();
+      const r = responses[path] ?? { status: 404, body: {} };
+      return new Response(JSON.stringify(r.body), { status: r.status });
+    }),
+  );
+}
+
 const healthBody = {
   status: 'degraded',
   service: 'exdomainvault-api',
@@ -25,10 +48,10 @@ function renderApp(path = '/', fixtures = false) {
 
 describe('App shell', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(JSON.stringify(healthBody), { status: 200 })),
-    );
+    stubApi({
+      '/api/v1/health': { status: 200, body: healthBody },
+      '/api/v1/me': { status: 200, body: meBody },
+    });
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -84,5 +107,27 @@ describe('App shell', () => {
     );
     renderApp();
     expect(await screen.findByText('API unreachable')).toBeInTheDocument();
+  });
+
+  it('shows the signed-in user and role', async () => {
+    renderApp();
+    expect(await screen.findByText('Ana Lyst')).toBeInTheDocument();
+    expect(screen.getByText('Security analyst')).toBeInTheDocument();
+  });
+
+  it.each([
+    [401, 'Not signed in'],
+    [403, 'Access not granted'],
+    [503, 'Sign-in unavailable'],
+  ])('explains a %i from /me', async (status, label) => {
+    stubApi({
+      '/api/v1/health': { status: 200, body: healthBody },
+      '/api/v1/me': {
+        status,
+        body: { error: { code: 'forbidden', message: 'Denied.', requestId: 'r' } },
+      },
+    });
+    renderApp();
+    expect(await screen.findByText(label)).toBeInTheDocument();
   });
 });

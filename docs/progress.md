@@ -20,6 +20,17 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-22 — **Migrations: drizzle-kit `generate` only; applied by `scripts/migrate.ts`** (drizzle-orm migrator). Guarded: refuses `NEON_BRANCH=production` without `ALLOW_PRODUCTION_MIGRATION=yes`, and pooled URLs. TLS mode forced to `verify-full`.
+- 2026-10-22 — **Schema work happens on Neon branch `dev`** (from `neon.ts`, 7-day TTL); `production` stays empty until the owner approves migrating it.
+- 2026-10-22 — **DB tests use PGlite** (PostgreSQL in WASM) with the real migrations — no Docker or local Postgres needed, runs in CI.
+- 2026-10-22 — **Auth: Cloudflare Access JWT verified in the Worker** (jose, RS256, issuer + AUD + expiry, JWKS cached per isolate); header or `CF_Authorization` cookie. Service tokens rejected for user sessions. Dev provider is a fixed server-side identity, refused when `APP_ENV=production`.
+- 2026-10-22 — **Unconfigured auth → 503 on all protected routes** (health still reports `auth: not_configured`). Unknown API paths also require auth.
+- 2026-10-22 — **User provisioning:** authentication never auto-creates users except emails in `BOOTSTRAP_ADMIN_EMAILS` (become admin, audited). Pre-provisioned emails bind their subject on first sign-in; an email already bound to another subject is denied.
+- 2026-10-22 — **Permissions** defined in `packages/shared` (18 permissions, 4 roles). Asset-owner object-level scoping is enforced per endpoint as those endpoints are built.
+- 2026-10-22 — **CSRF:** unsafe methods require `Origin` equal to the request origin (Access session is cookie-based).
+- 2026-10-22 — **Findings recurrence** modelled per CLAUDE.md: partial unique index on `fingerprint WHERE status <> 'resolved'` plus `recurrence_count` and status history.
+- 2026-10-22 — **Worker credentials not modelled yet** (no secrets in `worker_registry`); HMAC key storage is designed in Milestone 4.
+- 2026-10-22 — `typecheck` uses per-project `tsc -p` (not `tsc -b`), after build-mode reported a stale pass once.
 - 2026-10-22 — **Neon linked**: project `ExDomVault` (`flat-sound-26073660`), branch `production`, via `neon init` + `neon deploy` (no policy changes). Credentials in git-ignored `.env.local`.
 - 2026-10-22 — **DB driver: `pg` (node-postgres) + Drizzle through Cloudflare Hyperdrive**, per Neon's agent-skill guidance and Cloudflare's Neon guide. Hyperdrive's origin is Neon's direct endpoint; the Worker opens one client per request. `@neondatabase/serverless` not used.
 - 2026-10-22 — Local dev reaches Neon through the Hyperdrive binding's local connection string (`DATABASE_URL_UNPOOLED` → `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`, set in `vite.config.ts`).
@@ -39,12 +50,18 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 _Things only the owner can do (Cloudflare account, Neon project, Access app, secrets). Add exact steps as they arise._
 
 - [x] ~~Install Python venv support on the scan host~~ — done 2026-10-22; `npm run worker:install` / `worker:lint` / `worker:test` verified locally (18 pass).
-- [ ] Before first production deploy: create a least-privilege Neon role and the Hyperdrive config, then replace the placeholder Hyperdrive id — exact steps in `docs/deployment.md`.
+- [ ] Before first production deploy (all steps in `docs/deployment.md`):
+  - [ ] Create a **Cloudflare Access** self-hosted application for the app hostname; set `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `BOOTSTRAP_ADMIN_EMAILS` in `wrangler.jsonc`.
+  - [ ] Approve migrating the Neon `production` branch (`ALLOW_PRODUCTION_MIGRATION=yes npm run db:migrate`).
+  - [ ] Create least-privilege role `exdomainvault_app` and apply the grants.
+  - [ ] Create the Hyperdrive config with that role's direct URL; replace the placeholder Hyperdrive id.
 - [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
 
 ## Known limitations
 
-- Database connectivity works (health `database: ok`), but there is no schema yet and no authentication — health reports `degraded` until auth exists.
+- Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
+- No user-management UI/API yet: non-bootstrap users must be inserted into `users` manually.
+- Cloudflare Access verification is tested with locally generated keys; it has not yet run against your real Access team (needs the owner setup above).
 - Local dev connects as the Neon owner role (`neondb_owner`); a least-privilege app role is required before production.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
 - No deploy workflow; nothing has been deployed.
@@ -74,3 +91,17 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 **Checks:** lint pass · typecheck pass · 27 tests pass · build pass (no DB code in browser bundle) · dev server: `/api/v1/health` → `"database":"ok"` (~300 ms per ping to Neon) · with a deliberately wrong password → `"database":"down"`, Neon's auth error only in server logs.
 
 **Next:** Milestone 2 — database and authentication (`docs/prompts/02-database-and-auth.md`).
+
+### Milestone 2 — 2026-10-22
+
+**Built:** Drizzle schema for all design §5 entities (22 tables, 17 enums, checks, partial unique indexes) + initial migration; guarded migration runner; PGlite test harness; replaceable `AuthProvider` with Cloudflare Access JWT verification and dev provider; identity → user resolution with admin bootstrap; role/permission matrix; `requireAuth` / `requirePermission`; CSRF same-origin check; per-request DB connection; audit writer; `GET /api/v1/me`; health reports real auth status; top bar shows the signed-in user; docs (`database-schema.md`, `api-specification.md`, `deployment.md` Access/roles/Hyperdrive steps, `architecture.md`).
+
+**Checks (all run locally):**
+
+- `npm run lint` pass · `npm run typecheck` pass (verified it catches a deliberate error) · `npm run build` pass (PGlite not in Worker bundle)
+- `npm test` — 12 files, 86 tests pass (migrations + constraints on PGlite; Access JWT: valid/cookie/missing/spoofed header/wrong aud/wrong iss/expired/unknown key/no email/alg=none/tampered; user resolution; config; API auth flows; CSRF; permissions; UI user states)
+- `npm run db:check` pass; `drizzle-kit generate` reports no drift
+- `npm run db:migrate` on Neon `dev`: 22 tables created (PostgreSQL 18.6); re-run is a no-op; production-branch and pooled-URL guards refuse
+- `npm run dev` (workerd + Neon `dev`): health `database: ok, auth: ok`; `/me` bootstrapped `dev@example.com` as admin with one `user.bootstrap_admin` audit row; CSRF 403 without/foreign Origin; Access mode unconfigured → 503, configured without token → 401, spoofed identity header → 401; dev provider with `APP_ENV=production` → 500
+
+**Next:** Milestone 3 — domain inventory (`docs/prompts/03-domain-inventory.md`).

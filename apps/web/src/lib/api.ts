@@ -1,7 +1,9 @@
 import {
   errorResponseSchema,
   healthResponseSchema,
+  meResponseSchema,
   type HealthResponse,
+  type MeResponse,
 } from '@exdomainvault/shared';
 import type { z } from 'zod';
 
@@ -58,4 +60,5 @@ export async function getJson<T>(
 export const api = {
   health: (init?: RequestInit): Promise<HealthResponse> =>
     getJson('/api/v1/health', healthResponseSchema, init),
+  me: (init?: RequestInit): Promise<MeResponse> => getJson('/api/v1/me', meResponseSchema, init),
 };

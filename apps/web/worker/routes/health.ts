@@ -27,8 +27,8 @@ export function healthRoutes(deps: HealthDeps = { pingDatabase }) {
       }
     }
 
-    // Authentication arrives in Milestone 2; reported honestly until then.
-    const components: HealthResponse['components'] = { database, auth: 'not_configured' };
+    const auth: ComponentStatus = config.auth.kind === 'unconfigured' ? 'not_configured' : 'ok';
+    const components: HealthResponse['components'] = { database, auth };
     const allOk = Object.values(components).every((status) => status === 'ok');
 
     const body: HealthResponse = {

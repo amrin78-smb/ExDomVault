@@ -5,16 +5,23 @@
   "type": "module",
   "description": "Neon PostgreSQL access: node-postgres client, Drizzle ORM, schema and migrations",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/migrate.ts",
+    "db:check": "drizzle-kit check"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1"
+    "@electric-sql/pglite": "^0.5.11",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11"
   }
 }

@@ -28,6 +28,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Schema and migrations are in sync
+        run: |
+          npm run db:check
+          npm run db:generate
+          git add -N packages/database/migrations
+          git diff --exit-code -- packages/database/migrations
 
   worker:
     name: Python worker

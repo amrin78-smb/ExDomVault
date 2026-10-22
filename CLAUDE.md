@@ -76,29 +76,33 @@ Deploying, changing Cloudflare/Neon account settings, creating paid resources, r
 
 All from the repo root unless noted.
 
-| Command                               | What it does                                                                                                   |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                         | Vite dev server with the Worker running in workerd (needs `apps/web/.dev.vars`, copy from `.dev.vars.example`) |
-| `npm run build`                       | Production build of SPA + Worker into `apps/web/dist/`                                                         |
-| `npm run preview`                     | Build, then serve the production build locally                                                                 |
-| `npm run lint`                        | ESLint + Prettier check (`npm run format` to fix)                                                              |
-| `npm run typecheck`                   | `tsc` across all workspaces                                                                                    |
-| `npm test`                            | Vitest (projects: `web` = React UI in jsdom + Worker API via `app.request()`; `shared`)                        |
-| `npm run cf-typegen`                  | Regenerate `apps/web/worker-configuration.d.ts` after editing `wrangler.jsonc`                                 |
-| `npm run worker:install`              | Create `worker/.venv` and install pinned Python deps (needs `python3.12-venv`)                                 |
-| `npm run worker:lint` / `worker:test` | ruff / pytest for the Python worker                                                                            |
+| Command                               | What it does                                                                                                                           |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                         | Vite dev server with the Worker running in workerd (needs `apps/web/.dev.vars`, copy from `.dev.vars.example`)                         |
+| `npm run build`                       | Production build of SPA + Worker into `apps/web/dist/`                                                                                 |
+| `npm run preview`                     | Build, then serve the production build locally                                                                                         |
+| `npm run lint`                        | ESLint + Prettier check (`npm run format` to fix)                                                                                      |
+| `npm run typecheck`                   | `tsc` across all workspaces                                                                                                            |
+| `npm test`                            | Vitest (projects: `web` = UI in jsdom + Worker API/services in Node against PGlite; `shared`; `database` = migration/constraint tests) |
+| `npm run cf-typegen`                  | Regenerate `apps/web/worker-configuration.d.ts` after editing `wrangler.jsonc`                                                         |
+| `npm run worker:install`              | Create `worker/.venv` and install pinned Python deps (needs `python3.12-venv`)                                                         |
+| `npm run worker:lint` / `worker:test` | ruff / pytest for the Python worker                                                                                                    |
 
 | `neon env pull` | Refresh `.env.local` (git-ignored) with `DATABASE_URL` / `DATABASE_URL_UNPOOLED` for the linked Neon branch |
 | `neon deploy` | Apply `neon.ts` branch policy to the linked branch (outward-facing: only when asked) |
 
-Not yet implemented: `db:generate`, `db:migrate` (Milestone 2).
+| `npm run db:generate` | Generate a SQL migration from `packages/database/src/schema` (no DB needed); commit it |
+| `npm run db:check` | drizzle-kit consistency check (CI also fails on schema/migration drift) |
+| `npm run db:migrate` | Apply migrations to the Neon branch in `.env.local` (direct URL). Refuses `NEON_BRANCH=production` unless `ALLOW_PRODUCTION_MIGRATION=yes`, and refuses pooled URLs |
 
-**Database wiring:** Neon project `flat-sound-26073660`, branch `production`. Worker → `HYPERDRIVE` binding → Neon direct endpoint, using `pg` + Drizzle, one client per request (`packages/database`). Locally `vite.config.ts` sets the Hyperdrive local connection string from `.env.local`. The `production` branch is the live database: run migrations/experiments on a Neon dev branch (`neon checkout dev --create`) unless the user says otherwise.
+**Database wiring:** Neon project `flat-sound-26073660`. Worker → `HYPERDRIVE` binding → Neon direct endpoint, `pg` + Drizzle, one client per request (`packages/database`); locally `vite.config.ts` points the binding at the branch in `.env.local`. Branches: `production` (live; no schema yet) and `dev` (local default; expires 7 days after creation — recreate with `neon checkout dev --create` then `npm run db:migrate`). Never migrate `production` without the user asking.
+
+**Auth wiring:** `AUTH_PROVIDER` = `cloudflare_access` (prod; vars `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`) or `dev` (local `.dev.vars`; refused in production). Unconfigured → protected routes 503. New routes go on the `authed` sub-app in `app.ts` and must add `requirePermission(...)`; audit privileged changes with `writeAudit()` in the same transaction. DB-backed tests use `createTestDatabase()` from `@exdomainvault/database/testing` (PGlite) via `createApp({ connect })`.
 
 ## Code map
 
 - `apps/web/src/` — React SPA. `routes.tsx`, `components/layout/` (shell, nav), `components/ui/` (shared UI, `SeverityBadge` is the only severity styling), `pages/`, `lib/api.ts` (typed client validated against shared schemas), `lib/fixtures/` (dev-only, stripped from prod builds).
-- `apps/web/worker/` — Worker API. `index.ts` entry, `app.ts` builds the Hono app, `middleware/`, `routes/` (one module per resource), `lib/errors.ts` (`ApiError` + envelope), `lib/logger.ts` (JSON logs with request ID), `config.ts` (validated bindings, fails closed).
-- `packages/database/src/` — `connect()` (pg + Drizzle) and `pingDatabase()`.
+- `apps/web/worker/` — Worker API. `index.ts` entry, `app.ts` builds the Hono app (public vs `authed` routes), `middleware/` (request context, security headers, config, database, csrf, auth/permissions), `auth/` (`AuthProvider` + Cloudflare Access + dev), `services/` (users, audit), `routes/` (one module per resource), `lib/errors.ts` (`ApiError` + envelope), `lib/logger.ts`, `config.ts` (validated bindings, fails closed).
+- `packages/database/` — `src/schema/` (Drizzle tables/enums), `migrations/` (generated SQL, committed), `src/client.ts` (`connect`, `Database` type), `src/health.ts`, `src/testing.ts` (PGlite, tests only), `scripts/migrate.ts`.
 - `packages/shared/src/` — zod schemas + types shared by API and UI (`api/`, `domain/`).
 - `worker/app/` — Python worker (`config.py`, `main.py`); tests in `worker/tests/`.

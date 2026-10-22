@@ -1,2 +1,14 @@
 # Copy to .dev.vars for local development. Never commit .dev.vars.
 APP_ENV=development
+
+# Development sign-in: a fixed identity from this file (refused when APP_ENV=production).
+AUTH_PROVIDER=dev
+DEV_AUTH_EMAIL=dev@example.com
+DEV_AUTH_NAME=Local Developer
+# First sign-in by these emails creates an administrator.
+BOOTSTRAP_ADMIN_EMAILS=dev@example.com
+
+# To test Cloudflare Access locally instead, set:
+# AUTH_PROVIDER=cloudflare_access
+# ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+# ACCESS_AUD=<application audience tag>

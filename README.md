@@ -3,9 +3,10 @@
 **External Domain Security & Exposure Monitoring** — evidence-backed, authorised and explainable
 monitoring of an organisation's internet-facing domains.
 
-> **Status: Milestone 1 (repository foundation).** The app shell, navigation, typed health API,
-> test suite and CI are in place. There is no database, authentication or scanning yet — every
-> dashboard panel shows an empty state rather than invented data. See [`docs/progress.md`](docs/progress.md).
+> **Status: Milestone 2 (database and authentication).** Full PostgreSQL schema with migrations on Neon,
+> Cloudflare Access sign-in (with a separate development sign-in), role-based permissions, CSRF protection
+> and audit logging are in place. There is no domain management or scanning yet. See
+> [`docs/progress.md`](docs/progress.md).
 
 ## Architecture at a glance
 
@@ -32,14 +33,19 @@ git clone https://github.com/amrin78-smb/ExDomVault.git
 cd ExDomVault
 npm ci
 
-# Worker runtime variables for local dev (git-ignored)
+# Worker runtime variables for local dev (git-ignored): dev sign-in as dev@example.com (admin)
 cp apps/web/.dev.vars.example apps/web/.dev.vars
+
+# Database: link Neon and pull credentials into .env.local (git-ignored), then migrate the dev branch
+npm i -g neon
+neon checkout dev --create
+npm run db:migrate
 
 npm run dev        # http://localhost:5173 — UI and /api/v1 in the local Workers runtime
 ```
 
-Check the API: `curl http://localhost:5173/api/v1/health`. It reports `"status": "degraded"`
-because the database and authentication are not configured yet; that is expected.
+Check the API: `curl http://localhost:5173/api/v1/health` should report `database: ok` and `auth: ok`, and
+`curl http://localhost:5173/api/v1/me` returns the development administrator.
 
 ### Development fixtures (optional)
 
@@ -59,6 +65,7 @@ npm run lint        # ESLint + Prettier (npm run format to fix)
 npm run typecheck   # TypeScript across all workspaces
 npm test            # Vitest: UI components, Worker API, shared schemas
 npm run build       # Production build into apps/web/dist
+npm run db:check    # Migration history consistency
 
 npm run worker:install   # once: create worker/.venv with pinned deps
 npm run worker:lint      # ruff
@@ -69,20 +76,24 @@ CI (`.github/workflows/ci.yml`) runs all of these on every push and pull request
 
 ## Configuration
 
-| File                                            | Purpose                                                      | Committed |
-| ----------------------------------------------- | ------------------------------------------------------------ | --------- |
-| `apps/web/wrangler.jsonc`                       | Worker config and non-secret vars (`APP_ENV`, `APP_VERSION`) | yes       |
-| `apps/web/.dev.vars`                            | Local Worker variables/secrets (from `.dev.vars.example`)    | **no**    |
-| `apps/web/.env.development.local`               | Vite build-time flags (from `apps/web/.env.example`)         | **no**    |
-| `worker/.env` / `/etc/exdomainvault/worker.env` | Worker settings (from `worker/.env.example`)                 | **no**    |
+| File                                            | Purpose                                                                                  | Committed |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------- | --------- |
+| `apps/web/wrangler.jsonc`                       | Worker config and non-secret vars (`APP_ENV`, `APP_VERSION`)                             | yes       |
+| `apps/web/.dev.vars`                            | Local Worker variables: dev sign-in identity, bootstrap admin (from `.dev.vars.example`) | **no**    |
+| `.env.local`                                    | Neon connection strings for the checked-out branch (written by the `neon` CLI)           | **no**    |
+| `.neon`                                         | Linked Neon project and checked-out branch                                               | **no**    |
+| `apps/web/.env.development.local`               | Vite build-time flags (from `apps/web/.env.example`)                                     | **no**    |
+| `worker/.env` / `/etc/exdomainvault/worker.env` | Worker settings (from `worker/.env.example`)                                             | **no**    |
 
 Secrets are never placed in `wrangler.jsonc` or `VITE_*` variables. Production secrets are set with
 `wrangler secret put`.
 
 ## Deployment
 
-Not yet available. Deployment, Cloudflare Access and Neon setup are documented as they are built
-(Milestones 2 and 11). Nothing in this repository deploys automatically.
+Not deployed yet. Three owner actions are required first — a least-privilege Neon role, a Hyperdrive
+configuration, and a Cloudflare Access application — documented step by step in
+[`docs/deployment.md`](docs/deployment.md). Without Access configured, the API refuses all protected
+requests (503). Nothing in this repository deploys automatically.
 
 ## Safety principles
 

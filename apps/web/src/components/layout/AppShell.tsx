@@ -2,6 +2,7 @@ import { Outlet } from 'react-router';
 import { useDataMode } from '../../lib/data-mode.ts';
 import { DevDataBanner } from '../ui/DevDataBanner.tsx';
 import { ApiStatus } from './ApiStatus.tsx';
+import { CurrentUser } from './CurrentUser.tsx';
 import { Sidebar } from './Sidebar.tsx';
 
 export function AppShell() {
@@ -19,6 +20,8 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-end gap-4 border-b border-slate-200 bg-white px-6">
           <ApiStatus />
+          <div className="h-6 w-px bg-slate-200" aria-hidden />
+          <CurrentUser />
         </header>
         {fixtures && <DevDataBanner />}
         <main id="main" className="flex-1 px-6 py-6 lg:px-8">

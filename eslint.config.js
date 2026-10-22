@@ -31,6 +31,11 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
   },
   {
+    // Tests assert on rows they just inserted; non-null assertions are clearer than guards there.
+    files: ['**/*.test.{ts,tsx}'],
+    rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
+  },
+  {
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',

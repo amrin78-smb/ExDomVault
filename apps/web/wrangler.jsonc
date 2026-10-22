@@ -33,5 +33,12 @@
     // Production default. Local development overrides this in .dev.vars.
     "APP_ENV": "production",
     "APP_VERSION": "0.1.0",
+    // Production authentication: Cloudflare Access. Until ACCESS_TEAM_DOMAIN and ACCESS_AUD are set,
+    // every protected API route returns 503 (fail closed). See docs/deployment.md.
+    "AUTH_PROVIDER": "cloudflare_access",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+    // Comma-separated emails that become administrators on first sign-in.
+    "BOOTSTRAP_ADMIN_EMAILS": "",
   },
 }

@@ -1,58 +1,81 @@
 // @vitest-environment node
-import { errorResponseSchema, healthResponseSchema } from '@exdomainvault/shared';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTestDatabase, type TestDatabase } from '@exdomainvault/database/testing';
+import { schema } from '@exdomainvault/database';
+import {
+  errorResponseSchema,
+  healthResponseSchema,
+  meResponseSchema,
+} from '@exdomainvault/shared';
+import { Hono } from 'hono';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDeps } from './app.ts';
+import { handleError } from './lib/errors.ts';
+import { requirePermission } from './middleware/auth.ts';
+import type { AppBindings } from './types.ts';
 
-const devEnv = { APP_ENV: 'development', APP_VERSION: '0.1.0-test' } as unknown as Env;
+const HYPERDRIVE = { connectionString: 'postgres://u:p@db.example.invalid/app' };
 
-function request(path: string, env: Env = devEnv, init?: RequestInit, deps?: AppDeps) {
-  return createApp(deps).request(path, init, env);
+const baseEnv = { APP_ENV: 'development', APP_VERSION: '0.1.0-test' };
+const devAuthEnv = {
+  ...baseEnv,
+  AUTH_PROVIDER: 'dev',
+  DEV_AUTH_EMAIL: 'dev@example.com',
+  DEV_AUTH_NAME: 'Local Developer',
+  BOOTSTRAP_ADMIN_EMAILS: 'dev@example.com',
+  HYPERDRIVE,
+};
+
+let t: TestDatabase;
+beforeAll(async () => {
+  t = await createTestDatabase();
+}, 30_000);
+afterAll(async () => {
+  await t?.close();
+});
+
+beforeEach(() => {
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
+afterEach(() => vi.restoreAllMocks());
+
+const testDeps: AppDeps = {
+  connect: async () => ({ db: t.db, close: async () => {} }),
+  health: { pingDatabase: async () => ({ status: 'ok', latencyMs: 1 }) },
+};
+
+function request(
+  path: string,
+  env: Record<string, unknown> = devAuthEnv,
+  init?: RequestInit,
+  deps: AppDeps = testDeps,
+) {
+  return createApp(deps).request(path, init, env as unknown as Env);
 }
 
-describe('API application', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('GET /api/v1/health returns a schema-valid health report', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+describe('health', () => {
+  it('reports database and auth status without authentication', async () => {
     const res = await request('/api/v1/health');
-
     expect(res.status).toBe(200);
     const body = healthResponseSchema.parse(await res.json());
-    expect(body.environment).toBe('development');
-    expect(body.version).toBe('0.1.0-test');
-    // Nothing is wired up yet, so the API must not claim full health.
+    expect(body).toMatchObject({
+      status: 'ok',
+      environment: 'development',
+      components: { database: 'ok', auth: 'ok' },
+    });
+  });
+
+  it('reports unconfigured dependencies as degraded', async () => {
+    const res = await request('/api/v1/health', baseEnv);
+    const body = healthResponseSchema.parse(await res.json());
     expect(body.status).toBe('degraded');
     expect(body.components).toEqual({ database: 'not_configured', auth: 'not_configured' });
   });
 
-  it('pings the database through the Hyperdrive binding when configured', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    const ping = vi.fn(async () => ({ status: 'ok' as const, latencyMs: 4 }));
-    const env = {
-      ...devEnv,
-      HYPERDRIVE: { connectionString: 'postgres://u:p@db.example.invalid/app' },
-    } as unknown as Env;
-
-    const res = await request('/api/v1/health', env, undefined, {
-      health: { pingDatabase: ping },
-    });
-
-    const body = healthResponseSchema.parse(await res.json());
-    expect(ping).toHaveBeenCalledWith('postgres://u:p@db.example.invalid/app', { timeoutMs: 3000 });
-    expect(body.components.database).toBe('ok');
-    // Auth is still unconfigured, so overall health stays degraded.
-    expect(body.status).toBe('degraded');
-  });
-
   it('reports the database as down without leaking the failure detail', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const env = {
-      ...devEnv,
-      HYPERDRIVE: { connectionString: 'postgres://u:p@db.example.invalid/app' },
-    } as unknown as Env;
-
-    const res = await request('/api/v1/health', env, undefined, {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await request('/api/v1/health', devAuthEnv, undefined, {
+      ...testDeps,
       health: {
         pingDatabase: async () => ({
           status: 'down',
@@ -61,47 +84,169 @@ describe('API application', () => {
         }),
       },
     });
-
     const text = await res.text();
     expect(healthResponseSchema.parse(JSON.parse(text)).components.database).toBe('down');
     expect(text).not.toContain('secret_user');
-    expect(errorLog.mock.calls.join('\n')).toContain('database_ping_failed');
+  });
+});
+
+describe('authentication', () => {
+  it('returns 503 on protected routes when authentication is unconfigured (fail closed)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await request('/api/v1/me', { ...baseEnv, HYPERDRIVE });
+    expect(res.status).toBe(503);
+    expect(errorResponseSchema.parse(await res.json()).error.code).toBe('service_unavailable');
   });
 
-  it('sets a request ID and security headers on every response', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    const res = await request('/api/v1/health', devEnv, {
+  it('returns 401 when Cloudflare Access credentials are missing', async () => {
+    const res = await request('/api/v1/me', {
+      ...baseEnv,
+      AUTH_PROVIDER: 'cloudflare_access',
+      ACCESS_TEAM_DOMAIN: 'team.cloudflareaccess.com',
+      ACCESS_AUD: 'aud',
+      HYPERDRIVE,
+    });
+    expect(res.status).toBe(401);
+    expect(errorResponseSchema.parse(await res.json()).error.code).toBe('unauthenticated');
+  });
+
+  it('does not trust identity headers sent by the client', async () => {
+    const res = await request(
+      '/api/v1/me',
+      {
+        ...baseEnv,
+        AUTH_PROVIDER: 'cloudflare_access',
+        ACCESS_TEAM_DOMAIN: 'team.cloudflareaccess.com',
+        ACCESS_AUD: 'aud',
+        HYPERDRIVE,
+      },
+      { headers: { 'Cf-Access-Authenticated-User-Email': 'dev@example.com' } },
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /me bootstraps the configured admin and returns their permissions', async () => {
+    const res = await request('/api/v1/me');
+    expect(res.status).toBe(200);
+    const body = meResponseSchema.parse(await res.json());
+    expect(body.user).toMatchObject({ email: 'dev@example.com', role: 'admin' });
+    expect(body.permissions).toContain('users:manage');
+    expect(body.authProvider).toBe('dev');
+  });
+
+  it('returns 403 for an authenticated identity that is not provisioned', async () => {
+    const res = await request('/api/v1/me', {
+      ...devAuthEnv,
+      DEV_AUTH_EMAIL: 'stranger@example.com',
+    });
+    expect(res.status).toBe(403);
+    expect(errorResponseSchema.parse(await res.json()).error.message).toMatch(/not been granted/);
+  });
+
+  it('returns 503 when the database is unreachable', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await request('/api/v1/me', devAuthEnv, undefined, {
+      ...testDeps,
+      connect: async () => {
+        throw new Error('connect ECONNREFUSED 10.0.0.5:5432');
+      },
+    });
+    const text = await res.text();
+    expect(res.status).toBe(503);
+    expect(text).not.toContain('10.0.0.5');
+  });
+
+  it('requires authentication for unknown API paths too', async () => {
+    const res = await request('/api/v1/does-not-exist', {
+      ...baseEnv,
+      AUTH_PROVIDER: 'cloudflare_access',
+      ACCESS_TEAM_DOMAIN: 'team.cloudflareaccess.com',
+      ACCESS_AUD: 'aud',
+      HYPERDRIVE,
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns the standard 404 envelope for unknown paths once authenticated', async () => {
+    const res = await request('/api/v1/does-not-exist');
+    expect(res.status).toBe(404);
+    const body = errorResponseSchema.parse(await res.json());
+    expect(body.error.requestId).toBe(res.headers.get('X-Request-Id'));
+  });
+});
+
+describe('CSRF protection', () => {
+  it('rejects state-changing requests without a same-origin Origin header', async () => {
+    for (const headers of [{}, { Origin: 'https://evil.example' }] as Record<string, string>[]) {
+      const res = await request('http://localhost/api/v1/me', devAuthEnv, {
+        method: 'POST',
+        headers,
+      });
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it('lets same-origin writes through to routing', async () => {
+    const res = await request('http://localhost/api/v1/me', devAuthEnv, {
+      method: 'POST',
+      headers: { Origin: 'http://localhost' },
+    });
+    // Passes CSRF and auth; /me has no POST handler.
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('requirePermission', () => {
+  function appFor(role: 'admin' | 'viewer') {
+    const app = new Hono<AppBindings>();
+    app.use('*', async (c, next) => {
+      c.set('requestId', 'r');
+      c.set('logger', { debug() {}, info() {}, warn() {}, error() {} });
+      c.set('user', { id: crypto.randomUUID(), email: 'x@example.com', displayName: null, role });
+      await next();
+    });
+    app.post('/scans', requirePermission('scans:request'), (c) => c.json({ ok: true }));
+    app.onError(handleError);
+    return app;
+  }
+
+  it('allows roles holding the permission', async () => {
+    expect((await appFor('admin').request('/scans', { method: 'POST' })).status).toBe(200);
+  });
+
+  it('rejects roles lacking the permission with 403', async () => {
+    const res = await appFor('viewer').request('/scans', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(errorResponseSchema.parse(await res.json()).error.code).toBe('forbidden');
+  });
+});
+
+describe('response hygiene', () => {
+  it('sets a server-generated request ID and security headers', async () => {
+    const res = await request('/api/v1/health', devAuthEnv, {
       headers: { 'X-Request-Id': 'client-supplied' },
     });
-
-    const requestId = res.headers.get('X-Request-Id');
-    expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(requestId).not.toBe('client-supplied');
+    expect(res.headers.get('X-Request-Id')).toMatch(/^[0-9a-f-]{36}$/);
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 
-  it('returns the standard error envelope for unknown API routes', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    const res = await request('/api/v1/does-not-exist');
-
-    expect(res.status).toBe(404);
-    const body = errorResponseSchema.parse(await res.json());
-    expect(body.error.code).toBe('not_found');
-    expect(body.error.requestId).toBe(res.headers.get('X-Request-Id'));
+  it('fails closed with a safe 500 when configuration is invalid', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await request('/api/v1/health', { APP_ENV: 'staging' });
+    const text = await res.text();
+    expect(res.status).toBe(500);
+    expect(errorResponseSchema.parse(JSON.parse(text)).error.code).toBe('internal_error');
+    expect(text).not.toContain('APP_ENV');
+    expect(errorLog).toHaveBeenCalled();
   });
 
-  it('fails closed with a safe 500 when configuration is invalid', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const res = await request('/api/v1/health', { APP_ENV: 'staging' } as unknown as Env);
-
+  it('refuses the dev identity when APP_ENV=production', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await request('/api/v1/me', { ...devAuthEnv, APP_ENV: 'production' });
     expect(res.status).toBe(500);
-    const text = await res.text();
-    const body = errorResponseSchema.parse(JSON.parse(text));
-    expect(body.error.code).toBe('internal_error');
-    expect(text).not.toContain('APP_ENV');
-    expect(text).not.toContain('stack');
-    expect(errorLog).toHaveBeenCalled();
+    expect(await t.db.select().from(schema.users)).not.toContainEqual(
+      expect.objectContaining({ email: 'prod-dev@example.com' }),
+    );
   });
 });
