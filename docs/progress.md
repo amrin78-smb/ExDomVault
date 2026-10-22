@@ -4,19 +4,19 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Milestone status
 
-| #   | Milestone                                  | Status      | Notes                                       |
-| --- | ------------------------------------------ | ----------- | ------------------------------------------- |
-| 1   | Repository foundation                      | done        |                                             |
-| 2   | Database and authentication                | done        | Deployed; production migrated               |
-| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)            |
-| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)            |
-| 5   | Python worker                              | done        | Deployed `98621b00`; worker install pending |
-| 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete     |
-| 7   | Deterministic rules engine                 | not started |                                             |
-| 8   | Finding lifecycle                          | not started |                                             |
-| 9   | Passive subdomain discovery                | not started |                                             |
-| 10  | Frontend integration                       | not started |                                             |
-| 11  | Production hardening                       | not started |                                             |
+| #   | Milestone                                  | Status      | Notes                                   |
+| --- | ------------------------------------------ | ----------- | --------------------------------------- |
+| 1   | Repository foundation                      | done        |                                         |
+| 2   | Database and authentication                | done        | Deployed; production migrated           |
+| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
+| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
+| 5   | Python worker                              | done        | Deployed; worker live on this host      |
+| 6   | Scanning and target safety (security gate) | not started | Active scanning disabled until complete |
+| 7   | Deterministic rules engine                 | not started |                                         |
+| 8   | Finding lifecycle                          | not started |                                         |
+| 9   | Passive subdomain discovery                | not started |                                         |
+| 10  | Frontend integration                       | not started |                                         |
+| 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
 
@@ -88,7 +88,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [ ] Optional: replace the shared `demo-allowlist` Access policy with a dedicated ExDomainVault policy.
 - [ ] Optional: delete the `BOOTSTRAP_ADMIN_EMAILS` secret now that the first admin exists.
 - [x] ~~Cloudflare Access service token + Service Auth policy for the worker~~ — done by the owner 2026-10-22.
-- [ ] Install the worker on this host (`docs/home-worker-setup.md`: service user, key, register public key in Settings → Workers, `worker.env` with the service token, systemd unit).
+- [x] ~~Install the worker on this host~~ — done by the owner 2026-10-22 (`install.sh`, key registered as `home-worker-01`, service token in `worker.env`, systemd unit enabled).
 - [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
 
 ## Future enhancements (owner requests)
@@ -220,4 +220,6 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 - Deployed to production 2026-10-22 on request (no migration): version `98621b00-60c9-4d98-baee-0a6a3ea001d6`.
 - Pre-install review found that `worker.env` setting `EXDV_PRIVATE_KEY_FILE` would override the unit's `LoadCredential=` path (systemd `EnvironmentFile=` beats `Environment=`) and break start-up; removed from the template and guide. Added `worker/deploy/install.sh` (idempotent; steps 2–4 + unit install; shellcheck clean).
 
-**Next:** owner installs the worker (`docs/home-worker-setup.md`); then Milestone 6 — scanning and target safety (the security gate for active scanning).
+**Production worker (2026-10-22):** first start failed `--check-config`: systemd `LoadCredential=` copies are `0440` inside the per-service credentials directory, which the strict `0600` key check rejected → fixed (`f2c57c5`: inside `$CREDENTIALS_DIRECTORY` the directory and file must be closed to others; elsewhere `0600` still required). After `install.sh` + restart the worker started, passed Access with the service token and the signature check, and completed the queued passive scan of `alstertor.info` (11 DNS + 1 registration observation; registrar CSC, expiry 2027-03-04, data status `redacted`).
+
+**Next:** Milestone 6 — scanning and target safety (the security gate for active scanning).
