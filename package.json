@@ -10,7 +10,8 @@
   "workspaces": [
     "apps/web",
     "packages/shared",
-    "packages/database"
+    "packages/database",
+    "packages/rules"
   ],
   "scripts": {
     "dev": "npm run dev -w @exdomainvault/web",

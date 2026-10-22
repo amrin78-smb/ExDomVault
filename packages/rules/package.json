@@ -1,0 +1,16 @@
+{
+  "name": "@exdomainvault/rules",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Deterministic, versioned security rules: observations in, evidence-backed findings out",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@exdomainvault/shared": "*"
+  }
+}

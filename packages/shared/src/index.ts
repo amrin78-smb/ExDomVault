@@ -1,5 +1,6 @@
 export * from './api/domains.ts';
 export * from './api/errors.ts';
+export * from './api/findings.ts';
 export * from './api/health.ts';
 export * from './api/me.ts';
 export * from './api/networks.ts';

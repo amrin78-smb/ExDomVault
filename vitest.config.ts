@@ -6,6 +6,7 @@ export default defineConfig({
       'apps/web/vitest.config.ts',
       'packages/shared/vitest.config.ts',
       'packages/database/vitest.config.ts',
+      'packages/rules/vitest.config.ts',
     ],
   },
 });
