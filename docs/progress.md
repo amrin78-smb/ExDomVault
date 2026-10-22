@@ -20,6 +20,10 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-22 — **Neon linked**: project `ExDomVault` (`flat-sound-26073660`), branch `production`, via `neon init` + `neon deploy` (no policy changes). Credentials in git-ignored `.env.local`.
+- 2026-10-22 — **DB driver: `pg` (node-postgres) + Drizzle through Cloudflare Hyperdrive**, per Neon's agent-skill guidance and Cloudflare's Neon guide. Hyperdrive's origin is Neon's direct endpoint; the Worker opens one client per request. `@neondatabase/serverless` not used.
+- 2026-10-22 — Local dev reaches Neon through the Hyperdrive binding's local connection string (`DATABASE_URL_UNPOOLED` → `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`, set in `vite.config.ts`).
+- 2026-10-22 — Neon tooling (`neon` CLI global; `@neon/config`, `@neon/env` as root devDependencies). `neon.ts` holds the branch policy (non-default branches expire after 7 days).
 - 2026-10-22 — **npm workspaces** chosen as the single package manager (pnpm not installed; npm 11 available).
 - 2026-10-22 — **Hono** for Worker API routing: small, Workers-native, typed context, easy to test via `app.request()`.
 - 2026-10-22 — SPA and API live in one Worker (`apps/web`): `src/` = UI, `worker/` = API. Matches Cloudflare's React + Vite template; responsibilities stay in separate directories.
@@ -35,11 +39,13 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 _Things only the owner can do (Cloudflare account, Neon project, Access app, secrets). Add exact steps as they arise._
 
 - [x] ~~Install Python venv support on the scan host~~ — done 2026-10-22; `npm run worker:install` / `worker:lint` / `worker:test` verified locally (18 pass).
+- [ ] Before first production deploy: create a least-privilege Neon role and the Hyperdrive config, then replace the placeholder Hyperdrive id — exact steps in `docs/deployment.md`.
 - [ ] Before Milestone 5/6 on the scan host: `sudo apt install -y nmap` (Claude will ask before doing anything that changes the machine).
 
 ## Known limitations
 
-- No database, authentication, or real data — health reports `degraded` by design.
+- Database connectivity works (health `database: ok`), but there is no schema yet and no authentication — health reports `degraded` until auth exists.
+- Local dev connects as the Neon owner role (`neondb_owner`); a least-privilege app role is required before production.
 - Overview panels show empty states; other sections are placeholders naming their milestone.
 - No deploy workflow; nothing has been deployed.
 
@@ -60,5 +66,11 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 - `npm run dev` — verified in workerd: `/api/v1/health` 200 with headers, unknown API path → 404 envelope, `/domains` serves SPA; UI checked in a browser
 - Worker: `ruff check`, `ruff format --check`, `pytest` (18 pass) — run in a scratch venv bootstrapped without `python3-venv`; `npm run worker:install` itself not runnable here yet
 - CI — first run happens on this push
+
+### Neon wiring — 2026-10-22
+
+**Changed:** `neon init`/`neon deploy` linked the repo (`.neon`, `neon.ts`, `.env.local`); new `packages/database` (`connect()`, `pingDatabase()` with `pg` + Drizzle); `HYPERDRIVE` binding (placeholder id) in `wrangler.jsonc`; `vite.config.ts` feeds the local Hyperdrive connection string from `.env.local`; health route pings the DB; `docs/deployment.md`.
+
+**Checks:** lint pass · typecheck pass · 27 tests pass · build pass (no DB code in browser bundle) · dev server: `/api/v1/health` → `"database":"ok"` (~300 ms per ping to Neon) · with a deliberately wrong password → `"database":"down"`, Neon's auth error only in server logs.
 
 **Next:** Milestone 2 — database and authentication (`docs/prompts/02-database-and-auth.md`).

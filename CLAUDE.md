@@ -88,11 +88,17 @@ All from the repo root unless noted.
 | `npm run worker:install`              | Create `worker/.venv` and install pinned Python deps (needs `python3.12-venv`)                                 |
 | `npm run worker:lint` / `worker:test` | ruff / pytest for the Python worker                                                                            |
 
+| `neon env pull` | Refresh `.env.local` (git-ignored) with `DATABASE_URL` / `DATABASE_URL_UNPOOLED` for the linked Neon branch |
+| `neon deploy` | Apply `neon.ts` branch policy to the linked branch (outward-facing: only when asked) |
+
 Not yet implemented: `db:generate`, `db:migrate` (Milestone 2).
+
+**Database wiring:** Neon project `flat-sound-26073660`, branch `production`. Worker → `HYPERDRIVE` binding → Neon direct endpoint, using `pg` + Drizzle, one client per request (`packages/database`). Locally `vite.config.ts` sets the Hyperdrive local connection string from `.env.local`. The `production` branch is the live database: run migrations/experiments on a Neon dev branch (`neon checkout dev --create`) unless the user says otherwise.
 
 ## Code map
 
 - `apps/web/src/` — React SPA. `routes.tsx`, `components/layout/` (shell, nav), `components/ui/` (shared UI, `SeverityBadge` is the only severity styling), `pages/`, `lib/api.ts` (typed client validated against shared schemas), `lib/fixtures/` (dev-only, stripped from prod builds).
 - `apps/web/worker/` — Worker API. `index.ts` entry, `app.ts` builds the Hono app, `middleware/`, `routes/` (one module per resource), `lib/errors.ts` (`ApiError` + envelope), `lib/logger.ts` (JSON logs with request ID), `config.ts` (validated bindings, fails closed).
+- `packages/database/src/` — `connect()` (pg + Drizzle) and `pingDatabase()`.
 - `packages/shared/src/` — zod schemas + types shared by API and UI (`api/`, `domain/`).
 - `worker/app/` — Python worker (`config.py`, `main.py`); tests in `worker/tests/`.

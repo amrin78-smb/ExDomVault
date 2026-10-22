@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { errorResponseSchema, healthResponseSchema } from '@exdomainvault/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createApp } from './app.ts';
+import { createApp, type AppDeps } from './app.ts';
 
 const devEnv = { APP_ENV: 'development', APP_VERSION: '0.1.0-test' } as unknown as Env;
 
-function request(path: string, env: Env = devEnv, init?: RequestInit) {
-  return createApp().request(path, init, env);
+function request(path: string, env: Env = devEnv, init?: RequestInit, deps?: AppDeps) {
+  return createApp(deps).request(path, init, env);
 }
 
 describe('API application', () => {
@@ -23,6 +23,49 @@ describe('API application', () => {
     // Nothing is wired up yet, so the API must not claim full health.
     expect(body.status).toBe('degraded');
     expect(body.components).toEqual({ database: 'not_configured', auth: 'not_configured' });
+  });
+
+  it('pings the database through the Hyperdrive binding when configured', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const ping = vi.fn(async () => ({ status: 'ok' as const, latencyMs: 4 }));
+    const env = {
+      ...devEnv,
+      HYPERDRIVE: { connectionString: 'postgres://u:p@db.example.invalid/app' },
+    } as unknown as Env;
+
+    const res = await request('/api/v1/health', env, undefined, {
+      health: { pingDatabase: ping },
+    });
+
+    const body = healthResponseSchema.parse(await res.json());
+    expect(ping).toHaveBeenCalledWith('postgres://u:p@db.example.invalid/app', { timeoutMs: 3000 });
+    expect(body.components.database).toBe('ok');
+    // Auth is still unconfigured, so overall health stays degraded.
+    expect(body.status).toBe('degraded');
+  });
+
+  it('reports the database as down without leaking the failure detail', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const env = {
+      ...devEnv,
+      HYPERDRIVE: { connectionString: 'postgres://u:p@db.example.invalid/app' },
+    } as unknown as Env;
+
+    const res = await request('/api/v1/health', env, undefined, {
+      health: {
+        pingDatabase: async () => ({
+          status: 'down',
+          latencyMs: 3000,
+          error: 'password authentication failed for user "secret_user"',
+        }),
+      },
+    });
+
+    const text = await res.text();
+    expect(healthResponseSchema.parse(JSON.parse(text)).components.database).toBe('down');
+    expect(text).not.toContain('secret_user');
+    expect(errorLog.mock.calls.join('\n')).toContain('database_ping_failed');
   });
 
   it('sets a request ID and security headers on every response', async () => {

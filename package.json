@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "apps/web",
-    "packages/shared"
+    "packages/shared",
+    "packages/database"
   ],
   "scripts": {
     "dev": "npm run dev -w @exdomainvault/web",
@@ -27,6 +28,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@neon/config": "^1.9.3",
+    "@neon/env": "^1.6.4",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",

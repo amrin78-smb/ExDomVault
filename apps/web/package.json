@@ -11,6 +11,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@exdomainvault/database": "*",
     "@exdomainvault/shared": "*",
     "hono": "^4.13.13",
     "lucide-react": "^1.61.0",

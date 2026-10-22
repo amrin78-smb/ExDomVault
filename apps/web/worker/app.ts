@@ -3,11 +3,18 @@ import { configMiddleware } from './middleware/config.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
 import { handleError, handleNotFound } from './lib/errors.ts';
-import { healthRoutes } from './routes/health.ts';
+import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import type { AppBindings } from './types.ts';
 
-/** Builds the API application. Exported separately from the Worker entry point for testing. */
-export function createApp() {
+export interface AppDeps {
+  health?: HealthDeps;
+}
+
+/**
+ * Builds the API application. Exported separately from the Worker entry point so tests can
+ * call it directly and substitute external dependencies.
+ */
+export function createApp(deps: AppDeps = {}) {
   const app = new Hono<AppBindings>();
 
   app.use('*', requestContext());
@@ -15,7 +22,7 @@ export function createApp() {
   app.use('*', configMiddleware());
 
   const v1 = new Hono<AppBindings>();
-  v1.route('/health', healthRoutes);
+  v1.route('/health', healthRoutes(deps.health));
 
   app.route('/api/v1', v1);
 

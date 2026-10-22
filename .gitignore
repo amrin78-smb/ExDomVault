@@ -40,3 +40,4 @@ coverage/
 
 # Local browser automation output
 .playwright-mcp/
+.neon

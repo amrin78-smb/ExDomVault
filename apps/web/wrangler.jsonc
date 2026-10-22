@@ -19,6 +19,16 @@
     "enabled": true,
   },
   "upload_source_maps": true,
+  "hyperdrive": [
+    {
+      // Neon PostgreSQL via Cloudflare Hyperdrive (pooled at the edge, origin = Neon direct endpoint).
+      // PLACEHOLDER id: replace with the real id from `wrangler hyperdrive create` before deploying
+      // (see docs/deployment.md). Local dev ignores the id and connects straight to Neon using
+      // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE, set by vite.config.ts.
+      "binding": "HYPERDRIVE",
+      "id": "00000000000000000000000000000000",
+    },
+  ],
   "vars": {
     // Production default. Local development overrides this in .dev.vars.
     "APP_ENV": "production",

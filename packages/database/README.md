@@ -1,5 +1,10 @@
 # @exdomainvault/database
 
-Drizzle ORM schema (`schema/`) and versioned SQL migrations (`migrations/`) for Neon PostgreSQL.
+Neon PostgreSQL access for the Worker API.
 
-Not implemented yet — arrives in **Milestone 2**. Add this package to the root `workspaces` when it gains a `package.json`.
+- **Driver:** `pg` (node-postgres) with **Drizzle ORM**. In production the Worker connects through
+  **Cloudflare Hyperdrive** (`env.HYPERDRIVE.connectionString`), which pools connections to Neon's
+  direct endpoint. Locally, the Hyperdrive binding connects straight to Neon (see `apps/web/vite.config.ts`).
+- `connect()` opens one short-lived client per request; `pingDatabase()` backs the health check.
+
+Schema (`schema/`) and versioned migrations (`migrations/`) arrive in Milestone 2.
