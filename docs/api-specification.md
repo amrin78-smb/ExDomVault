@@ -407,6 +407,65 @@ domain that has never had discovery waits for its slot in the week (a stable has
 after its previous job. At most 50 jobs per run; the one-active-job-per-domain+profile index absorbs
 races. Scheduled jobs are refused at claim time if monitoring was switched off meanwhile.
 
+### Scan schedule (scheduled active scans)
+
+Off by default. When an administrator enables it, each 5-minute maintenance run queues the chosen
+**active** profile for domains that are monitored and currently authorised for active scanning — but
+only while the server's `ACTIVE_SCANNING_ENABLED` switch is on. Stored in `application_settings`
+under key `scan_schedule` (`packages/shared/src/api/schedule.ts`).
+
+`ScanSchedule`: `{ "enabled": false, "profile": "quick", "intervalDays": 1 }` — `profile` is `quick`
+or `standard`; `intervalDays` an integer 1–30; unknown keys rejected.
+
+#### `GET /api/v1/settings/scan-schedule` — `scans:read`
+
+```json
+{
+  "schedule": { "enabled": true, "profile": "quick", "intervalDays": 1 },
+  "updatedAt": "…",
+  "updatedBy": { "id": "uuid", "email": "admin@example.com" },
+  "eligibleDomains": 12,
+  "activeScanningEnabled": false,
+  "scheduledLast24h": 0
+}
+```
+
+Without a stored setting: the default schedule (disabled) with `updatedAt`/`updatedBy` `null`. A
+stored value that no longer validates is reported (and treated) as disabled. `eligibleDomains`:
+domains with monitoring on, `verified` (DNS TXT or administrator authorisation) and review date not
+passed. `activeScanningEnabled`: the server switch — when `false`, nothing active is scheduled
+regardless of `enabled`. `scheduledLast24h`: jobs of the schedule's profile with `trigger: "schedule"`
+created in the last 24 hours.
+
+#### `PUT /api/v1/settings/scan-schedule` — `scan_policies:manage`
+
+Body: `ScanSchedule` (all three fields). Upserts the setting (`updated_by` = caller) and returns the
+same shape as `GET`. Enabling while the server switch is off is allowed (saved; reported with
+`activeScanningEnabled: false`). Audited `settings.scan_schedule_updated` with `before` (null when
+unset) and `after`. `400 validation_failed` for an invalid body; `403` without the permission (admin
+only).
+
+#### Scheduling (cron)
+
+`services/scan-schedule.ts` `scheduleActiveScans`, a failure-isolated maintenance step. A domain is
+**due** when monitoring is on, it is authorised for active scanning, and no job of the profile
+(scheduled or manual) is queued/claimed/running or was created within `intervalDays`. A domain that
+has never had a job of the profile waits for its slot within the interval (stable hash of its id, as
+for discovery); afterwards it recurs about one interval after its previous job. At most 30 jobs per
+run, least recently scanned first. Jobs: `jobType: "scan"`, priority 220 (behind user-requested 100
+and passive monitoring 200, ahead of discovery 250), `trigger: "schedule"`, `requestedBy: null`,
+reason `Scheduled <profile> scan`.
+
+Each job is created in its own transaction with the same scope rules as `POST /domains/:id/scans`:
+the domain row is locked and authorisation and monitoring re-checked; targets are the approved assets
+(the apex is approved implicitly through domain verification — audited `asset.approved` as a system
+action with `onBehalfOf` = the administrator who last saved the schedule, who is recorded as
+`approved_by`; without one, no implicit approval happens); the snapshot carries the currently
+approved networks; claim-time and heartbeat re-checks apply unchanged. A domain with no approved
+target, or with a job already queued (one-active-job index), is skipped. Each run that found due
+domains writes one `scan.scheduled` audit row (system actor) with `profile`, `intervalDays`, `due`,
+`jobs`, `jobIds`, `skipped` (by reason) and `failed`.
+
 ### `GET /api/v1/scans` — `scans:read`
 
 Query: `page` (default 1), `pageSize` (1–100, default 25), `status` (`queued`, `claimed`, `running`,
@@ -442,7 +501,8 @@ Query: `page` (default 1), `pageSize` (1–100, default 25), `status` (`queued`,
 }
 ```
 
-`trigger` is `schedule` for daily passive monitoring jobs (`requestedBy` is then `null`). `domain` is
+`trigger` is `schedule` for cron-created jobs — passive monitoring, discovery and scheduled active
+scans (`requestedBy` is then `null`). `domain` is
 `null` if the domain was deleted. `errorCode`/`errorSummary` hold the last error, also while a retry is
 queued.
 

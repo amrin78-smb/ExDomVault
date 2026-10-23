@@ -96,6 +96,11 @@ import {
   type SoftwareListResponse,
   type SoftwareSummaryResponse,
 } from '@exdomainvault/shared';
+import {
+  scanScheduleResponseSchema,
+  type ScanSchedule,
+  type ScanScheduleResponse,
+} from '@exdomainvault/shared';
 import { z } from 'zod';
 
 export class ApiClientError extends Error {
@@ -156,9 +161,9 @@ export async function getJson<T>(
   return parsed.data;
 }
 
-/** Sends a JSON body (POST/PATCH). Same-origin fetch carries the Origin header the API requires. */
+/** Sends a JSON body (POST/PATCH/PUT). Same-origin fetch carries the Origin header the API requires. */
 export function sendJson<T>(
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'PUT',
   path: string,
   schema: z.ZodType<T>,
   body?: unknown,
@@ -306,6 +311,16 @@ export const api = {
 
   scanProfiles: (init?: RequestInit): Promise<ScanProfileListResponse> =>
     getJson('/api/v1/scan-profiles', scanProfileListResponseSchema, init),
+
+  settings: {
+    /** Scheduled active scans (`scans:read` to view, `scan_policies:manage` to change). */
+    scanSchedule: {
+      get: (init?: RequestInit): Promise<ScanScheduleResponse> =>
+        getJson('/api/v1/settings/scan-schedule', scanScheduleResponseSchema, init),
+      update: (body: ScanSchedule): Promise<ScanScheduleResponse> =>
+        sendJson('PUT', '/api/v1/settings/scan-schedule', scanScheduleResponseSchema, body),
+    },
+  },
 
   scans: {
     list: (

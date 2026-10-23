@@ -7,6 +7,7 @@ import { evaluatePendingJobs } from './evaluation.ts';
 import { expireAcceptedRisks } from './finding-lifecycle.ts';
 import { intelMaintenanceSteps, type IntelDeps } from './intel-feeds.ts';
 import { reapExpiredLeases } from './job-lifecycle.ts';
+import { scheduleActiveScans } from './scan-schedule.ts';
 import { buildSnapshot, listProfiles } from './scans.ts';
 import { DISCOVERY_PROFILE_KEY, WORKER_SIGNATURE_MAX_SKEW_SECONDS } from '@exdomainvault/shared';
 import { isWithinDomain } from '@exdomainvault/shared/hostname';
@@ -244,6 +245,11 @@ export interface MaintenanceOptions {
    * contacts the public feeds unless the caller (the Cron entry point) passes a fetch explicitly.
    */
   intel?: Omit<IntelDeps, 'logger'>;
+  /**
+   * The server's ACTIVE_SCANNING_ENABLED switch. Omitted → false, so scheduled active scans are
+   * never queued unless the caller passes the parsed configuration explicitly.
+   */
+  activeScanningEnabled?: boolean;
 }
 
 /**
@@ -262,6 +268,18 @@ export async function runMaintenance(
     ['nonces_pruned', () => pruneNonces(db, now)],
     ['passive_jobs_scheduled', () => schedulePassiveMonitoring(db, now)],
     ['discovery_jobs_scheduled', () => scheduleDiscovery(db, now)],
+    // Scheduled active scans: only when an administrator enabled the schedule AND the server
+    // switch is on; each job gets the same scope checks as a user-requested active scan.
+    [
+      'active_jobs_scheduled',
+      () =>
+        scheduleActiveScans(
+          db,
+          now,
+          { activeScanningEnabled: opts.activeScanningEnabled === true },
+          logger,
+        ),
+    ],
     // Rules evaluation of succeeded jobs (oldest first, bounded batch). Results submissions also
     // trigger evaluation right after the response; this step is the guaranteed path (≤5 min lag).
     ['evaluate_pending_jobs', () => evaluatePendingJobs(db, now, { logger })],

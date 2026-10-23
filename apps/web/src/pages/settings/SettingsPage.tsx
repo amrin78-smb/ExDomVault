@@ -6,6 +6,7 @@ import { ApprovedNetworksSection } from '../../components/settings/ApprovedNetwo
 import { AuditLogSection } from '../../components/settings/AuditLogSection.tsx';
 import { IntelFeedsSection } from '../../components/settings/IntelFeedsSection.tsx';
 import { ScanProfilesSection } from '../../components/settings/ScanProfilesSection.tsx';
+import { ScheduledScansSection } from '../../components/settings/ScheduledScansSection.tsx';
 import { UsersSection } from '../../components/settings/UsersSection.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -93,7 +94,12 @@ function TabContent({ tab }: { tab: TabKey }) {
     case 'users':
       return <UsersSection />;
     case 'profiles':
-      return <ScanProfilesSection />;
+      return (
+        <div className="space-y-6">
+          <ScheduledScansSection />
+          <ScanProfilesSection />
+        </div>
+      );
     case 'audit':
       return <AuditLogSection />;
     case 'intel':

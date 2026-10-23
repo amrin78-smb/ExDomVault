@@ -19,6 +19,8 @@ Related: [`threat-model.md`](threat-model.md), [`worker-protocol.md`](worker-pro
 - Passive checks (`dns`, `rdap`, `discovery`) query public resolvers, registries and one fixed
   Certificate Transparency provider only, and never contact the domain's own hosts (see
   [Passive discovery](#passive-discovery-milestone-9)).
+- Scheduled active scans exist but are off by default; an administrator must enable them and they
+  only run while the server switch is on (see [Scheduled active scans](#scheduled-active-scans)).
 
 ## Tiered policy (owner decision)
 
@@ -221,7 +223,8 @@ Built only by `port_checks.build_nmap_argv`; run by `run_nmap`:
 active profiles need `ACTIVE_SCANNING_ENABLED=true` and a currently authorised domain
 (`domainAuthorisedForActive`: `verified` and review date not passed). The snapshot stores the domain
 state, profile version and config, targets and — for active profiles only — the currently active
-approved networks. Scheduled (Cron) jobs are passive only (`services/maintenance.ts`).
+approved networks. Cron-created jobs are passive (monitoring, discovery) unless an administrator
+enabled [scheduled active scans](#scheduled-active-scans), which go through the same checks.
 
 **Claim-time re-authorisation** (`services/job-lifecycle.ts` `claimJob` / `claimRefusal`): before an
 active job is handed out, the server re-checks the flag (`active_scanning_disabled`) and the domain's
@@ -270,6 +273,33 @@ networks as intersected **at ingestion time**; `tls` with `check: "tls_configura
 those networks. Hostnames must be syntactically valid (`isValidHostname`; `isWithinDomain` rejects
 names with empty labels). Evidence is capped at 16 KB in UTF-8 bytes. Any invalid observation rejects
 the whole submission (400).
+
+## Scheduled active scans
+
+`services/scan-schedule.ts` (API: [`/settings/scan-schedule`](api-specification.md#scan-schedule-scheduled-active-scans)).
+
+- **Off by default.** Only an administrator (`scan_policies:manage`) can enable it; every change is
+  audited (`settings.scan_schedule_updated`, before/after). A missing or invalid stored setting is
+  treated as disabled.
+- **Both switches.** The cron schedules nothing unless the setting is enabled **and** the server's
+  `ACTIVE_SCANNING_ENABLED` is `true` (the cron entry point parses it with `loadConfig`; an invalid
+  configuration fails closed). The worker's own switch and `EXDV_PROFILES` still decide whether a
+  queued job is ever run.
+- **Same scope rules as a user-requested active scan.** Only monitored domains currently authorised
+  for active scanning (DNS-verified or administrator-authorised with the review date not passed) are
+  considered, re-checked under a row lock in the creating transaction. Targets are the approved assets
+  only (CT-log discoveries stay `pending` and are never targeted); the apex is approved implicitly
+  through domain verification as for a manual scan, recorded with the administrator who enabled the
+  schedule as accountable approver (no such user → no implicit approval). Network-tier checks reach
+  only the approved networks captured in the snapshot, intersected with those still active.
+- **Claim-time and in-flight re-checks apply unchanged**, plus `monitoring_disabled` for scheduled
+  jobs: a domain that is revoked, lapses or has monitoring switched off while its job waits is refused
+  at claim; running jobs are stopped at the next heartbeat.
+- **Bounded.** Fixed server-defined profiles only (`quick` or `standard`, never `deep`), interval 1–30
+  days, staggered across the interval by domain-id hash, at most 30 jobs per cron run, queued behind
+  user-requested and passive jobs (priority 220), one active job per domain and profile.
+- **Audited.** One `scan.scheduled` row per run with counts and job ids; implicit apex approvals are
+  audited `asset.approved` individually.
 
 ## Kill switches
 

@@ -122,6 +122,8 @@ export const ADMIN_PATHS = {
   assignable: 'GET /api/v1/users/assignable',
   audit: (query = '') => `GET /api/v1/audit-logs${query}`,
   scanProfiles: 'GET /api/v1/scan-profiles',
+  scanSchedule: 'GET /api/v1/settings/scan-schedule',
+  updateScanSchedule: 'PUT /api/v1/settings/scan-schedule',
 } as const;
 
 /** A `/me` handler for a fixed user id, so tests can recognise the signed-in user's own rows. */

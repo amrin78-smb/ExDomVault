@@ -155,6 +155,10 @@ describe('Software page', () => {
     expect(await screen.findByText('No software recorded yet')).toBeInTheDocument();
     expect(screen.getByText(/Run a/).textContent).toMatch(/Quick scan.*Standard scan/);
     expect(screen.getByRole('link', { name: 'domain page' })).toHaveAttribute('href', '/domains');
+    expect(screen.getByRole('link', { name: 'Settings → Scan profiles' })).toHaveAttribute(
+      'href',
+      '/settings?tab=profiles',
+    );
   });
 
   it('shows the permission-denied state on 403, not the raw error', async () => {

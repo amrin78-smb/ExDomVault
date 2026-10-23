@@ -2,6 +2,7 @@ import { SOFTWARE_PRODUCTS } from '@exdomainvault/shared';
 import { PackageSearch, Search, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { ScheduledScansHint } from '../../components/settings/ScheduledScansHint.tsx';
 import { Pagination } from '../../components/findings/Pagination.tsx';
 import { SoftwareExplainer } from '../../components/software/SoftwareExplainer.tsx';
 import { SoftwareRollup } from '../../components/software/SoftwareRollup.tsx';
@@ -193,6 +194,7 @@ export function SoftwarePage() {
                     domain page
                   </Link>
                   .
+                  <ScheduledScansHint />
                 </>
               )}
             </EmptyState>

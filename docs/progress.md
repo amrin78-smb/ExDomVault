@@ -21,6 +21,9 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-23 — **Scheduled active scans** (design §6 default schedules): off by default; an admin (`scan_policies:manage`, audited) enables Quick or Standard every 1–30 days in Settings → Scan profiles. Only monitored domains currently authorised for active scanning, only while `ACTIVE_SCANNING_ENABLED` is on; staggered by domain-id hash, ≤ 30 jobs per cron run, priority 220 (behind manual 100 and passive 200). Each job re-checks authorisation under a row lock and uses the normal target rules. Any earlier job of the profile (manual too) counts toward the interval.
+- 2026-10-23 — **Implicit apex approval by the scheduler** is recorded with the admin who last saved the schedule as `approved_by` (the schema requires a user); the audit row is a system action with `trigger: schedule` and `onBehalfOf`. Without such a user no apex is approved implicitly and the domain is skipped (`no_targets`).
+
 - 2026-10-23 — **Exposed-software monitoring uses public feeds, not nocvault-eol/secvault** (both cover network/firewall gear only): endoflife.date API v1 (release cycles), CISA KEV (known-exploited CVEs, word-boundary alias pre-match), NVD CVE API 2.0 (affected ranges of those KEV CVEs, 5 lookups per cron run, 20 with optional `NVD_API_KEY`). Feeds sync from the 5-minute cron, each isolated, fetched over HTTPS from three allow-listed hosts with timeouts, size caps and zod validation; errors stored as short classes.
 - 2026-10-23 — **Software is parsed server-side from existing evidence** (HTTP `Server`/`X-Powered-By`, Nmap product/version) — no worker change. Catalogue of 16 products (`packages/shared/src/domain/software.ts`); unknown tokens ignored; distribution markers (Ubuntu, Debian, RHEL…) recorded as backport hints. HTTP sightings are located by hostname only (CDN addresses rotate).
 - 2026-10-23 — **Rules SOFT-001 (end-of-life software) and SOFT-002 (version possibly affected by a CISA KEV CVE)**: fingerprints exclude the version; SOFT-001 medium (high when EOL > 365 days for key web products or service identification); SOFT-002 high (critical for CVSS ≥ 9 or ransomware-associated); confidence low when a distribution is named. Resolve only when the same location reports a non-affected version; a hidden version or missing product is unknown and never resolves. Both allow manual resolution after verifying a backport. Findings refresh on the next scan, not when feeds change.
@@ -165,7 +168,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - No domain deletion, no rate limit on domain creation beyond permissions.
 - Discovery: crt.sh is the only provider and is often slow or erroring for large domains (retried, then failed); its live response format was not tested against the real service. Only the first 300 candidates per run are resolved. Hosting hints see only the CNAME chain (A-record-only third-party hosting is not detected). The asset detail page does not show services/TLS yet.
 - ASSET-001 creates one informational finding per pending candidate; on a large portfolio expect many (bulk-approve/reject on the Assets page resolves them).
-- **Only passive scans are scheduled.** Quick/Standard/Deep run on request (domain page or a finding's Re-check); the design's daily/weekly/monthly active schedules are not built yet (proposed next: opt-in scheduled Quick for monitored, authorised domains).
+- Scheduled active scans cover Quick or Standard (one profile at a time); Deep stays on request.
 - Finding history timestamps: system entries use the scan's completion time, user entries wall-clock time, so a delayed evaluation can sort before a user change (each entry's "from" status is still correct).
 - Assignment notifications (email etc.) are not implemented; assignment is visible in the UI and filterable (`assignee=me`).
 
@@ -183,7 +186,7 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Production (owner-approved):** migrated to 0007 (8 migrations), `NVD_API_KEY` secret set, deployed version `cb709106-7c7d-49d5-92e4-e5cd2640f81c`.
 
-**Next:** proposed scheduled Quick scans; then Milestone 12 — production hardening.
+**Next:** scheduled active scans (built 2026-10-23, see Decisions); then Milestone 12 — production hardening.
 
 ### Milestone 10 — 2026-10-23
 

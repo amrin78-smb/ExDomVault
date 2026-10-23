@@ -20,6 +20,7 @@ import { approvedNetworkRoutes } from './routes/networks.ts';
 import { reportRoutes } from './routes/reports.ts';
 import { ruleRoutes } from './routes/rules.ts';
 import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
+import { settingsRoutes } from './routes/settings.ts';
 import { intelRoutes, softwareRoutes } from './routes/software.ts';
 import type { FetchLike } from './lib/feed-fetch.ts';
 import { userRoutes } from './routes/users.ts';
@@ -74,6 +75,7 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/advisories', advisoryRoutes());
   authed.route('/rules', ruleRoutes({ rules: deps.rules }));
   authed.route('/users', userRoutes({ now: deps.now }));
+  authed.route('/settings', settingsRoutes({ now: deps.now }));
   authed.route('/audit-logs', auditLogRoutes());
   authed.route('/reports', reportRoutes({ now: deps.now }));
   authed.route('/software', softwareRoutes({ now: deps.now }));

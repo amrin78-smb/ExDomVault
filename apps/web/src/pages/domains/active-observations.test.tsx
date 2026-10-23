@@ -211,6 +211,10 @@ describe('Domain page: TLS certificates', () => {
     renderAt(`/domains/${DOMAIN_ID}`);
     const c = await card('TLS certificates');
     expect(await within(c).findByText('No certificates collected yet')).toBeInTheDocument();
+    expect(within(c).getByRole('link', { name: 'Settings → Scan profiles' })).toHaveAttribute(
+      'href',
+      '/settings?tab=profiles',
+    );
   });
 });
 
@@ -281,6 +285,10 @@ describe('Domain page: HTTP', () => {
     renderAt(`/domains/${DOMAIN_ID}`);
     const c = await card('HTTP');
     expect(await within(c).findByText('No HTTP responses collected yet')).toBeInTheDocument();
+    expect(within(c).getByRole('link', { name: 'Settings → Scan profiles' })).toHaveAttribute(
+      'href',
+      '/settings?tab=profiles',
+    );
   });
 });
 

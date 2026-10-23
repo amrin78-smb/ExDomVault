@@ -1,5 +1,6 @@
 import type { HttpSnapshot } from '@exdomainvault/shared';
 import { Globe } from 'lucide-react';
+import { ScheduledScansHint } from '../settings/ScheduledScansHint.tsx';
 import type { AsyncState } from '../../lib/use-async.ts';
 import { Card } from '../ui/Card.tsx';
 import { EmptyState } from '../ui/EmptyState.tsx';
@@ -70,6 +71,7 @@ export function HttpCard({ state }: { state: AsyncState<{ http: HttpSnapshot[] }
           <EmptyState title="No HTTP responses collected yet" icon={Globe}>
             HTTP responses appear here after an active scan of this verified domain. Each request is
             an ordinary page load; every redirect is checked against scope before it is followed.
+            <ScheduledScansHint />
           </EmptyState>
         ) : (
           <div className="space-y-6">

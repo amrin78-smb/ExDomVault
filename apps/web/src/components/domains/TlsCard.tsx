@@ -2,6 +2,7 @@ import type { ObservationResult, TlsSnapshot } from '@exdomainvault/shared';
 import { Check, Lock, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import { ScheduledScansHint } from '../settings/ScheduledScansHint.tsx';
 import { formatDate, formatDateTime } from '../../lib/format.ts';
 import type { AsyncState } from '../../lib/use-async.ts';
 import { Card } from '../ui/Card.tsx';
@@ -81,6 +82,7 @@ export function TlsCard({
           <EmptyState title="No certificates collected yet" icon={Lock}>
             Certificates appear here after an active scan of this verified domain. The scan makes
             one TLS handshake per address, as a browser would.
+            <ScheduledScansHint />
           </EmptyState>
         ) : (
           <div className="space-y-5">

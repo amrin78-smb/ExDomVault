@@ -72,14 +72,20 @@ export function domainAuthorisedForActive(domain: DomainRow, now: Date): boolean
 /**
  * Targets for a job. Passive profiles look up public data about the apex and approved hostnames.
  * Active profiles contact hosts, so only approved assets of a currently authorised domain qualify;
- * the apex becomes an approved asset implicitly through domain verification.
+ * the apex becomes an approved asset implicitly through domain verification (audited).
+ *
+ * `actor` null means the system (the active-scan scheduler). An approval must name an accountable
+ * user (`approved_by`), so the system records `systemApprover` (the administrator who enabled the
+ * schedule) and audits the approval as a system action on their behalf; without one, the apex is
+ * not approved implicitly and only already-approved assets are targeted.
  */
-async function resolveTargets(
+export async function resolveTargets(
   tx: Database,
   domain: DomainRow,
   profile: ScanProfile,
   actor: Actor | null,
   now: Date,
+  systemApprover: string | null = null,
 ): Promise<{ assetId: string | null; hostname: string }[]> {
   const approved = await tx
     .select({ id: assets.id, hostname: assets.hostname })
@@ -88,7 +94,8 @@ async function resolveTargets(
     .orderBy(asc(assets.hostname));
 
   let apex = approved.find((a) => a.hostname === domain.fqdn);
-  if (!apex && profile.config.active) {
+  const approverId = actor ? actor.userId : systemApprover;
+  if (!apex && profile.config.active && approverId) {
     // Domain verification authorises its apex hostname. Record that as an approved asset.
     const [existing] = await tx
       .select()
@@ -101,7 +108,7 @@ async function resolveTargets(
         ? firstRow(
             await tx
               .update(assets)
-              .set({ verificationStatus: 'approved', approvedBy: actor?.userId, approvedAt: now })
+              .set({ verificationStatus: 'approved', approvedBy: approverId, approvedAt: now })
               .where(eq(assets.id, existing.id))
               .returning(),
           )
@@ -114,7 +121,7 @@ async function resolveTargets(
                 assetType: 'apex',
                 discoverySource: 'manual',
                 verificationStatus: 'approved',
-                approvedBy: actor?.userId,
+                approvedBy: approverId,
                 approvedAt: now,
               })
               .returning(),
@@ -126,7 +133,12 @@ async function resolveTargets(
         resourceType: 'asset',
         resourceId: row.id,
         requestId: actor?.requestId,
-        metadata: { hostname: row.hostname, basis: 'domain_verification', domainId: domain.id },
+        metadata: {
+          hostname: row.hostname,
+          basis: 'domain_verification',
+          domainId: domain.id,
+          ...(actor ? {} : { trigger: 'schedule', onBehalfOf: approverId }),
+        },
       });
       apex = { id: row.id, hostname: row.hostname };
       approved.unshift(apex);
