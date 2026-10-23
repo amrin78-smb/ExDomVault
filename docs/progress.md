@@ -212,7 +212,9 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Owner actions:** see Operator actions (enable GitHub security features, create the outage Monitor, delete `BOOTSTRAP_ADMIN_EMAILS`, decide on Neon Launch plan or weekly `pg_dump`, bump certifi after 2026-11-03).
 
-**Next:** deploy (owner approval; no migration; new rate-limit bindings), then CSV exports on list pages (owner request).
+**Production (owner pre-approved 2026-10-24):** deployed version `de3fb4a9-5966-44a8-bd71-caaba3e19e76` together with CSV exports (no migration; rate-limit bindings `API_RATE_LIMITER` 300/60 s and `MUTATION_RATE_LIMITER` 60/60 s active). Smoke check: protected routes 302 without Access; ~6 min of live logs — 27 requests and 2 cron runs all `ok`, no warnings/errors, retention ran (0 rows due), no outage; last 24 h 526 jobs succeeded, 0 failed; software inventory 22 rows, 15 software findings so far (scheduled Standard scans enabled by the owner, daily).
+
+**CSV exports (owner request, 2026-10-24):** `GET /exports/<resource>.csv` for domains, assets, advisories, software, scans, users, audit-logs (same filters/visibility as the lists, UTF-8 BOM, ≤ 10,000 rows with `X-Truncated`/`X-Total-Rows`, formula-injection protection, audited `report.exported`); shared `ExportCsvButton` on those pages plus domain-scoped findings/software exports. Checks before deploy: lint, typecheck, db:check, rules:docs:check pass; `npm test` 89 files, 2731 pass; build pass; worker 1515 pass.
 
 ### Milestone 11 — 2026-10-23
 
