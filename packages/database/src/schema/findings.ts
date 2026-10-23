@@ -79,7 +79,7 @@ export const findings = pgTable(
       .where(sql`${t.status} = 'accepted_risk'`),
     check(
       'findings_category_valid',
-      sql`${t.category} IN ('dns', 'email', 'tls', 'http', 'exposure', 'registration', 'asset')`,
+      sql`${t.category} IN ('dns', 'email', 'tls', 'http', 'exposure', 'registration', 'asset', 'software')`,
     ),
     check('findings_risk_score_range', sql`${t.riskScore} BETWEEN 0 AND 100`),
     check('findings_seen_order', sql`${t.lastSeenAt} >= ${t.firstSeenAt}`),

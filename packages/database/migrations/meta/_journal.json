@@ -50,6 +50,13 @@
       "when": 1792719878018,
       "tag": "0006_asset_discovery",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792768220729,
+      "tag": "0007_software_intel",
+      "breakpoints": true
     }
   ]
 }

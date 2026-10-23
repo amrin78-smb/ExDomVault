@@ -16,7 +16,8 @@ import type {
 export type Confidence = 'low' | 'medium' | 'high';
 export type { Severity };
 
-export type RuleCategory = 'dns' | 'email' | 'tls' | 'http' | 'exposure' | 'registration' | 'asset';
+export type RuleCategory =
+  'dns' | 'email' | 'tls' | 'http' | 'exposure' | 'registration' | 'asset' | 'software';
 
 export type ObservationKind = 'dns' | 'registration' | 'tls' | 'http' | 'port' | 'discovery';
 
@@ -116,6 +117,41 @@ export interface AdministrativeService {
   severity: Severity;
 }
 
+/** One NVD-style affected range; any bound may be absent. */
+export interface VersionRange {
+  startIncluding?: string;
+  startExcluding?: string;
+  endIncluding?: string;
+  endExcluding?: string;
+}
+
+/**
+ * Public vulnerability intelligence for the products seen in this evaluation (Milestone 11), loaded
+ * by the caller from the synced feeds. Rules stay pure: they never fetch. Absent → software rules
+ * that need it are skipped (neither raise nor resolve).
+ */
+export interface SoftwareIntel {
+  /** When the feeds were last synced (recorded in evidence), null if never. */
+  asOf: string | null;
+  eolCycles: readonly {
+    product: string;
+    cycle: string;
+    eolDate: string | null;
+    eolBoolean: boolean | null;
+    latest: string | null;
+  }[];
+  advisories: readonly {
+    cveId: string;
+    product: string;
+    ranges: readonly VersionRange[];
+    cvss: number | null;
+    kev: boolean;
+    kevDateAdded: string | null;
+    ransomware: boolean;
+    title: string;
+  }[];
+}
+
 export interface EvaluationContext {
   /** Evaluation time (the job's completion time), for expiry calculations. */
   now: string;
@@ -132,6 +168,8 @@ export interface EvaluationContext {
   /** Known assets of the domain (approved, pending, …). */
   assets: readonly AssetContext[];
   administrativeServices: readonly AdministrativeService[];
+  /** Feed data for software rules (Milestone 11); optional so older callers/tests keep working. */
+  softwareIntel?: SoftwareIntel;
 }
 
 export interface EvaluationInput {

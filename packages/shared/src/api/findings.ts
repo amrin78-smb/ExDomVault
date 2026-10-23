@@ -37,6 +37,7 @@ export const RULE_CATEGORIES = [
   'exposure',
   'registration',
   'asset',
+  'software',
 ] as const;
 export const ruleCategorySchema = z.enum(RULE_CATEGORIES);
 

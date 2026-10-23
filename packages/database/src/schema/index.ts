@@ -7,3 +7,4 @@ export * from './scans.ts';
 export * from './observations.ts';
 export * from './findings.ts';
 export * from './audit.ts';
+export * from './intel.ts';
