@@ -175,7 +175,9 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Limitations:** the business-owner table has no drill-down (no business-owner filter on findings/domains); owner picker lists ≤ 100 active users; asset detail still lacks observed services/TLS.
 
-**Next:** deploy (owner approval), then Milestone 11 — exposed-software / vulnerability monitoring.
+**Production (owner-approved):** deployed version `43af2122-641b-40a6-81f8-7d3aaf797ac7` (no migration).
+
+**Next:** Milestone 11 — exposed-software / vulnerability monitoring.
 
 ### Milestone 9 — 2026-10-23
 
