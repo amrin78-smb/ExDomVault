@@ -10,6 +10,7 @@ export * from './api/observations.ts';
 export * from './api/pagination.ts';
 export * from './api/reports.ts';
 export * from './api/scans.ts';
+export * from './api/schedule.ts';
 export * from './api/software.ts';
 export * from './api/users.ts';
 export * from './api/workers.ts';
