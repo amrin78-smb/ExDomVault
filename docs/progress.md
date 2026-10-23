@@ -4,22 +4,24 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Milestone status
 
-| #   | Milestone                                  | Status      | Notes                                   |
-| --- | ------------------------------------------ | ----------- | --------------------------------------- |
-| 1   | Repository foundation                      | done        |                                         |
-| 2   | Database and authentication                | done        | Deployed; production migrated           |
-| 3   | Domain inventory                           | done        | Deployed 2026-10-22 (`cf062f76`)        |
-| 4   | Scan job lifecycle                         | done        | Deployed 2026-10-22 (`663d3165`)        |
-| 5   | Python worker                              | done        | Deployed; worker live on this host      |
-| 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
-| 7   | Deterministic rules engine                 | done        | Deployed 2026-10-22 (`7dff53fc`)        |
-| 8   | Finding lifecycle                          | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
-| 9   | Passive subdomain discovery                | done        | Deployed 2026-10-23 (`d12f8709`)        |
-| 10  | Frontend integration                       | not started |                                         |
-| 11  | Production hardening                       | not started |                                         |
+| #   | Milestone                                   | Status      | Notes                                   |
+| --- | ------------------------------------------- | ----------- | --------------------------------------- |
+| 1   | Repository foundation                       | done        |                                         |
+| 2   | Database and authentication                 | done        | Deployed; production migrated           |
+| 3   | Domain inventory                            | done        | Deployed 2026-10-22 (`cf062f76`)        |
+| 4   | Scan job lifecycle                          | done        | Deployed 2026-10-22 (`663d3165`)        |
+| 5   | Python worker                               | done        | Deployed; worker live on this host      |
+| 6   | Scanning and target safety (security gate)  | done        | Gate passed; active scanning ON in prod |
+| 7   | Deterministic rules engine                  | done        | Deployed 2026-10-22 (`7dff53fc`)        |
+| 8   | Finding lifecycle                           | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
+| 9   | Passive subdomain discovery                 | done        | Deployed 2026-10-23 (`d12f8709`)        |
+| 10  | Frontend integration                        | in progress |                                         |
+| 11  | Exposed-software / vulnerability monitoring | not started | Owner decision 2026-10-23: after M10    |
+| 12  | Production hardening                        | not started | Prompt: `docs/prompts/11-*.md`          |
 
 ## Decisions log
 
+- 2026-10-23 — **Milestone order changed (owner):** exposed-software / vulnerability monitoring (see Future enhancements) becomes Milestone 11, right after frontend integration; production hardening moves to Milestone 12 (its kickoff prompt keeps the file name `docs/prompts/11-production-hardening.md`).
 - 2026-10-23 — **Discovery runs in the Python worker**, not the Cloudflare Worker: crt.sh responses can be tens of MB (far beyond the 10 ms CPU budget) and all outbound collection stays on one host. `discovery` is a passive check (never contacts target hosts) with its own profile and job type (`discovery`), requested via `POST /domains/:id/discovery` or scheduled weekly (priority 250, ≤ 50 per cron run, staggered over 7 days by domain-id hash). It is never offered as a scan profile.
 - 2026-10-23 — **Provider abstraction, first provider crt.sh:** fixed HTTPS URL, verified TLS, no redirects, no env proxies, identifying User-Agent, ≥ 3 s between requests, 32 MB streamed cap (incremental parser keeps complete entries → `partial`), certificates kept only if valid within the last 365 days. Transient failures (timeouts, 429/5xx) → retryable job failure; malformed responses → one `error` observation for the domain (run known incomplete).
 - 2026-10-23 — **Candidate pipeline:** lowercase, trailing dot stripped, leading `*.` stripped and flagged (`wildcard_only` while every sighting was a wildcard), other `*`/emails/IPs/underscores/invalid labels dropped, IDNA 2008 + UTS #46 (`idna` package) with round-trip, exact label-boundary check (worker and server), dedupe, cap 2000 (sorted by depth then name), the first 300 resolved (A/AAAA/CNAME) via public resolvers.

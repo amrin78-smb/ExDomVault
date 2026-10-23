@@ -54,6 +54,8 @@ export const assetSchema = z.object({
   hostingHint: hostingHintSchema.nullable(),
   /** The candidate came only from wildcard certificate names. */
   wildcardOnly: z.boolean(),
+  /** Asset owner: users with the asset_owner role see only assets they own and their findings. */
+  owner: userRefSchema.nullable(),
   decidedBy: userRefSchema.nullable(),
   decidedAt: isoDateTime.nullable(),
   decisionReason: z.string().nullable(),
@@ -159,6 +161,14 @@ export function allowedAssetActions(
       return ['approve'];
   }
 }
+
+/**
+ * `PATCH /assets/:id` (`assets:approve`): set or clear the asset owner. The owner must be an active
+ * user (any role; asset_owner is the role it scopes). Audited `asset.owner_changed`.
+ */
+export const assetOwnerUpdateRequestSchema = z
+  .object({ ownerUserId: z.uuid().nullable() })
+  .strict();
 
 /** `POST /domains/:id/discovery` response. */
 export const discoveryRequestResponseSchema = z.object({
