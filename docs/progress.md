@@ -16,7 +16,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 8   | Finding lifecycle                           | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
 | 9   | Passive subdomain discovery                 | done        | Deployed 2026-10-23 (`d12f8709`)        |
 | 10  | Frontend integration                        | done        | Deployed 2026-10-23 (`43af2122`)        |
-| 11  | Exposed-software / vulnerability monitoring | done        | Built; not yet deployed                 |
+| 11  | Exposed-software / vulnerability monitoring | done        | Deployed 2026-10-23 (`cb709106`)        |
 | 12  | Production hardening                        | not started | Prompt: `docs/prompts/11-*.md`          |
 
 ## Decisions log
@@ -141,7 +141,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~Upgrade to Workers Paid~~ — done by the owner 2026-10-23 (Standard plan; verified: a request using 15 ms CPU completed `ok`).
 - [x] ~~Production migrated to 0005 and `finding_comments` made append-only for `exdomainvault_app`~~ — done 2026-10-22 (verified: INSERT, SELECT only).
 
-- [ ] Optional: `cd apps/web && npx wrangler secret put NVD_API_KEY` (free key from NVD) to look up KEV CVE ranges 4× faster.
+- [x] ~~NVD API key~~ — set as Worker secret `NVD_API_KEY` 2026-10-23.
 
 ## Future enhancements (owner requests)
 
@@ -181,7 +181,9 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Limitations:** software data appears only after Quick/Standard/Deep scans (still on request); IIS/OpenSSH have no endoflife.date data; NVD `not_found`/`no_product_match` are final; summary `hosts` counts locations; feeds were verified against provider documentation, not yet fetched live.
 
-**Next:** deploy (migration 0007, owner approval); proposed scheduled Quick scans; then Milestone 12 — production hardening.
+**Production (owner-approved):** migrated to 0007 (8 migrations), `NVD_API_KEY` secret set, deployed version `cb709106-7c7d-49d5-92e4-e5cd2640f81c`.
+
+**Next:** proposed scheduled Quick scans; then Milestone 12 — production hardening.
 
 ### Milestone 10 — 2026-10-23
 
