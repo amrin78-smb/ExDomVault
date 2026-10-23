@@ -97,7 +97,7 @@ function ProfileItem({ profile: p }: { profile: ScanProfile }) {
               c.active ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
             }`}
           >
-            {c.active ? 'Active' : 'Passive'}
+            {c.active ? 'Connects to hosts' : 'Never contacts hosts'}
           </span>
           {!p.enabled && (
             <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs font-medium text-slate-700">

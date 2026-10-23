@@ -40,7 +40,7 @@ describe('Settings: scan profiles', () => {
 
     const passive = within(card.getByRole('article', { name: 'Passive' }));
     expect(passive.getByRole('heading', { name: 'Passive' })).toBeInTheDocument();
-    expect(passive.getAllByText('Passive')).toHaveLength(2); // heading + mode badge
+    expect(passive.getByText('Never contacts hosts')).toBeInTheDocument(); // type badge
     expect(passive.getByText(/never contacts the target hosts/)).toBeInTheDocument();
     expect(
       within(passive.getByRole('list', { name: 'Checks in Passive' }))
@@ -51,7 +51,7 @@ describe('Settings: scan profiles', () => {
     expect(passive.getByText('daily')).toBeInTheDocument();
 
     const standard = within(card.getByRole('article', { name: 'Standard' }));
-    expect(standard.getByText('Active')).toBeInTheDocument();
+    expect(standard.getByText('Connects to hosts')).toBeInTheDocument();
     expect(standard.getByText('3 ports')).toBeInTheDocument();
     expect(standard.getByText(/connect 3 s, read 500 ms, per target 300 s/)).toBeInTheDocument();
     expect(
