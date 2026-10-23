@@ -186,7 +186,9 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Production (owner-approved):** migrated to 0007 (8 migrations), `NVD_API_KEY` secret set, deployed version `cb709106-7c7d-49d5-92e4-e5cd2640f81c`.
 
-**Next:** scheduled active scans (built 2026-10-23, see Decisions); then Milestone 12 — production hardening.
+**Scheduled active scans deployed 2026-10-23** (version `36d3d0c3-4604-45e1-90e9-b7903b20916c`, no migration; off until an admin enables it).
+
+**Next:** Milestone 12 — production hardening.
 
 ### Milestone 10 — 2026-10-23
 
