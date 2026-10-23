@@ -7,6 +7,7 @@ export * from './api/health.ts';
 export * from './api/me.ts';
 export * from './api/networks.ts';
 export * from './api/observations.ts';
+export * from './api/ops.ts';
 export * from './api/pagination.ts';
 export * from './api/reports.ts';
 export * from './api/scans.ts';
