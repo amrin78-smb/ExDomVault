@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { api } from '../../lib/api.ts';
 import { usePermission } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
+import { ExportCsvButton } from '../reports/ExportCsvButton.tsx';
 import { Card } from '../ui/Card.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 import { FindingList } from './FindingList.tsx';
@@ -12,7 +13,10 @@ import { SeverityCounts } from './SeverityCounts.tsx';
 export function DomainFindingsCard({ domain }: { domain: Domain }) {
   const canRead = usePermission('findings:read');
   return (
-    <Card title="Findings">
+    <Card
+      title="Findings"
+      actions={canRead && <ExportCsvButton resource="findings" filters={{ domainId: domain.id }} />}
+    >
       {canRead ? (
         <DomainFindings domainId={domain.id} />
       ) : (

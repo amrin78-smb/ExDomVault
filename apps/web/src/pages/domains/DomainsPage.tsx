@@ -21,6 +21,7 @@ import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { api } from '../../lib/api.ts';
 import { addMonthsIso, formatDate } from '../../lib/format.ts';
@@ -88,25 +89,28 @@ export function DomainsPage() {
         title="Domains"
         description="Registered domains, ownership verification and monitoring status."
         actions={
-          canWrite && (
-            <>
-              <Button
-                onClick={() => setConfirmMonitoring({ all: true })}
-                disabled={confirmMonitoring !== null}
-              >
-                <Radio className="size-4" aria-hidden />
-                Turn on monitoring for all domains
-              </Button>
-              <Link to="/domains/import" className={buttonClass('secondary')}>
-                <Upload className="size-4" aria-hidden />
-                Import CSV
-              </Link>
-              <Button variant="primary" onClick={() => setAdding(true)} disabled={adding}>
-                <Plus className="size-4" aria-hidden />
-                Add domain
-              </Button>
-            </>
-          )
+          <>
+            <ExportCsvButton resource="domains" filters={query} />
+            {canWrite && (
+              <>
+                <Button
+                  onClick={() => setConfirmMonitoring({ all: true })}
+                  disabled={confirmMonitoring !== null}
+                >
+                  <Radio className="size-4" aria-hidden />
+                  Turn on monitoring for all domains
+                </Button>
+                <Link to="/domains/import" className={buttonClass('secondary')}>
+                  <Upload className="size-4" aria-hidden />
+                  Import CSV
+                </Link>
+                <Button variant="primary" onClick={() => setAdding(true)} disabled={adding}>
+                  <Plus className="size-4" aria-hidden />
+                  Add domain
+                </Button>
+              </>
+            )}
+          </>
         }
       />
 

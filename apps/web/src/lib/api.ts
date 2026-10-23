@@ -88,6 +88,7 @@ import {
   type UserUpdateRequest,
 } from '@exdomainvault/shared';
 import { reportSummaryResponseSchema, type ReportSummaryResponse } from '@exdomainvault/shared';
+import type { ExportResource } from '@exdomainvault/shared';
 import {
   intelFeedsResponseSchema,
   softwareListResponseSchema,
@@ -237,6 +238,74 @@ export interface CsvDownload {
   blob: Blob;
   filename: string;
   truncated: boolean;
+  /** Data rows in the file (records after the header line). */
+  rows: number;
+  /** Rows that matched on the server (`X-Total-Rows`), or null when the header is absent. */
+  totalRows: number | null;
+}
+
+/** Number of data records in a CSV text (header excluded); newlines inside quoted cells don't count. */
+export function countCsvRows(text: string): number {
+  let records = 0;
+  let inQuotes = false;
+  let pending = false; // characters seen since the last record break
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') inQuotes = !inQuotes;
+    if (ch === '\n' && !inQuotes) {
+      if (pending) records++; // blank lines are not records
+      pending = false;
+    } else if (ch !== '\r' && ch !== '\uFEFF') {
+      pending = true;
+    }
+  }
+  if (pending) records++;
+  return Math.max(0, records - 1);
+}
+
+const EXPIRED_SESSION_MESSAGE =
+  'The export did not return a CSV file. Your sign-in may have expired: reload the page to sign in again.';
+
+/**
+ * Downloads a CSV export. Fetched (same-origin, so the Cloudflare Access cookie is sent) rather
+ * than navigated to, so API errors show in the page and truncation can be reported. Redirects are
+ * not followed: a redirect (or any non-CSV body) means the access session expired.
+ */
+async function downloadCsv(
+  path: string,
+  params: QueryParams,
+  resource: string,
+): Promise<CsvDownload> {
+  let res: Response;
+  try {
+    res = await fetch(`${path}${toQuery(params)}`, {
+      headers: { Accept: 'text/csv' },
+      redirect: 'manual',
+    });
+  } catch {
+    throw new ApiClientError('The API could not be reached.', 0, 'network_error');
+  }
+  if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+    throw new ApiClientError(EXPIRED_SESSION_MESSAGE, res.status, 'session_expired');
+  }
+  if (!res.ok) throw errorFromResponse(res, await res.json().catch(() => null));
+  const type = res.headers.get('Content-Type') ?? '';
+  if (type && !type.includes('csv')) {
+    // e.g. an identity-provider login page served after the access session expired.
+    throw new ApiClientError(EXPIRED_SESSION_MESSAGE, res.status, 'invalid_response');
+  }
+  const bytes = await res.arrayBuffer();
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const named = /filename="?([\w.-]+)"?/.exec(disposition)?.[1];
+  const stamp = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+  const total = Number(res.headers.get('X-Total-Rows') ?? Number.NaN);
+  return {
+    blob: new Blob([bytes], { type: type || 'text/csv' }),
+    filename: named ?? `exdomainvault-${resource}-${stamp}.csv`,
+    truncated: res.headers.get('X-Truncated') === 'true',
+    rows: countCsvRows(new TextDecoder().decode(bytes)),
+    totalRows: Number.isInteger(total) && total >= 0 ? total : null,
+  };
 }
 
 const domainPath = (id: string) => `/api/v1/domains/${encodeURIComponent(id)}`;
@@ -444,37 +513,18 @@ export const api = {
     /** Coverage, finding counts, trend and expiry lists (`reports:read`). */
     summary: (init?: RequestInit): Promise<ReportSummaryResponse> =>
       getJson('/api/v1/reports/summary', reportSummaryResponseSchema, init),
-    /**
-     * Downloads the findings CSV for the given Findings-page filters (`reports:generate`). Fetched (same-origin, so the Cloudflare Access cookie is sent)
-     * rather than navigated to, so API errors show in the page and `X-Truncated` can be reported.
-     */
-    findingsCsv: async (params: QueryParams): Promise<CsvDownload> => {
-      let res: Response;
-      try {
-        res = await fetch(`/api/v1/reports/findings.csv${toQuery(params)}`, {
-          headers: { Accept: 'text/csv' },
-        });
-      } catch {
-        throw new ApiClientError('The API could not be reached.', 0, 'network_error');
-      }
-      if (!res.ok) throw errorFromResponse(res, await res.json().catch(() => null));
-      const type = res.headers.get('Content-Type') ?? '';
-      if (type && !type.includes('csv')) {
-        // e.g. an identity-provider login page after the access session expired.
-        throw new ApiClientError(
-          'The export did not return a CSV file. Reload the page to sign in again.',
-          res.status,
-          'invalid_response',
-        );
-      }
-      const disposition = res.headers.get('Content-Disposition') ?? '';
-      const named = /filename="?([\w.-]+)"?/.exec(disposition)?.[1];
-      return {
-        blob: await res.blob(),
-        filename: named ?? `findings-${new Date().toISOString().slice(0, 10)}.csv`,
-        truncated: res.headers.get('X-Truncated') === 'true',
-      };
-    },
+    /** Downloads the findings CSV for the given Findings-page filters (`reports:generate`). */
+    findingsCsv: (params: QueryParams): Promise<CsvDownload> =>
+      downloadCsv('/api/v1/reports/findings.csv', params, 'findings'),
+  },
+
+  /**
+   * CSV exports of the lists (`GET /exports/<resource>.csv`): same filters and sort as the list
+   * endpoint, paging ignored, the list's read permission (users: `users:manage`, audit: `audit:read`).
+   */
+  exports: {
+    csv: (resource: ExportResource, params: QueryParams): Promise<CsvDownload> =>
+      downloadCsv(`/api/v1/exports/${resource}.csv`, params, resource),
   },
 
   /**

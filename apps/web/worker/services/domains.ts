@@ -60,7 +60,10 @@ const SORT_COLUMNS = {
   criticality: domains.criticality,
 } as const;
 
-export async function listDomains(db: Database, q: DomainListQuery): Promise<DomainListResponse> {
+/** The WHERE clause of GET /domains (shared with the CSV export). */
+export function domainListWhere(
+  q: Pick<DomainListQuery, 'q' | 'verificationStatus' | 'criticality' | 'monitoring'>,
+): SQL | undefined {
   const filters: SQL[] = [];
   if (q.q) {
     // Search the canonical form; a Unicode search term is converted to its A-label first.
@@ -71,18 +74,24 @@ export async function listDomains(db: Database, q: DomainListQuery): Promise<Dom
   if (q.verificationStatus) filters.push(eq(domains.verificationStatus, q.verificationStatus));
   if (q.criticality) filters.push(eq(domains.criticality, q.criticality));
   if (q.monitoring) filters.push(eq(domains.monitoringEnabled, q.monitoring === 'true'));
-  const where = filters.length > 0 ? and(...filters) : undefined;
+  return filters.length > 0 ? and(...filters) : undefined;
+}
 
-  const descending = q.sort.startsWith('-');
-  const column = SORT_COLUMNS[q.sort.replace(/^-/, '') as keyof typeof SORT_COLUMNS];
-  const order = descending ? desc(column) : asc(column);
+/** The ORDER BY of GET /domains (shared with the CSV export). */
+export function domainListOrder(sort: DomainListQuery['sort']): SQL[] {
+  const descending = sort.startsWith('-');
+  const column = SORT_COLUMNS[sort.replace(/^-/, '') as keyof typeof SORT_COLUMNS];
+  return [descending ? desc(column) : asc(column), asc(domains.fqdn)];
+}
 
+export async function listDomains(db: Database, q: DomainListQuery): Promise<DomainListResponse> {
+  const where = domainListWhere(q);
   const [rows, [totalRow]] = await Promise.all([
     db
       .select()
       .from(domains)
       .where(where)
-      .orderBy(order, asc(domains.fqdn))
+      .orderBy(...domainListOrder(q.sort))
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize),
     db.select({ total: count() }).from(domains).where(where),

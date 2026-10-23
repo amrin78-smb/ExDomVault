@@ -387,7 +387,7 @@ export async function requestDiscovery(
 const emptyCounts = (): Record<ScanTargetStatus, number> =>
   Object.fromEntries(SCAN_TARGET_STATUSES.map((s) => [s, 0])) as Record<ScanTargetStatus, number>;
 
-async function targetCounts(db: Database, jobIds: string[]) {
+export async function targetCounts(db: Database, jobIds: string[]) {
   const counts = new Map<string, Record<ScanTargetStatus, number>>();
   if (jobIds.length === 0) return counts;
   const rows = await db
@@ -410,7 +410,7 @@ const jobSelect = {
   workerName: workerRegistry.name,
 };
 
-function baseJobQuery(db: Database) {
+export function baseJobQuery(db: Database) {
   return db
     .select(jobSelect)
     .from(scanJobs)
@@ -456,17 +456,27 @@ function toJobDto(r: JobJoinRow, counts: Record<ScanTargetStatus, number> | unde
   };
 }
 
-export async function listScans(db: Database, q: ScanJobListQuery): Promise<ScanJobListResponse> {
+/** The WHERE clause of GET /scans (shared with the CSV export). */
+export function scanListWhere(
+  q: Pick<ScanJobListQuery, 'status' | 'domainId' | 'profile'>,
+): SQL | undefined {
   const filters: SQL[] = [];
   if (q.status) filters.push(eq(scanJobs.status, q.status));
   if (q.domainId) filters.push(eq(scanJobs.domainId, q.domainId));
   if (q.profile) filters.push(eq(scanJobs.profile, q.profile));
-  const where = filters.length > 0 ? and(...filters) : undefined;
+  return filters.length > 0 ? and(...filters) : undefined;
+}
+
+/** The ORDER BY of GET /scans: newest first. */
+export const SCAN_ORDER = [desc(scanJobs.createdAt), desc(scanJobs.id)];
+
+export async function listScans(db: Database, q: ScanJobListQuery): Promise<ScanJobListResponse> {
+  const where = scanListWhere(q);
 
   const [rows, [total]] = await Promise.all([
     baseJobQuery(db)
       .where(where)
-      .orderBy(desc(scanJobs.createdAt), desc(scanJobs.id))
+      .orderBy(...SCAN_ORDER)
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize),
     db.select({ n: count() }).from(scanJobs).where(where),

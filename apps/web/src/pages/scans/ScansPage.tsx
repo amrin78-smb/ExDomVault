@@ -8,6 +8,7 @@ import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
@@ -42,10 +43,13 @@ export function ScansPage() {
         title="Scans"
         description="Scan jobs, their progress and history. Start scans from a domain's page."
         actions={
-          <Button onClick={retry} disabled={refreshing || state.status === 'loading'}>
-            <RefreshCw className="size-4" aria-hidden />
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </Button>
+          <>
+            <Button onClick={retry} disabled={refreshing || state.status === 'loading'}>
+              <RefreshCw className="size-4" aria-hidden />
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </Button>
+            <ExportCsvButton resource="scans" filters={query} />
+          </>
         }
       />
       <Card>

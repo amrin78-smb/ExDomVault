@@ -16,7 +16,7 @@ import { BULK_PERMISSIONS, bulkResultText } from '../../components/findings/life
 import { FindingStatusBadge } from '../../components/findings/FindingStatusBadge.tsx';
 import { CATEGORY_LABELS, SORT_LABELS, userLabel } from '../../components/findings/labels.ts';
 import { Pagination } from '../../components/findings/Pagination.tsx';
-import { ExportFindingsButton } from '../../components/reports/ExportFindingsButton.tsx';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { RiskScore } from '../../components/findings/RiskScore.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -96,8 +96,8 @@ export function FindingsPage() {
         title="Findings"
         description="Evidence-backed observations about DNS, email, certificates, web and network exposure. A finding describes a configuration or exposure condition, not a confirmed compromise."
         actions={
-          <ExportFindingsButton
-            label="Export CSV"
+          <ExportCsvButton
+            resource="findings"
             filters={Object.fromEntries(
               [...FILTER_KEYS, 'sort'].map((k) => [k, params.get(k) ?? undefined]),
             )}

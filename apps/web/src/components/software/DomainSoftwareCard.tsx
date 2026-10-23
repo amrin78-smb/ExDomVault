@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { api } from '../../lib/api.ts';
 import { usePermission } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
+import { ExportCsvButton } from '../reports/ExportCsvButton.tsx';
 import { Card } from '../ui/Card.tsx';
 import { LoadError } from '../ui/LoadError.tsx';
 import { SoftwareTable } from './SoftwareTable.tsx';
@@ -13,7 +14,11 @@ const PAGE_SIZE = 10;
 export function DomainSoftwareCard({ domain }: { domain: Domain }) {
   const canRead = usePermission('findings:read');
   return (
-    <Card title="Software" className="lg:col-span-2">
+    <Card
+      title="Software"
+      className="lg:col-span-2"
+      actions={canRead && <ExportCsvButton resource="software" filters={{ domainId: domain.id }} />}
+    >
       {canRead ? (
         <DomainSoftware domainId={domain.id} />
       ) : (

@@ -207,13 +207,13 @@ function visibility(db: Database, user: User): SQL | undefined {
   );
 }
 
-interface Status {
+export interface Status {
   eol: SoftwareItem['eol'];
   knownExploited: SoftwareItem['knownExploited'];
 }
 
 /** Computes eol / known-exploited for (product, version) pairs against the stored intelligence. */
-async function statusComputer(db: Database, products: readonly string[], now: Date) {
+export async function statusComputer(db: Database, products: readonly string[], now: Date) {
   const intel = (await loadSoftwareIntel(db, products)) ?? {
     asOf: null,
     eolCycles: [],
@@ -245,12 +245,15 @@ async function statusComputer(db: Database, products: readonly string[], now: Da
   };
 }
 
-const rowSelect = {
+export const softwareRowSelect = {
   row: softwareInventory,
   fqdn: domains.fqdn,
 };
 
-function toItem(r: { row: InventoryRow; fqdn: string }, status: Status): SoftwareItem {
+export function toSoftwareItem(
+  r: { row: InventoryRow; fqdn: string },
+  status: Status,
+): SoftwareItem {
   const row = r.row;
   return {
     id: row.id,
@@ -277,12 +280,12 @@ function toItem(r: { row: InventoryRow; fqdn: string }, status: Status): Softwar
  * (versions disclosed, products with intelligence) are pre-scanned up to `STATUS_PRESCAN_LIMIT`,
  * filtered in memory and paged; beyond that limit results (and `total`) are truncated.
  */
-export async function listSoftware(
+/** GET /software filters other than `status`, visibility included (shared with the CSV export). */
+export function softwareConditions(
   db: Database,
   user: User,
-  query: SoftwareListQuery,
-  now: Date,
-): Promise<SoftwareListResponse> {
+  query: Pick<SoftwareListQuery, 'domainId' | 'product' | 'q'>,
+): (SQL | undefined)[] {
   const conditions: (SQL | undefined)[] = [visibility(db, user)];
   if (query.domainId) conditions.push(eq(softwareInventory.domainId, query.domainId));
   if (query.product) conditions.push(eq(softwareInventory.product, query.product));
@@ -299,21 +302,55 @@ export async function listSoftware(
       ),
     );
   }
-  const order = [
-    asc(domains.fqdn),
-    asc(sql`coalesce(${softwareInventory.hostname}, '')`),
-    asc(softwareInventory.ipAddress),
-    asc(softwareInventory.port),
-    asc(softwareInventory.product),
-    asc(softwareInventory.id),
-  ];
+  return conditions;
+}
+
+/** The ORDER BY of GET /software (needs the domains join). */
+export const SOFTWARE_ORDER = [
+  asc(domains.fqdn),
+  asc(sql`coalesce(${softwareInventory.hostname}, '')`),
+  asc(softwareInventory.ipAddress),
+  asc(softwareInventory.port),
+  asc(softwareInventory.product),
+  asc(softwareInventory.id),
+];
+
+/**
+ * Extra conditions for `status=eol|kev`: only rows with a disclosed version of a product that has
+ * the relevant intelligence can match (the verdict itself is computed in memory).
+ */
+export function statusCandidateConditions(db: Database, status: 'eol' | 'kev'): SQL[] {
+  const intelProducts =
+    status === 'eol'
+      ? db.selectDistinct({ p: softwareEolCycles.product }).from(softwareEolCycles)
+      : db
+          .selectDistinct({ p: vulnerabilityAdvisories.product })
+          .from(vulnerabilityAdvisories)
+          .where(
+            and(eq(vulnerabilityAdvisories.kev, true), eq(vulnerabilityAdvisories.nvdStatus, 'ok')),
+          );
+  return [isNotNull(softwareInventory.version), inArray(softwareInventory.product, intelProducts)];
+}
+
+/** Whether a computed status passes the `status` filter. */
+export const matchesStatus = (status: 'eol' | 'kev', s: Status) =>
+  status === 'eol' ? s.eol?.isEol === true : s.knownExploited.length > 0;
+
+export async function listSoftware(
+  db: Database,
+  user: User,
+  query: SoftwareListQuery,
+  now: Date,
+): Promise<SoftwareListResponse> {
+  const conditions = softwareConditions(db, user, query);
+  const order = SOFTWARE_ORDER;
   const offset = (query.page - 1) * query.pageSize;
 
   if (query.status === 'all') {
     const where = and(...conditions);
     const [rows, [total]] = await Promise.all([
       db
-        .select(rowSelect)
+        .select(softwareRowSelect)
         .from(softwareInventory)
         .innerJoin(domains, eq(domains.id, softwareInventory.domainId))
         .where(where)
@@ -332,27 +369,16 @@ export async function listSoftware(
       now,
     );
     return {
-      items: rows.map((r) => toItem(r, status(r.row.product, r.row.version))),
+      items: rows.map((r) => toSoftwareItem(r, status(r.row.product, r.row.version))),
       page: query.page,
       pageSize: query.pageSize,
       total: total?.n ?? 0,
     };
   }
 
-  // Only products that have the relevant intelligence can match.
-  const intelProducts =
-    query.status === 'eol'
-      ? db.selectDistinct({ p: softwareEolCycles.product }).from(softwareEolCycles)
-      : db
-          .selectDistinct({ p: vulnerabilityAdvisories.product })
-          .from(vulnerabilityAdvisories)
-          .where(
-            and(eq(vulnerabilityAdvisories.kev, true), eq(vulnerabilityAdvisories.nvdStatus, 'ok')),
-          );
-  conditions.push(isNotNull(softwareInventory.version));
-  conditions.push(inArray(softwareInventory.product, intelProducts));
+  conditions.push(...statusCandidateConditions(db, query.status));
   const candidates = await db
-    .select(rowSelect)
+    .select(softwareRowSelect)
     .from(softwareInventory)
     .innerJoin(domains, eq(domains.id, softwareInventory.domainId))
     .where(and(...conditions))
@@ -365,11 +391,9 @@ export async function listSoftware(
   );
   const matching = candidates
     .map((r) => ({ r, s: status(r.row.product, r.row.version) }))
-    .filter(({ s }) =>
-      query.status === 'eol' ? s.eol?.isEol === true : s.knownExploited.length > 0,
-    );
+    .filter(({ s }) => matchesStatus(query.status as 'eol' | 'kev', s));
   return {
-    items: matching.slice(offset, offset + query.pageSize).map(({ r, s }) => toItem(r, s)),
+    items: matching.slice(offset, offset + query.pageSize).map(({ r, s }) => toSoftwareItem(r, s)),
     page: query.page,
     pageSize: query.pageSize,
     total: matching.length,

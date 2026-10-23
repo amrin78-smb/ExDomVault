@@ -10,7 +10,8 @@ const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
  * GET /audit-logs (`audit:read`): newest first, with the acting user's email. `action` is an exact
  * match, or a prefix match when it ends with `.` (`finding.` → every finding action).
  */
-export async function listAuditLogs(db: Database, q: AuditListQuery): Promise<AuditListResponse> {
+/** The WHERE clause of GET /audit-logs (shared with the CSV export). */
+export function auditListWhere(q: Omit<AuditListQuery, 'page' | 'pageSize'>): SQL | undefined {
   const filters: SQL[] = [];
   if (q.action) {
     filters.push(
@@ -25,15 +26,21 @@ export async function listAuditLogs(db: Database, q: AuditListQuery): Promise<Au
   if (q.actorType) filters.push(eq(auditLogs.actorType, q.actorType));
   if (q.from) filters.push(gte(auditLogs.createdAt, new Date(q.from)));
   if (q.to) filters.push(lte(auditLogs.createdAt, new Date(q.to)));
-  const where = filters.length > 0 ? and(...filters) : undefined;
+  return filters.length > 0 ? and(...filters) : undefined;
+}
 
+/** The ORDER BY of GET /audit-logs: newest first. */
+export const AUDIT_ORDER = [desc(auditLogs.createdAt), desc(auditLogs.id)];
+
+export async function listAuditLogs(db: Database, q: AuditListQuery): Promise<AuditListResponse> {
+  const where = auditListWhere(q);
   const [rows, [total]] = await Promise.all([
     db
       .select({ a: auditLogs, email: users.email })
       .from(auditLogs)
       .leftJoin(users, eq(users.id, auditLogs.actorUserId))
       .where(where)
-      .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+      .orderBy(...AUDIT_ORDER)
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize),
     db.select({ n: count() }).from(auditLogs).where(where),

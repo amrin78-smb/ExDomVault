@@ -14,6 +14,7 @@ import { formatDateTime } from '../../lib/format.ts';
 import { useSession } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
 import { Pagination } from '../findings/Pagination.tsx';
+import { ExportCsvButton } from '../reports/ExportCsvButton.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Card } from '../ui/Card.tsx';
 import { EmptyState } from '../ui/EmptyState.tsx';
@@ -100,7 +101,15 @@ export function UsersSection() {
         <AddUserForm onCreated={refresh} />
       </Card>
 
-      <Card title="Users">
+      <Card
+        title="Users"
+        actions={
+          <ExportCsvButton
+            resource="users"
+            filters={{ q: q || undefined, role: role || undefined, active }}
+          />
+        }
+      >
         <div className="space-y-4 text-sm">
           <div aria-live="polite">
             {message && (

@@ -46,7 +46,8 @@ export function toUserDto(u: UserRow): User {
   };
 }
 
-export async function listUsers(db: Database, q: UserListQuery): Promise<UserListResponse> {
+/** The WHERE clause of GET /users (shared with the CSV export). */
+export function userListWhere(q: Pick<UserListQuery, 'q' | 'role' | 'active'>): SQL | undefined {
   const filters: SQL[] = [];
   if (q.q) {
     const term = `%${escapeLike(q.q.toLowerCase())}%`;
@@ -55,7 +56,11 @@ export async function listUsers(db: Database, q: UserListQuery): Promise<UserLis
   }
   if (q.role) filters.push(eq(users.role, q.role));
   if (q.active) filters.push(eq(users.isActive, q.active === 'true'));
-  const where = filters.length > 0 ? and(...filters) : undefined;
+  return filters.length > 0 ? and(...filters) : undefined;
+}
+
+export async function listUsers(db: Database, q: UserListQuery): Promise<UserListResponse> {
+  const where = userListWhere(q);
   const [rows, [total]] = await Promise.all([
     db
       .select()

@@ -1,37 +1,20 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiError, ok, renderAt, stubApi, type Handler } from '../../testing/stub-api.tsx';
+import {
+  apiError,
+  ok,
+  renderAt,
+  stubApi,
+  stubCsvDownload,
+  type Handler,
+} from '../../testing/stub-api.tsx';
 import { NO_CATEGORIES, page } from '../findings/test-data.ts';
 import { REPORT_PATHS, reportSummary } from './test-data.ts';
 
 afterEach(() => vi.unstubAllGlobals());
 
 const card = (name: string) => screen.findByRole('region', { name });
-
-/** Serves the CSV export (stubApi only answers JSON) and records each request path. */
-function stubCsv(body: string, headers: Record<string, string> = {}) {
-  const paths: string[] = [];
-  const base = globalThis.fetch;
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = typeof input === 'string' ? input : input.toString();
-      if (path.startsWith('/api/v1/reports/findings.csv')) {
-        paths.push(path);
-        return new Response(body, {
-          status: 200,
-          headers: { 'Content-Type': 'text/csv; charset=utf-8', ...headers },
-        });
-      }
-      return base(input, init);
-    }),
-  );
-  const createObjectURL = vi.fn(() => 'blob:report');
-  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
-  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
-  return { paths, createObjectURL, click };
-}
 
 describe('Reports page', () => {
   it('shows coverage, finding breakdowns, trend, owners and expiry tables', async () => {
@@ -116,13 +99,15 @@ describe('Reports page', () => {
 
   it('exports findings as CSV for roles with reports:generate and reports truncation', async () => {
     stubApi('analyst', { [REPORT_PATHS.summary]: ok(reportSummary()) });
-    const csv = stubCsv('finding_id\n', {
+    const csv = stubCsvDownload('finding_id\na\nb\n', {
       'X-Truncated': 'true',
       'Content-Disposition': 'attachment; filename="findings-2026-10-22.csv"',
     });
     renderAt('/reports');
     await userEvent.click(await screen.findByRole('button', { name: 'Export findings (CSV)' }));
-    expect(await screen.findByText(/Exported the first 5,000 matching findings/)).toBeVisible();
+    expect(
+      await screen.findByText(/Exported the first 2 matching rows \(the export limit\)/),
+    ).toBeVisible();
     expect(csv.paths).toEqual([REPORT_PATHS.csv()]);
     expect(csv.createObjectURL).toHaveBeenCalledOnce();
     expect(csv.click).toHaveBeenCalledOnce();
@@ -208,11 +193,11 @@ describe('Findings page CSV export', () => {
     stubApi('analyst', {
       'GET /api/v1/findings?page=2&severity=high&q=shop': ok(page([])),
     });
-    const csv = stubCsv('finding_id\n');
+    const csv = stubCsvDownload('finding_id\n');
     renderAt('/findings?severity=high&q=shop&page=2');
     // page=2 changes the list request but never the export.
-    await userEvent.click(await screen.findByRole('button', { name: 'Export CSV' }));
-    expect(await screen.findByText('Export downloaded.')).toBeVisible();
+    await userEvent.click(await screen.findByRole('button', { name: 'Export findings (CSV)' }));
+    expect(await screen.findByText('Exported 0 rows.')).toBeVisible();
     expect(csv.paths).toEqual([REPORT_PATHS.csv('?severity=high&q=shop')]);
     csv.click.mockRestore();
   });
@@ -221,6 +206,6 @@ describe('Findings page CSV export', () => {
     stubApi('viewer', { 'GET /api/v1/findings': ok(page([])) });
     renderAt('/findings');
     await screen.findByText('No active findings');
-    expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Export findings/ })).not.toBeInTheDocument();
   });
 });

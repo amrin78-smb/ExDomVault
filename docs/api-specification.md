@@ -927,8 +927,9 @@ sections are zero or empty for them: `coverage.domains` / `monitoredDomains` / `
 Admins and analysts. Query: the `GET /findings` filters (`status` default `active`, `severity`,
 `category`, `domainId`, `ruleId`, `assignee`, `q`, `sort`) without paging; the same filter builder and
 visibility rules are used. Response `200`, `Content-Type: text/csv; charset=utf-8`,
-`Content-Disposition: attachment; filename="findings-YYYYMMDD.csv"` (UTC date), CRLF line endings, no
-BOM. Columns (`REPORT_CSV_COLUMNS`): `finding_id, rule_id, severity, risk_score, status, domain,
+`Content-Disposition: attachment; filename="findings-YYYYMMDD.csv"` (UTC date), CRLF line endings; the
+body starts with a UTF-8 BOM (as every CSV export does, so spreadsheet applications decode non-ASCII
+text correctly). Columns (`REPORT_CSV_COLUMNS`): `finding_id, rule_id, severity, risk_score, status, domain,
 hostname, component, title, first_seen_at, last_seen_at, resolved_at, assignee` (email)`,
 business_owner`. At most `REPORT_CSV_MAX_ROWS` (5000) rows in the requested sort order; when more
 matched, the header `X-Truncated: true` is set.
@@ -937,6 +938,65 @@ Cell encoding: any cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed 
 injection), then RFC 4180 quoting applies (cells containing `"`, `,`, CR or LF are quoted, `"` doubled).
 Each export is audited `report.exported` (`resourceType: report`, `resourceId: findings.csv`, metadata
 `report`, `format`, `filters`, `rows`, `truncated`) in the same transaction as the read.
+
+## Exports
+
+`GET /api/v1/exports/<resource>.csv` downloads the rows of a list as CSV (contract:
+`packages/shared/src/api/exports.ts`; implementation `routes/exports.ts`, `services/exports.ts`,
+`lib/csv-export.ts`). Each export accepts the **same query parameters as its list** (the same zod
+schema; `page` and `pageSize` are accepted and ignored), uses the list's own WHERE / ORDER BY builders
+(so filters, sort order and object-level visibility are identical to the list), and requires the
+list's permission:
+
+| Resource     | Same filters and sort as | Permission      | Visibility                                  |
+| ------------ | ------------------------ | --------------- | ------------------------------------------- |
+| `domains`    | `GET /domains`           | `domains:read`  | all domains                                 |
+| `assets`     | `GET /assets`            | `assets:read`   | asset owners: only assets they own          |
+| `advisories` | `GET /advisories`        | `findings:read` | asset owners: only findings on their assets |
+| `software`   | `GET /software`          | `findings:read` | asset owners: only software on their assets |
+| `scans`      | `GET /scans`             | `scans:read`    | all jobs                                    |
+| `users`      | `GET /users`             | `users:manage`  | all users                                   |
+| `audit-logs` | `GET /audit-logs`        | `audit:read`    | all entries                                 |
+
+Findings keep their existing endpoint, `GET /reports/findings.csv` (above). An invalid filter value is
+`400 validation_failed`, as on the list.
+
+**Response** `200`:
+
+- `Content-Type: text/csv; charset=utf-8`;
+  `Content-Disposition: attachment; filename="exdomainvault-<resource>-YYYYMMDD.csv"` (UTC date).
+- Body: UTF-8 BOM, a header row with the fixed columns (`EXPORT_COLUMNS[resource]`), one record per
+  row; CRLF line endings; RFC 4180 quoting (cells containing `"`, `,`, CR or LF are quoted, `"`
+  doubled).
+- Formula-injection protection: a cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`.
+- Lists inside a cell (IP addresses, CVE IDs, recommended actions, references) are joined with `; `;
+  timestamps are ISO 8601 UTC (`2026-10-23T10:00:00.000Z`); booleans are `true` / `false`; missing
+  values are empty cells.
+- At most `EXPORT_MAX_ROWS` (10,000) rows. `X-Total-Rows: <n>` is always sent (the number of rows that
+  matched); `X-Truncated: true` is added when more rows matched than were written.
+
+**Columns:**
+
+| Resource     | Columns                                                                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `domains`    | `domain` (A-label), `unicode_name`, `verification_status`, `verification_method`, `verification_expires_at` (attestation review date), `criticality`, `business_owner`, `monitoring`, `registrar`, `registration_expires_at`, `open_findings` (non-resolved), `created_at`           |
+| `assets`     | `hostname`, `domain`, `asset_type`, `status`, `source`, `current_ips`, `hosting_provider` (hosting hint), `wildcard_only`, `owner` (email), `decided_by` (email), `decided_at`, `decision_reason`, `first_seen_at`, `last_seen_at`, `active_findings`                                |
+| `advisories` | `finding_id`, `rule_id`, `severity`, `risk_score`, `finding_status`, `domain`, `hostname`, `advisory_title`, `summary`, `business_impact`, `recommended_actions`, `references`                                                                                                       |
+| `software`   | `domain`, `hostname`, `ip_address`, `port`, `source`, `product`, `version`, `eol_cycle`, `eol_date`, `is_eol` (empty when the version has no end-of-life data), `known_exploited_cves`, `backport_distribution`, `banner`, `first_seen_at`, `last_seen_at`                           |
+| `scans`      | `scan_id`, `job_type`, `domain`, `profile`, `trigger` (`manual` / `schedule`), `status`, `requested_by` (email), `created_at`, `started_at`, `completed_at`, `duration_seconds` (completed − started, rounded), `targets`, `targets_failed`, `attempt` (attempts used), `error_code` |
+| `users`      | `email`, `display_name`, `role`, `active`, `signed_in` (identity bound by a first sign-in), `last_login_at`, `created_at`                                                                                                                                                            |
+| `audit-logs` | `created_at`, `actor_type`, `actor` (email; empty for worker/system), `action`, `resource_type`, `resource_id`, `request_id`, `metadata` (JSON)                                                                                                                                      |
+
+**Software:** end-of-life and known-exploited status are computed at export time exactly as
+`GET /software` computes them: the stored intelligence is loaded once for every product the export can
+contain, then each row is matched in memory. With `status=eol` or `status=kev` the candidate rows
+(version disclosed, product with intelligence) are scanned in batches of 2,500 and only matching rows
+are kept; at most 50,000 candidates are scanned (`SOFTWARE_EXPORT_SCAN_LIMIT`) — beyond that the
+export is flagged `X-Truncated: true` and `X-Total-Rows` counts the matches found in the scanned rows.
+
+**Audit:** every export writes `report.exported` (`resourceType: report`, `resourceId:
+<resource>.csv`, metadata `{ resource, filters, rows, truncated }`, where `filters` is the parsed query
+without unset parameters) in the same transaction as the read.
 
 ## Exposed software (Milestone 11)
 

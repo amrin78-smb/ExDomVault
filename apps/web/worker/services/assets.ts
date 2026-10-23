@@ -96,7 +96,7 @@ const assetSelect = {
   activeFindings: activeFindingCount,
 };
 
-function baseQuery(db: Database) {
+export function assetBaseQuery(db: Database) {
   return db
     .select(assetSelect)
     .from(assets)
@@ -115,7 +115,7 @@ type JoinRow = {
 
 const displayIp = (v: string) => canonicalIp(v) ?? v;
 
-async function currentIpsOf(db: Database, ids: string[]): Promise<Map<string, string[]>> {
+export async function currentIpsOf(db: Database, ids: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (ids.length === 0) return out;
   const rows = await db
@@ -127,7 +127,7 @@ async function currentIpsOf(db: Database, ids: string[]): Promise<Map<string, st
   return out;
 }
 
-function toAssetDto(r: JoinRow, currentIps: string[]): Asset {
+export function toAssetDto(r: JoinRow, currentIps: string[]): Asset {
   const a = r.a;
   const hint = hostingHintSchema.safeParse(a.hostingHint);
   return {
@@ -150,11 +150,28 @@ function toAssetDto(r: JoinRow, currentIps: string[]): Asset {
   };
 }
 
-const SORTS: Record<AssetListQuery['sort'], SQL[]> = {
+export const ASSET_ORDER: Record<AssetListQuery['sort'], SQL[]> = {
   hostname: [asc(assets.hostname), asc(assets.id)],
   '-lastSeenAt': [desc(assets.lastSeenAt), asc(assets.hostname), asc(assets.id)],
   '-firstSeenAt': [desc(assets.firstSeenAt), asc(assets.hostname), asc(assets.id)],
 };
+
+/** The WHERE clause of GET /assets, visibility included (shared with the CSV export). */
+export function assetListWhere(
+  user: User,
+  q: Omit<AssetListQuery, 'page' | 'pageSize' | 'sort'>,
+): SQL | undefined {
+  const filters: SQL[] = [];
+  const visible = visibleAssets(user);
+  if (visible) filters.push(visible);
+  if (q.domainId) filters.push(eq(assets.domainId, q.domainId));
+  if (q.status) filters.push(eq(assets.verificationStatus, q.status));
+  if (q.source) filters.push(eq(assets.discoverySource, q.source));
+  if (q.thirdParty === 'true') filters.push(isNotNull(assets.hostingHint));
+  if (q.thirdParty === 'false') filters.push(isNull(assets.hostingHint));
+  if (q.q) filters.push(ilike(assets.hostname, `%${escapeLike(q.q.toLowerCase())}%`));
+  return filters.length > 0 ? and(...filters) : undefined;
+}
 
 /**
  * GET /assets and GET /domains/:id/assets. `scopedDomainId` (the latter) must name an existing
@@ -167,23 +184,14 @@ export async function listAssets(
   q: AssetListQuery,
   scopedDomainId?: string,
 ): Promise<AssetListResponse> {
-  const visible = visibleAssets(user);
   if (scopedDomainId) await assertDomainVisible(db, user, scopedDomainId);
 
-  const filters: SQL[] = [];
-  if (visible) filters.push(visible);
-  if (q.domainId) filters.push(eq(assets.domainId, q.domainId));
-  if (q.status) filters.push(eq(assets.verificationStatus, q.status));
-  if (q.source) filters.push(eq(assets.discoverySource, q.source));
-  if (q.thirdParty === 'true') filters.push(isNotNull(assets.hostingHint));
-  if (q.thirdParty === 'false') filters.push(isNull(assets.hostingHint));
-  if (q.q) filters.push(ilike(assets.hostname, `%${escapeLike(q.q.toLowerCase())}%`));
-  const where = filters.length > 0 ? and(...filters) : undefined;
+  const where = assetListWhere(user, q);
 
   const [rows, [total]] = await Promise.all([
-    baseQuery(db)
+    assetBaseQuery(db)
       .where(where)
-      .orderBy(...SORTS[q.sort])
+      .orderBy(...ASSET_ORDER[q.sort])
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize),
     db.select({ n: count() }).from(assets).where(where),
@@ -202,7 +210,7 @@ export async function listAssets(
 
 async function visibleAsset(db: Database, user: User, id: string): Promise<JoinRow> {
   const visible = visibleAssets(user);
-  const [row] = await baseQuery(db)
+  const [row] = await assetBaseQuery(db)
     .where(visible ? and(eq(assets.id, id), visible) : eq(assets.id, id))
     .limit(1);
   if (!row) throw notFound();

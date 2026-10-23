@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { api } from '../../lib/api.ts';
@@ -93,7 +94,7 @@ export function SoftwarePage() {
             ))}
         </Card>
 
-        <Card title="Inventory">
+        <Card title="Inventory" actions={<ExportCsvButton resource="software" filters={query} />}>
           <div className="mb-4 flex flex-wrap items-end gap-3">
             <form onSubmit={onSearch} role="search" className="flex items-center gap-2">
               <label htmlFor="software-search" className="sr-only">

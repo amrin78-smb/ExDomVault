@@ -15,6 +15,7 @@ import {
 } from '@exdomainvault/shared';
 import { eq, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import { auditFilters, csvLine, UTF8_BOM } from '../lib/csv-export.ts';
 import { writeAudit } from './audit.ts';
 import type { Actor } from './domains.ts';
 import { findingFilters, orderFor } from './findings.ts';
@@ -307,20 +308,6 @@ export async function reportSummary(
 
 // --- CSV export ---------------------------------------------------------------------------------
 
-/** Characters that make spreadsheet applications treat a cell as a formula. */
-const FORMULA_START = /^[=+\-@\t\r]/;
-
-/** One CSV cell: formula-like values are prefixed with `'`, then RFC 4180 quoting applies. */
-export function csvCell(value: string | number | null): string {
-  if (value === null) return '';
-  let s = String(value);
-  if (FORMULA_START.test(s)) s = `'${s}`;
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-export const csvLine = (cells: readonly (string | number | null)[]) =>
-  `${cells.map(csvCell).join(',')}\r\n`;
-
 const assignee = alias(users, 'csv_assignee');
 
 export interface FindingsCsv {
@@ -333,7 +320,7 @@ type CsvFilters = Omit<FindingListQuery, 'page' | 'pageSize'>;
 
 /**
  * GET /reports/findings.csv: the findings matching the GET /findings filters (visibility applies),
- * in its sort order, at most REPORT_CSV_MAX_ROWS rows. Audited `report.exported` in the same
+ * in its sort order, at most REPORT_CSV_MAX_ROWS rows, UTF-8 BOM first. Audited `report.exported` in the same
  * transaction as the read.
  */
 export async function exportFindingsCsv(
@@ -370,7 +357,7 @@ export async function exportFindingsCsv(
     const truncated = rows.length > REPORT_CSV_MAX_ROWS;
     const kept = truncated ? rows.slice(0, REPORT_CSV_MAX_ROWS) : rows;
 
-    let csv = csvLine(REPORT_CSV_COLUMNS);
+    let csv = UTF8_BOM + csvLine(REPORT_CSV_COLUMNS);
     for (const r of kept) {
       csv += csvLine([
         r.id,
@@ -382,15 +369,15 @@ export async function exportFindingsCsv(
         r.hostname,
         r.component,
         r.title,
-        r.firstSeenAt.toISOString(),
-        r.lastSeenAt.toISOString(),
-        r.resolvedAt ? r.resolvedAt.toISOString() : null,
+        r.firstSeenAt,
+        r.lastSeenAt,
+        r.resolvedAt,
         r.assignee,
         r.businessOwner,
       ]);
     }
 
-    const filters = Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined));
+    const filters = auditFilters(q);
     await writeAudit(tx, {
       actorType: 'user',
       actorUserId: actor.userId,

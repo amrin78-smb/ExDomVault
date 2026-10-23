@@ -154,3 +154,45 @@ export const OPS_PATHS = {
   health: 'GET /api/v1/ops/health',
   alerts: 'GET /api/v1/ops/alerts',
 } as const;
+
+/** Request paths of the CSV exports (findings keep their reports endpoint). */
+export const EXPORT_PATHS = {
+  csv: (resource: string, query = '') => `/api/v1/exports/${resource}.csv${query}`,
+  findings: (query = '') => `/api/v1/reports/findings.csv${query}`,
+} as const;
+
+/**
+ * Serves every CSV export with `body` (stubApi only answers JSON); call after `stubApi`. Records the
+ * request paths and the saved file names, and stubs the browser download.
+ */
+export function stubCsvDownload(
+  body = 'header\r\n',
+  headers: Record<string, string> = {},
+  status = 200,
+) {
+  const paths: string[] = [];
+  const filenames: string[] = [];
+  const base = globalThis.fetch;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input.toString();
+      if (/^\/api\/v1\/(exports\/[a-z-]+|reports\/findings)\.csv(\?|$)/.test(path)) {
+        paths.push(path);
+        return new Response(body, {
+          status,
+          headers: { 'Content-Type': 'text/csv; charset=utf-8', ...headers },
+        });
+      }
+      return base(input, init);
+    }),
+  );
+  const createObjectURL = vi.fn(() => 'blob:export');
+  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    filenames.push(this.download);
+  });
+  return { paths, filenames, createObjectURL, click };
+}

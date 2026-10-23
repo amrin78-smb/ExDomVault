@@ -331,15 +331,31 @@ export function toCommentDto(
   return { id: c.id, author, body: c.body, createdAt: c.createdAt.toISOString() };
 }
 
+/** The WHERE clause of GET /advisories, visibility included (shared with the CSV export). */
+export function advisoryListWhere(
+  db: Database,
+  user: Pick<CurrentUser, 'id' | 'role'>,
+  status: 'active' | 'all',
+): SQL | undefined {
+  return and(
+    visibleTo(db, user),
+    status === 'active' ? ne(findings.status, 'resolved') : undefined,
+  );
+}
+
+/** The ORDER BY of GET /advisories: highest risk first. */
+export const ADVISORY_ORDER = [
+  desc(findings.riskScore),
+  desc(findings.lastSeenAt),
+  asc(advisories.id),
+];
+
 export async function listAdvisories(
   db: Database,
   user: Pick<CurrentUser, 'id' | 'role'>,
   q: { page: number; pageSize: number; status: 'active' | 'all' },
 ): Promise<AdvisoryListResponse> {
-  const where = and(
-    visibleTo(db, user),
-    q.status === 'active' ? ne(findings.status, 'resolved') : undefined,
-  );
+  const where = advisoryListWhere(db, user, q.status);
   const [rows, [totalRow]] = await Promise.all([
     db
       .select({ a: advisories, f: findings, domainFqdn: domains.fqdn })
@@ -347,7 +363,7 @@ export async function listAdvisories(
       .innerJoin(findings, eq(findings.id, advisories.findingId))
       .innerJoin(domains, eq(domains.id, findings.domainId))
       .where(where)
-      .orderBy(desc(findings.riskScore), desc(findings.lastSeenAt), asc(advisories.id))
+      .orderBy(...ADVISORY_ORDER)
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize),
     db

@@ -95,6 +95,15 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   'GET /reports/summary': user(ALL),
   'GET /reports/findings.csv': user(ANALYSTS),
 
+  // CSV exports: the list's permission and visibility (exports.test.ts).
+  'GET /exports/domains.csv': user(READERS),
+  'GET /exports/assets.csv': user(ALL, 'object-level filtering for asset owners'),
+  'GET /exports/advisories.csv': user(ALL, 'object-level filtering for asset owners'),
+  'GET /exports/software.csv': user(ALL, 'object-level filtering for asset owners'),
+  'GET /exports/scans.csv': user(READERS),
+  'GET /exports/users.csv': user(ADMIN),
+  'GET /exports/audit-logs.csv': user(ADMIN),
+
   'GET /software': user(ALL),
   'GET /software/summary': user(ALL),
   'GET /intel/feeds': user(ALL),

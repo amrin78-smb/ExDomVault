@@ -6,6 +6,7 @@ import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { useAsync } from '../../lib/use-async.ts';
 import { Pagination } from '../findings/Pagination.tsx';
+import { ExportCsvButton } from '../reports/ExportCsvButton.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Card } from '../ui/Card.tsx';
 import { EmptyState } from '../ui/EmptyState.tsx';
@@ -112,7 +113,7 @@ export function AuditLogSection() {
   };
 
   return (
-    <Card title="Audit log">
+    <Card title="Audit log" actions={<ExportCsvButton resource="audit-logs" filters={query} />}>
       <div className="space-y-4 text-sm">
         <p className="text-slate-600">
           Every privileged change is recorded here and cannot be edited or deleted. Times are UTC.

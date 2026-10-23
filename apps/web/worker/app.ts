@@ -14,6 +14,7 @@ import { advisoryRoutes } from './routes/advisories.ts';
 import { assetRoutes } from './routes/assets.ts';
 import { auditLogRoutes } from './routes/audit-logs.ts';
 import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
+import { exportRoutes, type ExportRouteDeps } from './routes/exports.ts';
 import { findingRoutes } from './routes/findings.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import { internalWorkerRoutes } from './routes/internal-worker.ts';
@@ -44,6 +45,8 @@ export interface AppDeps {
   intel?: { fetch?: FetchLike };
   /** Per-user rate limiters (tests inject MemoryRateLimiter; defaults to the env bindings). */
   rateLimit?: RateLimitDeps;
+  /** CSV exports (tests inject a small row cap). */
+  exports?: ExportRouteDeps;
 }
 
 /**
@@ -84,6 +87,7 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/settings', settingsRoutes({ now: deps.now }));
   authed.route('/audit-logs', auditLogRoutes());
   authed.route('/reports', reportRoutes({ now: deps.now }));
+  authed.route('/exports', exportRoutes({ now: deps.now, ...deps.exports }));
   authed.route('/software', softwareRoutes({ now: deps.now }));
   authed.route('/intel', intelRoutes({ now: deps.now, fetch: deps.intel?.fetch }));
   authed.route('/ops', opsRoutes({ now: deps.now }));

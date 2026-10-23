@@ -10,7 +10,7 @@ import {
 } from '@exdomainvault/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseCsv } from '../lib/csv.ts';
-import { csvCell } from '../services/reports.ts';
+import { csvCell } from '../lib/csv-export.ts';
 import { ensureUser, harness, userCall } from '../testing/harness.ts';
 
 const { assets, auditLogs, domains, findings, scanJobs, tlsObservations } = schema;
@@ -506,6 +506,9 @@ describe('GET /reports/findings.csv', () => {
       'attachment; filename="findings-20261023.csv"',
     );
     expect(res.headers.get('X-Truncated')).toBeNull();
+    // Response.text() strips a leading BOM (UTF-8 decode), so check the raw bytes.
+    const bytes = new Uint8Array(await res.clone().arrayBuffer());
+    expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     const text = await res.text();
     expect(text.endsWith('\r\n')).toBe(true);
     const records = parseCsv(text, 100).map((r) => r.fields);

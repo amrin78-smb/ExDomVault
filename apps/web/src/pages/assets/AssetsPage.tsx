@@ -27,6 +27,7 @@ import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
@@ -116,6 +117,7 @@ export function AssetsPage() {
       <PageHeader
         title="Assets"
         description="Hostnames beneath your registered domains. Names found by passive discovery wait here for review; only approved hostnames are ever included in scans."
+        actions={<ExportCsvButton resource="assets" filters={query} />}
       />
 
       <Card>

@@ -1,5 +1,6 @@
 import { findingListQuerySchema, type ReportSummaryResponse } from '@exdomainvault/shared';
 import { Hono } from 'hono';
+import { csvHeaders, exportStamp } from '../lib/csv-export.ts';
 import { parseQuery } from '../lib/validation.ts';
 import { requirePermission } from '../middleware/auth.ts';
 import { exportFindingsCsv, reportSummary } from '../services/reports.ts';
@@ -30,11 +31,10 @@ export function reportRoutes(deps: ReportRouteDeps = {}) {
         requestId: c.get('requestId'),
       });
       c.get('logger').info('report_exported', { report: 'findings.csv', rows, truncated });
-      const stamp = now().toISOString().slice(0, 10).replace(/-/g, '');
-      return c.body(csv, 200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="findings-${stamp}.csv"`,
-        ...(truncated ? { 'X-Truncated': 'true' } : {}),
-      });
+      return c.body(
+        csv,
+        200,
+        csvHeaders({ filename: `findings-${exportStamp(now())}.csv`, truncated }),
+      );
     });
 }

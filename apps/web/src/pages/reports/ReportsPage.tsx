@@ -10,7 +10,7 @@ import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { CriticalityLabel } from '../../components/domains/DomainBadges.tsx';
 import { FindingStatusBadge } from '../../components/findings/FindingStatusBadge.tsx';
-import { ExportFindingsButton } from '../../components/reports/ExportFindingsButton.tsx';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { TrendChart } from '../../components/reports/TrendChart.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -97,7 +97,7 @@ function Reports({ canDomains }: { canDomains: boolean }) {
               <RefreshCw className="size-4" aria-hidden />
               {refreshing ? 'Refreshing…' : 'Refresh'}
             </Button>
-            <ExportFindingsButton />
+            <ExportCsvButton resource="findings" />
           </>
         }
       />

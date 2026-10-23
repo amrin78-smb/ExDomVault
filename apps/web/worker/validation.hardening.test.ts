@@ -126,6 +126,14 @@ const QUERY_ROUTES: Record<string, string[]> = {
   'GET /audit-logs': [...PAGE_PROBES, 'action=DROP TABLE', `resourceId=${'a'.repeat(201)}`],
   'GET /reports/findings.csv': ['status=bogus', 'domainId=x', 'sort=evil'],
   'GET /software': [...PAGE_PROBES, 'status=bogus', 'domainId=x'],
+  // Exports ignore paging parameters; their filters are validated like the list's.
+  'GET /exports/domains.csv': [`q=${'a'.repeat(300)}`, 'sort=evil', 'monitoring=yes'],
+  'GET /exports/assets.csv': ['domainId=not-a-uuid', 'thirdParty=1', 'source=evil'],
+  'GET /exports/advisories.csv': ['status=bogus'],
+  'GET /exports/software.csv': ['status=bogus', 'domainId=x', `product=${'p'.repeat(41)}`],
+  'GET /exports/scans.csv': ['status=bogus', 'domainId=1', `profile=${'p'.repeat(41)}`],
+  'GET /exports/users.csv': ['role=root', 'active=yes', `q=${'a'.repeat(300)}`],
+  'GET /exports/audit-logs.csv': ['action=DROP TABLE', `resourceId=${'a'.repeat(201)}`],
 };
 
 const ROUTES = enumerateRoutes();

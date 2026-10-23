@@ -7,6 +7,7 @@ import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
 import { api } from '../../lib/api.ts';
@@ -46,17 +47,20 @@ export function AdvisoriesPage() {
         title="Advisories"
         description="Plain-language remediation guidance for findings, highest risk first. Advisories are generated from deterministic rules and recorded evidence."
         actions={
-          <label className="text-xs text-slate-600">
-            <span className="mb-1 block">Findings</span>
-            <select
-              className={selectClass}
-              value={params.get('status') ?? ''}
-              onChange={(e) => setParam('status', e.target.value)}
-            >
-              <option value="">Active (not resolved)</option>
-              <option value="all">All, including resolved</option>
-            </select>
-          </label>
+          <>
+            <label className="text-xs text-slate-600">
+              <span className="mb-1 block">Findings</span>
+              <select
+                className={selectClass}
+                value={params.get('status') ?? ''}
+                onChange={(e) => setParam('status', e.target.value)}
+              >
+                <option value="">Active (not resolved)</option>
+                <option value="all">All, including resolved</option>
+              </select>
+            </label>
+            <ExportCsvButton resource="advisories" filters={query} />
+          </>
         }
       />
 
