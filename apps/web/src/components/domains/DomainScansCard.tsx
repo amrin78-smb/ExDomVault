@@ -5,6 +5,7 @@ import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { usePermission } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
+import { isScanPickerProfile, JOB_TYPE_LABELS } from '../scans/labels.ts';
 import { ScanStatusBadge } from '../scans/ScanStatusBadge.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Card } from '../ui/Card.tsx';
@@ -36,6 +37,8 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
     [domain.id],
   );
   const [profile, setProfile] = useState('passive');
+  const pickable =
+    profiles.status === 'success' ? profiles.data.items.filter(isScanPickerProfile) : [];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -63,7 +66,7 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
                 value={profile}
                 onChange={(e) => setProfile(e.target.value)}
               >
-                {profiles.data.items.map((p) => {
+                {pickable.map((p) => {
                   const reason = unavailableReason(p, domain, profiles.data.activeScanningEnabled);
                   return (
                     <option key={p.key} value={p.key} disabled={reason !== null}>
@@ -85,8 +88,8 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
         )}
         {profiles.status === 'success' && (
           <div className="space-y-1 text-xs text-slate-500">
-            <p>{profiles.data.items.find((p) => p.key === profile)?.description}</p>
-            {profiles.data.items.find((p) => p.key === profile)?.config.active && (
+            <p>{pickable.find((p) => p.key === profile)?.description}</p>
+            {pickable.find((p) => p.key === profile)?.config.active && (
               <p data-testid="tier-note">
                 TLS and HTTP checks connect like a normal visitor; ports are probed only on approved
                 networks.
@@ -105,7 +108,12 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
               {recent.data.items.map((j) => (
                 <li key={j.id} className="flex items-center justify-between gap-3 py-2">
                   <Link to={`/scans/${j.id}`} className="text-sky-800 hover:underline">
-                    <span className="capitalize">{j.profile}</span> · {formatDateTime(j.createdAt)}
+                    {j.jobType === 'discovery' ? (
+                      JOB_TYPE_LABELS.discovery
+                    ) : (
+                      <span className="capitalize">{j.profile}</span>
+                    )}{' '}
+                    · {formatDateTime(j.createdAt)}
                   </Link>
                   <ScanStatusBadge status={j.status} />
                 </li>

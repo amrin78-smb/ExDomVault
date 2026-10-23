@@ -20,6 +20,7 @@ from typing import Any
 from app import __version__
 from app.client import Signer, WorkerApiClient
 from app.config import ConfigError, WorkerConfig, load_config
+from app.discovery import CrtShProvider
 from app.dns_checks import DnspythonResolver
 from app.health import HealthReporter, check_health
 from app.identity import load_private_key
@@ -53,6 +54,8 @@ def build_worker(config: WorkerConfig, shutdown: threading.Event) -> Worker:
         rdap_client=RdapClient(resolver=resolver_factory(5.0)),
         health=HealthReporter(config.health_file, config.worker_id),
         shutdown=shutdown,
+        # Passive discovery: fixed Certificate Transparency provider (crt.sh), never a target.
+        discovery_provider=CrtShProvider(),
     )
 
 

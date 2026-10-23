@@ -1,7 +1,8 @@
 """Job-level scope guard: check catalogue, hostname normalisation and label-boundary checks.
 
 The worker runs passive checks (``dns`` queries public resolvers, ``rdap`` queries the registry's
-RDAP service) and, only when ``EXDV_ACTIVE_SCANNING_ENABLED=true``, network-connecting checks. Every
+RDAP service, ``discovery`` queries a fixed Certificate Transparency provider and public resolvers)
+and, only when ``EXDV_ACTIVE_SCANNING_ENABLED=true``, network-connecting checks. Every
 connection those checks make goes through the Milestone 6 scope validator in :mod:`app.policy`
 (resolve, validate every address against the prohibited ranges and the deny list, pin it,
 revalidate every redirect and CNAME hop); this module provides the name-level building blocks.
@@ -22,7 +23,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-PASSIVE_CHECKS: frozenset[str] = frozenset({"dns", "rdap"})
+PASSIVE_CHECKS: frozenset[str] = frozenset({"dns", "rdap", "discovery"})
 NETWORK_CHECKS: frozenset[str] = frozenset(
     {
         "tls_certificate",

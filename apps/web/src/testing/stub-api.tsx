@@ -18,6 +18,8 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'domains:read',
     'domains:write',
     'domains:verify',
+    'assets:read',
+    'assets:approve',
     'scans:read',
     'scans:request',
     'scan_policies:manage',
@@ -30,6 +32,7 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
   ],
   analyst: [
     'domains:read',
+    'assets:read',
     'scans:read',
     'scans:request',
     'findings:read',
@@ -38,8 +41,8 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'findings:accept_risk',
     'findings:remediate',
   ],
-  viewer: ['domains:read', 'scans:read', 'findings:read'],
-  asset_owner: ['findings:read', 'findings:remediate'],
+  viewer: ['domains:read', 'assets:read', 'scans:read', 'findings:read'],
+  asset_owner: ['assets:read', 'findings:read', 'findings:remediate'],
 };
 
 export const ok = (body: unknown) => () => ({ status: 200, body });
@@ -87,3 +90,19 @@ export function renderAt(path: string) {
   );
   return router;
 }
+
+/** An API error envelope response. */
+export const apiError =
+  (status: number, code: string, message: string, details?: { path: string; message: string }[]) =>
+  () => ({ status, body: { error: { code, message, requestId: 'req-test', details } } });
+
+/** Request paths of the asset endpoints, matching the server routes. */
+export const ASSET_PATHS = {
+  list: (query = '') => `GET /api/v1/assets${query}`,
+  detail: (id: string) => `GET /api/v1/assets/${id}`,
+  decide: (id: string, action: 'approve' | 'reject' | 'suspend') =>
+    `POST /api/v1/assets/${id}/${action}`,
+  bulk: 'POST /api/v1/assets/bulk',
+  domainAssets: (domainId: string, query = '') => `GET /api/v1/domains/${domainId}/assets${query}`,
+  discovery: (domainId: string) => `POST /api/v1/domains/${domainId}/discovery`,
+} as const;

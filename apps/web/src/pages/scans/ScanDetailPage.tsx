@@ -2,6 +2,7 @@ import { ACTIVE_JOB_STATUSES, type ScanJobDetailResponse } from '@exdomainvault/
 import { ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { JOB_TYPE_LABELS } from '../../components/scans/labels.ts';
 import { ScanStatusBadge } from '../../components/scans/ScanStatusBadge.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -79,7 +80,13 @@ export function ScanDetailPage() {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-            <span className="capitalize">{job.profile}</span> scan of{' '}
+            {job.jobType === 'discovery' ? (
+              'Discovery for'
+            ) : (
+              <>
+                <span className="capitalize">{job.profile}</span> scan of
+              </>
+            )}{' '}
             {job.domain ? (
               <Link
                 to={`/domains/${job.domain.id}`}
@@ -93,6 +100,7 @@ export function ScanDetailPage() {
           </h1>
           <div className="mt-2 flex items-center gap-3">
             <ScanStatusBadge status={job.status} />
+            <span className="text-xs text-slate-600">{JOB_TYPE_LABELS[job.jobType]} job</span>
             {job.cancelRequestedAt && isActive && (
               <span className="text-xs text-slate-500">Cancellation requested</span>
             )}
@@ -152,6 +160,19 @@ export function ScanDetailPage() {
             )}
             {job.reason && <Field label="Reason">{job.reason}</Field>}
           </dl>
+          {job.jobType === 'discovery' && (
+            <p className="mt-4 text-xs text-slate-500" data-testid="discovery-note">
+              Discovery looks up names in public Certificate Transparency logs and never contacts
+              the domain&apos;s hosts. Hostnames it finds wait in{' '}
+              <Link
+                to={job.domain ? `/assets?domainId=${job.domain.id}` : '/assets'}
+                className="text-sky-800 hover:underline"
+              >
+                Assets
+              </Link>{' '}
+              as Pending review; none is scanned until approved.
+            </p>
+          )}
           {job.status === 'queued' && !job.worker && (
             <p className="mt-4 text-xs text-slate-500">
               Waiting for the scanning worker to claim this job. Results appear once the home worker

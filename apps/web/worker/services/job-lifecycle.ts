@@ -362,6 +362,7 @@ const ACTIVE_KINDS: ReadonlySet<Observation['kind']> = new Set(['tls', 'http', '
  * A job that is no longer authorised (see `claimRefusal`) is flagged for cancellation, and a
  * submission carrying active (tls/http/port) evidence for it is refused with 409 as a whole.
  * Status-only and passive (dns/registration) submissions are still accepted so the job can wind down.
+ * Active evidence for a target whose asset is no longer approved is refused the same way.
  */
 export async function submitResultsDetailed(
   db: Database,
@@ -447,6 +448,27 @@ async function submitResultsTx(
         throw new ApiError(400, 'validation_failed', 'A reported target is not part of this job.');
       }
       for (const k of known) targetsById.set(k.id, k);
+    }
+
+    // Active evidence about a host whose asset approval was withdrawn mid-job (suspended,
+    // rejected) is refused like evidence from a revoked domain, and the job is told to stop.
+    const activeAssetIds = [
+      ...new Set(
+        observations.flatMap((o) => {
+          const assetId = ACTIVE_KINDS.has(o.kind) ? targetsById.get(o.targetId)?.assetId : null;
+          return assetId ? [assetId] : [];
+        }),
+      ),
+    ];
+    if (activeAssetIds.length > 0) {
+      const stillApproved = await tx
+        .select({ id: assets.id })
+        .from(assets)
+        .where(and(inArray(assets.id, activeAssetIds), eq(assets.verificationStatus, 'approved')));
+      if (stillApproved.length !== activeAssetIds.length) {
+        await requestCancelUnauthorised(t, job, 'asset_not_approved', now);
+        return 'unauthorised' as const;
+      }
     }
 
     const inserted = await tx

@@ -10,7 +10,9 @@ import {
   importConfirmRequestSchema,
   importPreviewRequestSchema,
   updateDomainRequestSchema,
+  assetListQuerySchema,
   type CreateChallengeResponse,
+  type DiscoveryRequestResponse,
   type DomainDetailResponse,
   type DomainObservationsResponse,
   type VerifyDomainResponse,
@@ -22,7 +24,8 @@ import { parseJsonBody, parseQuery, uuidParam } from '../lib/validation.ts';
 import { requirePermission } from '../middleware/auth.ts';
 import { authoriseDomains, revokeDomain } from '../services/domain-authorisation.ts';
 import { domainObservations } from '../services/observations.ts';
-import { createScan, getScan } from '../services/scans.ts';
+import { createScan, getScan, requestDiscovery } from '../services/scans.ts';
+import { listAssets } from '../services/assets.ts';
 import { confirmImport, previewImport } from '../services/domain-import.ts';
 import { ApiError } from '../lib/errors.ts';
 import {
@@ -207,6 +210,22 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
       c.get('logger').info('scan_requested', { jobId, domainId: id, profile: body.profile });
       // 202: the scan runs asynchronously on the worker; poll GET /scans/:id.
       return c.json(await getScan(db, jobId), 202);
+    })
+    .post('/:id/discovery', requirePermission('scans:request'), async (c) => {
+      const id = uuidParam(c, 'id');
+      const db = await c.get('db')();
+      const res: DiscoveryRequestResponse = await requestDiscovery(db, id, actorOf(c), now(), {
+        activeScanningEnabled: c.get('config').activeScanningEnabled,
+      });
+      c.get('logger').info('discovery_requested', { domainId: id, ...res });
+      // 201 when a job was queued; 200 when one was already queued or running.
+      return c.json(res, res.created ? 201 : 200);
+    })
+    .get('/:id/assets', requirePermission('assets:read'), async (c) => {
+      const id = uuidParam(c, 'id');
+      const query = parseQuery(c, assetListQuerySchema);
+      const db = await c.get('db')();
+      return c.json(await listAssets(db, c.get('user'), { ...query, domainId: id }, id));
     })
     .post('/:id/verify', requirePermission('domains:verify'), async (c) => {
       const id = uuidParam(c, 'id');

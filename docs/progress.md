@@ -14,11 +14,18 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
 | 7   | Deterministic rules engine                 | done        | Deployed 2026-10-22 (`7dff53fc`)        |
 | 8   | Finding lifecycle                          | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
-| 9   | Passive subdomain discovery                | not started |                                         |
+| 9   | Passive subdomain discovery                | done        | Built; not yet deployed                 |
 | 10  | Frontend integration                       | not started |                                         |
 | 11  | Production hardening                       | not started |                                         |
 
 ## Decisions log
+
+- 2026-10-23 — **Discovery runs in the Python worker**, not the Cloudflare Worker: crt.sh responses can be tens of MB (far beyond the 10 ms CPU budget) and all outbound collection stays on one host. `discovery` is a passive check (never contacts target hosts) with its own profile and job type (`discovery`), requested via `POST /domains/:id/discovery` or scheduled weekly (priority 250, ≤ 50 per cron run, staggered over 7 days by domain-id hash). It is never offered as a scan profile.
+- 2026-10-23 — **Provider abstraction, first provider crt.sh:** fixed HTTPS URL, verified TLS, no redirects, no env proxies, identifying User-Agent, ≥ 3 s between requests, 32 MB streamed cap (incremental parser keeps complete entries → `partial`), certificates kept only if valid within the last 365 days. Transient failures (timeouts, 429/5xx) → retryable job failure; malformed responses → one `error` observation for the domain (run known incomplete).
+- 2026-10-23 — **Candidate pipeline:** lowercase, trailing dot stripped, leading `*.` stripped and flagged (`wildcard_only` while every sighting was a wildcard), other `*`/emails/IPs/underscores/invalid labels dropped, IDNA 2008 + UTS #46 (`idna` package) with round-trip, exact label-boundary check (worker and server), dedupe, cap 2000 (sorted by depth then name), the first 300 resolved (A/AAAA/CNAME) via public resolvers.
+- 2026-10-23 — **Discovered names are `pending` assets; ingestion never changes an asset's status.** Approval (admin, `assets:approve`, reason, audited) is the only way into scan scope; approving turns asset monitoring on, reject/suspend turn it off. Suspending flags in-flight active jobs for cancellation and refuses further active evidence about the asset. Transitions: pending → approved/rejected, approved → suspended, suspended/rejected → approved; the apex is never rejectable.
+- 2026-10-23 — **Third-party hosting policy:** a deterministic CNAME-suffix table (`HOSTING_PROVIDER_SUFFIXES`, ~40 CDN/cloud/PaaS/SaaS providers) labels assets; approving one with a hint requires `acknowledgeThirdPartyHosting` (approval allows browser-like web checks only; network checks still need an approved network, and the worker still refuses out-of-scope CNAME targets).
+- 2026-10-23 — **An asset decision immediately resolves its ASSET-001 finding** (history `asset_decided`), under the same per-domain lock as evaluation so a racing evaluation cannot reopen it.
 
 - 2026-10-22 — **Finding lifecycle transitions** are one table in `packages/shared/src/domain/finding-lifecycle.ts`, enforced by the API and used by the UI. Analysts triage/accept risk/reopen; asset owners (`findings:remediate`) only start or pause remediation on findings they can see; viewers nothing. `resolved` is terminal by hand: a recurrence observed by a successful scan reopens it.
 - 2026-10-22 — **Manual resolution only for change-detection rules** (`Rule.manualResolution`: DNS-001, REG-002, EXP-001) whose condition can never become "absent"; every other finding resolves only through a successful scan (hard rule). Users ask for a **Re-check** instead (`POST /findings/:id/reassess`, cheapest profile running the rule's checks, normal scan authorisation applies).
@@ -116,6 +123,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~Cloudflare Access service token + Service Auth policy for the worker~~ — done by the owner 2026-10-22.
 - [x] ~~Install the worker on this host~~ — done by the owner 2026-10-22 (`install.sh`, key registered as `home-worker-01`, service token in `worker.env`, systemd unit enabled).
 - [x] ~~Install Nmap on the scan host~~ — done 2026-10-22 (7.94).
+- [ ] **After the Milestone 9 deploy:** on the scan host, `git pull && sudo bash worker/deploy/install.sh`, add `discovery` to `EXDV_PROFILES` in `/etc/exdomainvault/worker.env` (e.g. `EXDV_PROFILES=passive,discovery,quick,standard,deep`), then `sudo systemctl restart exdomainvault-worker`. Outbound HTTPS to `crt.sh` must be allowed.
 - [ ] **Upgrade to Workers Paid** (Cloudflare dashboard → Workers & Pages → Plans) — the free plan's 10 ms CPU limit kills some requests (see Decisions, 2026-10-22).
 - [x] ~~Production migrated to 0005 and `finding_comments` made append-only for `exdomainvault_app`~~ — done 2026-10-22 (verified: INSERT, SELECT only).
 
@@ -140,6 +148,8 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
 - No domain deletion, no rate limit on domain creation beyond permissions.
+- Discovery: crt.sh is the only provider and is often slow or erroring for large domains (retried, then failed); its live response format was not tested against the real service. Only the first 300 candidates per run are resolved. Hosting hints see only the CNAME chain (A-record-only third-party hosting is not detected). The asset detail page does not show services/TLS yet.
+- ASSET-001 creates one informational finding per pending candidate; on a large portfolio expect many (bulk-approve/reject on the Assets page resolves them).
 - **Only passive scans are scheduled.** Quick/Standard/Deep run on request (domain page or a finding's Re-check); the design's daily/weekly/monthly active schedules are not built yet (proposed next: opt-in scheduled Quick for monitored, authorised domains).
 - Workers free plan CPU limit (10 ms) causes intermittent 503s under scan load until the plan is upgraded.
 - Finding history timestamps: system entries use the scan's completion time, user entries wall-clock time, so a delayed evaluation can sort before a user change (each entry's "from" status is still correct).
@@ -148,6 +158,16 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Milestone 9 — 2026-10-23
+
+**Built (contracts first, then three parallel agents: Python worker, server, UI):** contracts — `discovery` check/observation, `packages/shared/src/api/assets.ts` (asset DTO, list/detail, decisions, bulk, `allowedAssetActions`, `classifyHosting`), migration `0006_asset_discovery` (asset decision columns, hosting hint, wildcard flags, `discovery` profile seed). Worker: `worker/app/discovery.py` (provider protocol, crt.sh provider, candidate pipeline, resolution, batching), queue integration, default `EXDV_PROFILES=passive,discovery`. Server: discovery ingestion → pending assets, DNS → `asset_ips` + hosting hint, weekly scheduler, `POST /domains/:id/discovery`, assets API (`services/assets.ts`, `routes/assets.ts`), suspend cancels in-flight active jobs, ASSET-001 resolution on decision, reassess for asset rules. UI: Assets page (filters, bulk decisions with third-party acknowledgement), asset detail (decision panel, IP history, sightings), domain Assets card with Run discovery, discovery jobs on Scans pages. Docs: worker-protocol, scan-safety, home-worker-setup, api-specification, database-schema, threat-model.
+
+**Checks:** `npm run lint` pass; `npm run typecheck` pass; `npm run db:check` pass; `npm run rules:docs:check` pass; `npm test` 52 files, 1391 tests pass; `npm run build` pass; `npm run worker:lint` pass; `npm run worker:test` 1391 pass (141 new discovery tests, all mocked — nothing contacts crt.sh, resolvers or targets).
+
+**Not yet done:** production migration (0006) and deploy (owner approval), worker upgrade on the scan host (operator action above).
+
+**Next:** Milestone 10 — frontend integration (remaining placeholders: Reports, Settings sections), or the proposed scheduled Quick scans.
 
 ### Milestone 8 — 2026-10-22
 

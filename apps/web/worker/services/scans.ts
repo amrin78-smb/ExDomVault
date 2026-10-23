@@ -1,5 +1,6 @@
 import { schema, type Database } from '@exdomainvault/database';
 import {
+  DISCOVERY_PROFILE_KEY,
   SCAN_TARGET_STATUSES,
   scanProfileConfigSchema,
   type ScanJob,
@@ -14,7 +15,7 @@ import { isWithinDomain } from '@exdomainvault/shared/hostname';
 import { and, asc, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { firstRow } from '../lib/db.ts';
 import { ApiError } from '../lib/errors.ts';
-import { writeAudit } from './audit.ts';
+import { writeAudit, writeAuditMany } from './audit.ts';
 import type { Actor } from './domains.ts';
 import { isUniqueViolation } from './domains.ts';
 import { activeNetworkCidrs } from './networks.ts';
@@ -174,6 +175,11 @@ export interface ScanPolicy {
   activeScanningEnabled: boolean;
 }
 
+/**
+ * Creates a job. `jobType: 'scan'` (POST /domains/:id/scans) refuses the discovery profile;
+ * `jobType: 'discovery'` (POST /domains/:id/discovery) only accepts it. Discovery jobs are passive
+ * and target the apex name only (assetId null): candidates they find never become targets.
+ */
 export async function createScan(
   db: Database,
   domainId: string,
@@ -181,8 +187,27 @@ export async function createScan(
   actor: Actor,
   now: Date,
   policy: ScanPolicy,
+  jobType: 'scan' | 'discovery' = 'scan',
 ): Promise<string> {
+  const isDiscoveryProfile = input.profile === DISCOVERY_PROFILE_KEY;
+  if (isDiscoveryProfile !== (jobType === 'discovery')) {
+    throw new ApiError(400, 'validation_failed', 'The scan profile is invalid.', [
+      {
+        path: 'profile',
+        message: isDiscoveryProfile
+          ? 'Discovery is not a scan profile; use POST /domains/:id/discovery.'
+          : 'Discovery jobs use the discovery profile.',
+      },
+    ]);
+  }
   const profile = await getProfile(db, input.profile);
+  if (
+    jobType === 'discovery' &&
+    (profile.config.active || !profile.config.checks.includes('discovery'))
+  ) {
+    // Fail closed on a misconfigured profile: discovery must stay passive.
+    throw new ApiError(409, 'conflict', 'The discovery profile is misconfigured.');
+  }
   if (profile.config.active && !policy.activeScanningEnabled) {
     throw new ApiError(
       409,
@@ -208,7 +233,10 @@ export async function createScan(
       }
 
       const db2 = tx as unknown as Database;
-      const targets = await resolveTargets(db2, domain, profile, actor, now);
+      const targets =
+        jobType === 'discovery'
+          ? [{ assetId: null, hostname: domain.fqdn }]
+          : await resolveTargets(db2, domain, profile, actor, now);
       if (targets.length === 0) {
         throw new ApiError(
           409,
@@ -231,7 +259,7 @@ export async function createScan(
         await tx
           .insert(scanJobs)
           .values({
-            jobType: 'scan',
+            jobType,
             profile: profile.key,
             domainId: domain.id,
             requestedBy: actor.userId,
@@ -259,6 +287,7 @@ export async function createScan(
         metadata: {
           domainId: domain.id,
           fqdn: domain.fqdn,
+          jobType,
           profile: profile.key,
           active: profile.config.active,
           targets: targets.length,
@@ -275,6 +304,60 @@ export async function createScan(
         'conflict',
         `A ${profile.name} scan is already queued or running for this domain.`,
       );
+    }
+    throw err;
+  }
+}
+
+async function unfinishedJob(db: Database, domainId: string, profile: string) {
+  const [job] = await db
+    .select({ id: scanJobs.id })
+    .from(scanJobs)
+    .where(
+      and(
+        eq(scanJobs.domainId, domainId),
+        eq(scanJobs.profile, profile),
+        inArray(scanJobs.status, ['queued', 'claimed', 'running']),
+      ),
+    )
+    .limit(1);
+  return job;
+}
+
+/**
+ * POST /domains/:id/discovery — queues passive discovery for the domain, or returns the discovery
+ * job already queued/running (`created: false`). Passive, so no verification is needed.
+ */
+export async function requestDiscovery(
+  db: Database,
+  domainId: string,
+  actor: Actor,
+  now: Date,
+  policy: ScanPolicy,
+): Promise<{ scanJobId: string; created: boolean }> {
+  const [domain] = await db
+    .select({ id: domains.id })
+    .from(domains)
+    .where(eq(domains.id, domainId));
+  if (!domain) throw new ApiError(404, 'not_found', 'The requested resource was not found.');
+  const existing = await unfinishedJob(db, domainId, DISCOVERY_PROFILE_KEY);
+  if (existing) return { scanJobId: existing.id, created: false };
+  try {
+    const id = await createScan(
+      db,
+      domainId,
+      { profile: DISCOVERY_PROFILE_KEY, reason: 'Passive discovery requested' },
+      actor,
+      now,
+      policy,
+      'discovery',
+    );
+    return { scanJobId: id, created: true };
+  } catch (err) {
+    // Lost a race with a concurrent request or the scheduler: return that job.
+    if (err instanceof ApiError && err.status === 409) {
+      const raced = await unfinishedJob(db, domainId, DISCOVERY_PROFILE_KEY);
+      if (raced) return { scanJobId: raced.id, created: false };
     }
     throw err;
   }
@@ -519,4 +602,67 @@ export async function stopActiveJobsForDomains(
   for (const j of cancelled) await audit('scan.cancelled', j);
   for (const j of flagged) await audit('scan.cancel_requested', j);
   return cancelled.length + flagged.length;
+}
+
+/**
+ * Stops in-flight ACTIVE jobs that target any of the given assets because their approval was
+ * withdrawn (suspended). Must run in the same transaction as the withdrawal. The assets' unfinished
+ * targets are skipped (queued jobs then drop them at claim time, cancelling a job left with none);
+ * claimed/running jobs are flagged so the worker stops at its next heartbeat, and active evidence for
+ * the asset is refused from now on. Passive jobs are unaffected. Set-based; returns jobs flagged.
+ */
+export async function stopActiveJobsForAssets(
+  tx: Database,
+  assetIds: readonly string[],
+  reason: string,
+  actor: Actor | null,
+  now: Date,
+): Promise<number> {
+  if (assetIds.length === 0) return 0;
+  const targetingAssets = inArray(
+    scanJobs.id,
+    tx
+      .select({ id: scanJobTargets.scanJobId })
+      .from(scanJobTargets)
+      .where(inArray(scanJobTargets.assetId, [...assetIds])),
+  );
+  const unfinished = inArray(scanJobs.status, ['queued', 'claimed', 'running']);
+  await tx
+    .update(scanJobTargets)
+    .set({ status: 'skipped', errorCode: reason, completedAt: now })
+    .where(
+      and(
+        inArray(scanJobTargets.assetId, [...assetIds]),
+        eq(scanJobTargets.status, 'pending'),
+        inArray(
+          scanJobTargets.scanJobId,
+          tx.select({ id: scanJobs.id }).from(scanJobs).where(and(unfinished, isActiveJob)),
+        ),
+      ),
+    );
+  const flagged = await tx
+    .update(scanJobs)
+    .set({ cancelRequestedAt: now })
+    .where(
+      and(
+        targetingAssets,
+        isActiveJob,
+        inArray(scanJobs.status, ['claimed', 'running']),
+        isNull(scanJobs.cancelRequestedAt),
+      ),
+    )
+    .returning({ id: scanJobs.id, profile: scanJobs.profile });
+  await writeAuditMany(
+    tx,
+    flagged.map((j) => ({
+      actorType: actor ? ('user' as const) : ('system' as const),
+      actorUserId: actor?.userId,
+      action: 'scan.cancel_requested',
+      resourceType: 'scan_job',
+      resourceId: j.id,
+      requestId: actor?.requestId,
+      metadata: { reason, profile: j.profile },
+    })),
+  );
+  return flagged.length;
 }

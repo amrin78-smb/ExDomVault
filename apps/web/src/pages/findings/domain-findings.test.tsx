@@ -40,7 +40,7 @@ describe('Domain findings card', () => {
     );
   });
 
-  it('sits after Scans and keeps the Assets placeholder', async () => {
+  it('sits after Scans, with the Assets card last', async () => {
     stubDomainPage();
     renderAt(`/domains/${DOMAIN_ID}`);
     await screen.findByRole('region', { name: 'Findings' });

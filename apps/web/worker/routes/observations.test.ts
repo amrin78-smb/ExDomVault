@@ -698,6 +698,20 @@ describe('held jobs are re-authorised on heartbeat and results', () => {
     expect(statusOnly.status).toBe(200);
   });
 
+  it('after an asset is suspended mid-job, its active evidence is refused and the job stops', async () => {
+    const s = await setupActive();
+    const sus = await call('admin', 'POST', `/assets/${s.wwwAssetId}/suspend`, {
+      reason: 'Host handed over to a supplier',
+    });
+    expect(sus.status).toBe(200);
+    expect((await jobRow(s.job.id)).cancelRequestedAt).not.toBeNull();
+    await expectError(await submit(s, 'result-0001', [tlsObs(s.www)]), 409, 'conflict');
+    expect(await activeCounts()).toEqual({ tls: 0, http: 0, port: 0, results: 0 });
+    expect(heartbeatResponseSchema.parse(await (await heartbeatCall(s)).json())).toMatchObject({
+      cancelRequested: true,
+    });
+  });
+
   it('revoking a domain cancels its queued active jobs but leaves passive jobs alone', async () => {
     const [d] = await t.db
       .insert(schema.domains)

@@ -1,4 +1,15 @@
 import {
+  assetBulkDecisionResponseSchema,
+  assetDetailResponseSchema,
+  assetListResponseSchema,
+  assetResponseSchema,
+  discoveryRequestResponseSchema,
+  type Asset,
+  type AssetBulkDecisionRequest,
+  type AssetBulkDecisionResponse,
+  type AssetDetailResponse,
+  type AssetListResponse,
+  type DiscoveryRequestResponse,
   advisoryListResponseSchema,
   bulkMonitoringResponseSchema,
   type BulkMonitoringResponse,
@@ -154,6 +165,7 @@ type QueryParams = Record<string, string | number | undefined>;
 
 const domainPath = (id: string) => `/api/v1/domains/${encodeURIComponent(id)}`;
 const findingPath = (id: string) => `/api/v1/findings/${encodeURIComponent(id)}`;
+const assetPath = (id: string) => `/api/v1/assets/${encodeURIComponent(id)}`;
 
 export const api = {
   health: (init?: RequestInit): Promise<HealthResponse> =>
@@ -215,6 +227,36 @@ export const api = {
     /** Queues a scan; returns immediately (the worker runs it asynchronously). */
     requestScan: (id: string, body: CreateScanRequest): Promise<ScanJobDetailResponse> =>
       sendJson('POST', `${domainPath(id)}/scans`, scanJobDetailResponseSchema, body),
+    /** Hostnames (assets) beneath one domain, any status. */
+    assets: (id: string, params: QueryParams, init?: RequestInit): Promise<AssetListResponse> =>
+      getJson(`${domainPath(id)}/assets${toQuery(params)}`, assetListResponseSchema, init),
+    /**
+     * Queues passive discovery (Certificate Transparency). Never contacts the domain's hosts and
+     * never adds scan targets; `created: false` means a discovery job was already queued.
+     */
+    requestDiscovery: (id: string): Promise<DiscoveryRequestResponse> =>
+      sendJson('POST', `${domainPath(id)}/discovery`, discoveryRequestResponseSchema),
+  },
+
+  /** Hostname inventory. Discovered names stay `pending` until an administrator approves them. */
+  assets: {
+    list: (params: QueryParams, init?: RequestInit): Promise<AssetListResponse> =>
+      getJson(`/api/v1/assets${toQuery(params)}`, assetListResponseSchema, init),
+    get: (id: string, init?: RequestInit): Promise<AssetDetailResponse> =>
+      getJson(assetPath(id), assetDetailResponseSchema, init),
+    /** `acknowledgeThirdPartyHosting` is required (400 otherwise) when the asset has a hosting hint. */
+    approve: (
+      id: string,
+      body: { reason: string; acknowledgeThirdPartyHosting: boolean },
+    ): Promise<{ asset: Asset }> =>
+      sendJson('POST', `${assetPath(id)}/approve`, assetResponseSchema, body),
+    reject: (id: string, reason: string): Promise<{ asset: Asset }> =>
+      sendJson('POST', `${assetPath(id)}/reject`, assetResponseSchema, { reason }),
+    suspend: (id: string, reason: string): Promise<{ asset: Asset }> =>
+      sendJson('POST', `${assetPath(id)}/suspend`, assetResponseSchema, { reason }),
+    /** The same decision for many assets; each is checked individually and may be skipped. */
+    bulkDecide: (body: AssetBulkDecisionRequest): Promise<AssetBulkDecisionResponse> =>
+      sendJson('POST', '/api/v1/assets/bulk', assetBulkDecisionResponseSchema, body),
   },
 
   /** Networks that network-tier checks (port probes, service identification) may contact. */

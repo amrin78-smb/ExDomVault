@@ -1,6 +1,8 @@
 import { schema, type Database } from '@exdomainvault/database';
 import {
   DNS_RECORD_TYPES,
+  classifyHosting,
+  type DiscoveryObservation,
   type DnsObservation,
   type DomainObservationsResponse,
   type HttpSnapshot,
@@ -13,12 +15,15 @@ import {
 } from '@exdomainvault/shared';
 import { isValidHostname, isWithinDomain } from '@exdomainvault/shared/hostname';
 import { canonicalIp, cidrContains, isProhibitedAddress } from '@exdomainvault/shared/net';
-import { and, asc, desc, eq, max } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, max, sql } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
 import { activeNetworkCidrs, intersectNetworks } from './networks.ts';
 import type { ScanJobRow } from './scans.ts';
 
 const {
+  assetIps,
+  assets,
+  discoveryObservations,
   dnsObservations,
   domains,
   httpObservations,
@@ -45,6 +50,7 @@ export interface JobTargetRef {
 }
 
 export interface ObservationCounts {
+  discovery: number;
   dns: number;
   registration: number;
   tls: number;
@@ -53,6 +59,7 @@ export interface ObservationCounts {
 }
 
 export const EMPTY_OBSERVATION_COUNTS: ObservationCounts = Object.freeze({
+  discovery: 0,
   dns: 0,
   registration: 0,
   tls: 0,
@@ -96,6 +103,7 @@ const invalid = (index: number, field: string, message: string) =>
  * effective approved networks (snapshot ∩ currently active).
  */
 function validate(
+  job: ScanJobRow,
   snapshot: ScopeSnapshot,
   networks: readonly string[],
   targetsById: ReadonlyMap<string, JobTargetRef>,
@@ -122,6 +130,17 @@ function validate(
     if (o.kind === 'registration') {
       if (target.targetHostname !== snapshotDomainFqdn) {
         throw invalid(i, 'targetId', 'Registration observations are accepted for the apex only.');
+      }
+      return;
+    }
+    if (o.kind === 'discovery') {
+      // Passive discovery only from a discovery job whose (immutable) profile lists the check.
+      if (job.jobType !== 'discovery' || !config.checks.includes('discovery')) {
+        throw invalid(i, 'kind', "This job's scan profile does not include this check.");
+      }
+      // CT data is untrusted: the exact label boundary is re-checked here, whatever the worker did.
+      if (!isWithinDomain(o.hostname, snapshotDomainFqdn)) {
+        throw invalid(i, 'hostname', "The hostname is not within this job's domain.");
       }
       return;
     }
@@ -185,7 +204,7 @@ export async function ingestObservations(
     needsNetworks && snapshot.approvedNetworks.length > 0
       ? intersectNetworks(snapshot.approvedNetworks, await activeNetworkCidrs(tx, now))
       : [];
-  validate(snapshot, networks, targetsById, observations, now);
+  validate(job, snapshot, networks, targetsById, observations, now);
 
   const common = (o: Observation, index: number) => {
     const target = targetsById.get(o.targetId) as JobTargetRef;
@@ -333,6 +352,24 @@ export async function ingestObservations(
     ).length;
   }
 
+  let discovery = 0;
+  if (domainId) {
+    discovery = await ingestDiscovery(
+      tx,
+      domainId,
+      snapshot.domain.fqdn,
+      observations.flatMap((o, i) =>
+        o.kind === 'discovery' ? [{ o, row: { ...common(o, i), checker: 'discovery' } }] : [],
+      ),
+    );
+    // After discovery, so candidates resolved in the same batch get their addresses.
+    await applyDnsToAssets(
+      tx,
+      domainId,
+      observations.flatMap((o) => (o.kind === 'dns' ? [o] : [])),
+    );
+  }
+
   let reg = 0;
   if (domainId && registrationRows.length > 0) {
     // Read the newest applied registration observation before inserting this batch.
@@ -359,7 +396,209 @@ export async function ingestObservations(
       prior?.at ?? null,
     );
   }
-  return { dns, registration: reg, tls, http, port };
+  return { discovery, dns, registration: reg, tls, http, port };
+}
+
+// --- Discovery and DNS → asset inventory ----------------------------------------------------------
+
+type ObservationRowBase = {
+  resultId: string;
+  assetId: string | null;
+  scanJobId: string;
+  scanJobTargetId: string;
+  observedAt: Date;
+  checker: string;
+  checkerVersion: string;
+  resultStatus: Observation['resultStatus'];
+  evidence: Record<string, unknown>;
+};
+
+/**
+ * Stores discovery observations and upserts their SUCCESSFUL hostnames as assets, set-based (one
+ * upsert + one insert per batch). New hostnames become `pending` candidates; existing assets only
+ * have `last_seen_at` advanced and `wildcard_only` narrowed. Ingestion never changes an asset's
+ * approval status, so CT data can never put a hostname into scan scope. Failed/partial runs are
+ * stored as evidence only.
+ */
+async function ingestDiscovery(
+  tx: Database,
+  domainId: string,
+  fqdn: string,
+  items: { o: DiscoveryObservation; row: ObservationRowBase }[],
+): Promise<number> {
+  if (items.length === 0) return 0;
+  // Aggregate per hostname: one statement cannot touch the same row twice.
+  const candidates = new Map<string, { first: Date; last: Date; wildcard: boolean }>();
+  for (const { o, row } of items) {
+    if (o.resultStatus !== 'success') continue;
+    const at = row.observedAt;
+    const c = candidates.get(o.hostname);
+    if (!c) candidates.set(o.hostname, { first: at, last: at, wildcard: o.wildcard });
+    else {
+      if (at < c.first) c.first = at;
+      if (at > c.last) c.last = at;
+      c.wildcard = c.wildcard && o.wildcard;
+    }
+  }
+  const assetIdOf = new Map<string, string>();
+  if (candidates.size > 0) {
+    const upserted = await tx
+      .insert(assets)
+      .values(
+        [...candidates].map(([hostname, c]) => ({
+          domainId,
+          hostname,
+          assetType: hostname === fqdn ? ('apex' as const) : ('subdomain' as const),
+          discoverySource: 'certificate_transparency' as const,
+          firstSeenAt: c.first,
+          lastSeenAt: c.last,
+          wildcardOnly: c.wildcard,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [assets.domainId, assets.hostname],
+        set: {
+          lastSeenAt: sql`greatest(${assets.lastSeenAt}, excluded.last_seen_at)`,
+          wildcardOnly: sql`${assets.wildcardOnly} and excluded.wildcard_only`,
+        },
+      })
+      .returning({ id: assets.id, hostname: assets.hostname });
+    for (const a of upserted) assetIdOf.set(a.hostname, a.id);
+  }
+  const inserted = await tx
+    .insert(discoveryObservations)
+    .values(
+      items.map(({ o, row }) => ({
+        ...row,
+        assetId: assetIdOf.get(o.hostname) ?? row.assetId,
+        domainId,
+        hostname: o.hostname,
+        source: o.source,
+        wildcard: o.wildcard,
+      })),
+    )
+    .onConflictDoNothing({ target: discoveryObservations.resultId })
+    .returning({ id: discoveryObservations.id });
+  return inserted.length;
+}
+
+const ipFamily = (canonical: string) => (canonical.includes(':') ? 6 : 4);
+
+/**
+ * Keeps the inventory's DNS view current from successful observations of the domain's asset
+ * hostnames (any job type), set-based:
+ *  - A/AAAA: each address is upserted into `asset_ips` (last seen advanced); every other address of
+ *    the same family last seen before the newest answer stops being current (an empty answer leaves
+ *    none current);
+ *  - CNAME: `hosting_hint` is recomputed from the newest answer's targets (`classifyHosting`; an
+ *    empty answer clears it). Hostnames without a CNAME observation keep their hint.
+ */
+async function applyDnsToAssets(
+  tx: Database,
+  domainId: string,
+  observations: readonly DnsObservation[],
+): Promise<void> {
+  const relevant = observations.filter(
+    (o) =>
+      o.resultStatus === 'success' &&
+      (o.recordType === 'A' || o.recordType === 'AAAA' || o.recordType === 'CNAME'),
+  );
+  if (relevant.length === 0) return;
+  const hostnames = [...new Set(relevant.map((o) => o.hostname))];
+  const known = await tx
+    .select({ id: assets.id, hostname: assets.hostname })
+    .from(assets)
+    .where(and(eq(assets.domainId, domainId), inArray(assets.hostname, hostnames)));
+  if (known.length === 0) return;
+  const assetIdOf = new Map(known.map((a) => [a.hostname, a.id]));
+
+  // Addresses: (asset, ip) → first/last seen; (asset, family) → newest answer time.
+  const ips = new Map<string, { assetId: string; ip: string; first: Date; last: Date }>();
+  const answers = new Map<string, { assetId: string; family: number; at: Date }>();
+  // CNAME: newest answer per asset.
+  const cnames = new Map<string, { at: Date; values: readonly string[] }>();
+  for (const o of relevant) {
+    const assetId = assetIdOf.get(o.hostname);
+    if (!assetId) continue;
+    const at = new Date(o.observedAt);
+    if (o.recordType === 'CNAME') {
+      const prev = cnames.get(assetId);
+      if (!prev || at >= prev.at) cnames.set(assetId, { at, values: o.values });
+      continue;
+    }
+    const family = o.recordType === 'A' ? 4 : 6;
+    const key = `${assetId}|${family}`;
+    const prev = answers.get(key);
+    if (!prev || at > prev.at) answers.set(key, { assetId, family, at });
+    for (const value of o.values) {
+      const ip = canonicalIp(value);
+      if (!ip || ipFamily(ip) !== family) continue; // not an address of the queried type
+      const k = `${assetId}|${ip}`;
+      const seen = ips.get(k);
+      if (!seen) ips.set(k, { assetId, ip, first: at, last: at });
+      else {
+        if (at < seen.first) seen.first = at;
+        if (at > seen.last) seen.last = at;
+      }
+    }
+  }
+
+  if (ips.size > 0) {
+    await tx
+      .insert(assetIps)
+      .values(
+        [...ips.values()].map((r) => ({
+          assetId: r.assetId,
+          ipAddress: r.ip,
+          firstSeenAt: r.first,
+          lastSeenAt: r.last,
+          isCurrent: true,
+          source: 'dns',
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [assetIps.assetId, assetIps.ipAddress],
+        set: {
+          lastSeenAt: sql`greatest(${assetIps.lastSeenAt}, excluded.last_seen_at)`,
+          // Provisional: the statement below keeps only the newest answer's addresses current.
+          isCurrent: true,
+        },
+      });
+  }
+  if (answers.size > 0) {
+    const rows = sql.join(
+      [...answers.values()].map(
+        (a) => sql`(${a.assetId}::uuid, ${a.family}::int, ${a.at.toISOString()}::timestamptz)`,
+      ),
+      sql`, `,
+    );
+    // Addresses of an answered family last seen before the newest answer known for it (this batch's
+    // or a later one already stored) are no longer current, so an out-of-order older answer revives
+    // nothing.
+    await tx.execute(sql`
+      update asset_ips set is_current = false
+      from (values ${rows}) as v(asset_id, family, at)
+      where asset_ips.asset_id = v.asset_id
+        and family(asset_ips.ip_address) = v.family
+        and asset_ips.is_current
+        and asset_ips.last_seen_at < greatest(v.at, (
+          select max(x.last_seen_at) from asset_ips x
+          where x.asset_id = v.asset_id and family(x.ip_address) = v.family
+        ))`);
+  }
+  if (cnames.size > 0) {
+    const rows = sql.join(
+      [...cnames].map(([assetId, c]) => {
+        const hint = classifyHosting(c.values);
+        return sql`(${assetId}::uuid, ${hint ? JSON.stringify(hint) : null}::jsonb)`;
+      }),
+      sql`, `,
+    );
+    await tx.execute(sql`
+      update assets set hosting_hint = v.hint, updated_at = now()
+      from (values ${rows}) as v(id, hint)
+      where assets.id = v.id`);
+  }
 }
 
 /** Copies the newest successful registration observation onto the domain, never regressing it. */

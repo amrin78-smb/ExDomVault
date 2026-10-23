@@ -1,5 +1,5 @@
 import { schema, type Database } from '@exdomainvault/database';
-import { and, asc, eq, inArray, lt, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, inArray, lt, notExists, or, sql, type SQL } from 'drizzle-orm';
 import type { Logger } from '../lib/logger.ts';
 import { writeAudit } from './audit.ts';
 import { expireStaleChallenges } from './domain-verification.ts';
@@ -7,7 +7,7 @@ import { evaluatePendingJobs } from './evaluation.ts';
 import { expireAcceptedRisks } from './finding-lifecycle.ts';
 import { reapExpiredLeases } from './job-lifecycle.ts';
 import { buildSnapshot, listProfiles } from './scans.ts';
-import { WORKER_SIGNATURE_MAX_SKEW_SECONDS } from '@exdomainvault/shared';
+import { DISCOVERY_PROFILE_KEY, WORKER_SIGNATURE_MAX_SKEW_SECONDS } from '@exdomainvault/shared';
 import { isWithinDomain } from '@exdomainvault/shared/hostname';
 
 const { assets, domains, scanJobs, scanJobTargets, workerRequestNonces } = schema;
@@ -124,6 +124,109 @@ export async function schedulePassiveMonitoring(db: Database, now: Date): Promis
   });
 }
 
+/** Discovery runs at most this often per domain. */
+const DISCOVERY_INTERVAL_SECONDS = 7 * 24 * 3600;
+/** Discovery jobs created per cron run (a CT query per job is slow and rate-limited upstream). */
+export const DISCOVERY_SCHEDULE_BATCH = 50;
+/** Behind user-requested scans (100) and scheduled passive monitoring (200). */
+export const DISCOVERY_PRIORITY = 250;
+
+/**
+ * Creates the weekly passive discovery job for each monitored domain (job type `discovery`,
+ * profile `discovery`, one target: the apex, `assetId` null). Staggered: a domain that has never had
+ * discovery waits for its slot in the week (a stable hash of its id), so a large inventory spreads
+ * over the week instead of all running on the first day; after that each domain recurs ~7 days after
+ * its previous job. Capped per run and idempotent (the one-active-job index absorbs races).
+ */
+export async function scheduleDiscovery(db: Database, now: Date): Promise<number> {
+  const profile = (await listProfiles(db)).find((p) => p.key === DISCOVERY_PROFILE_KEY);
+  if (
+    !profile ||
+    !profile.enabled ||
+    profile.config.active ||
+    !profile.config.checks.includes('discovery')
+  ) {
+    return 0;
+  }
+  const since = new Date(now.getTime() - DISCOVERY_INTERVAL_SECONDS * 1000);
+  const phase = Math.floor(now.getTime() / 1000) % DISCOVERY_INTERVAL_SECONDS;
+  const discoveryJobs = (extra: SQL) =>
+    db
+      .select({ one: sql`1` })
+      .from(scanJobs)
+      .where(
+        and(
+          eq(scanJobs.domainId, domains.id),
+          eq(scanJobs.profile, profile.key),
+          eq(scanJobs.jobType, 'discovery'),
+          extra,
+        ),
+      );
+  const slot = sql`(abs(hashtext(${domains.id}::text)::bigint) % ${DISCOVERY_INTERVAL_SECONDS})`;
+  const due = await db
+    .select()
+    .from(domains)
+    .where(
+      and(
+        eq(domains.monitoringEnabled, true),
+        notExists(
+          discoveryJobs(
+            or(
+              inArray(scanJobs.status, ['queued', 'claimed', 'running']),
+              sql`${scanJobs.createdAt} > ${since}`,
+            ) as SQL,
+          ),
+        ),
+        or(exists(discoveryJobs(sql`true`)), sql`${slot} <= ${phase}`),
+      ),
+    )
+    .orderBy(asc(domains.fqdn))
+    .limit(DISCOVERY_SCHEDULE_BATCH);
+  if (due.length === 0) return 0;
+
+  return db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(scanJobs)
+      .values(
+        due.map((domain) => ({
+          jobType: 'discovery' as const,
+          profile: profile.key,
+          domainId: domain.id,
+          priority: DISCOVERY_PRIORITY,
+          reason: 'Scheduled passive discovery',
+          scopeSnapshot: buildSnapshot(
+            domain,
+            profile,
+            [{ assetId: null, hostname: domain.fqdn }],
+            'schedule',
+            null,
+            now,
+          ),
+          createdAt: now,
+          scheduledAt: now,
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ id: scanJobs.id, domainId: scanJobs.domainId });
+    if (inserted.length === 0) return 0;
+    const fqdnOf = new Map(due.map((d) => [d.id, d.fqdn]));
+    await tx.insert(scanJobTargets).values(
+      inserted.map((row) => ({
+        scanJobId: row.id,
+        assetId: null,
+        targetHostname: fqdnOf.get(row.domainId ?? '') ?? '',
+      })),
+    );
+    await writeAudit(tx as unknown as Database, {
+      actorType: 'system',
+      action: 'scan.scheduled',
+      resourceType: 'scan_job',
+      metadata: { profile: profile.key, jobType: 'discovery', jobs: inserted.length },
+    });
+    return inserted.length;
+  });
+}
+
 /** Deletes request nonces older than the signature window (they can no longer be replayed). */
 export async function pruneNonces(db: Database, now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - 2 * WORKER_SIGNATURE_MAX_SKEW_SECONDS * 1000);
@@ -144,6 +247,7 @@ export async function runMaintenance(db: Database, now: Date, logger: Logger): P
     ['verifications_expired', () => expireStaleChallenges(db, now)],
     ['nonces_pruned', () => pruneNonces(db, now)],
     ['passive_jobs_scheduled', () => schedulePassiveMonitoring(db, now)],
+    ['discovery_jobs_scheduled', () => scheduleDiscovery(db, now)],
     // Rules evaluation of succeeded jobs (oldest first, bounded batch). Results submissions also
     // trigger evaluation right after the response; this step is the guaranteed path (≤5 min lag).
     ['evaluate_pending_jobs', () => evaluatePendingJobs(db, now, { logger })],

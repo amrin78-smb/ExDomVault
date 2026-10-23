@@ -352,7 +352,8 @@ Safety rules: [`scan-safety.md`](scan-safety.md).
 Profiles are server-defined rows in `scan_profiles` (seeded keys in
 [`database-schema.md`](database-schema.md#seeded-scan-profiles)). A stored `config` that fails
 `scanProfileConfigSchema` is omitted (fail closed). `activeScanningEnabled` mirrors the
-`ACTIVE_SCANNING_ENABLED` Worker var.
+`ACTIVE_SCANNING_ENABLED` Worker var. The `discovery` profile is **not** listed: discovery is a job type
+of its own ([`POST /domains/:id/discovery`](#post-apiv1domainsiddiscovery--scansrequest)).
 
 ### `POST /api/v1/domains/:id/scans` — `scans:request`
 
@@ -365,7 +366,7 @@ Then, in one transaction with the domain row locked:
 
 | Condition                                                                       | Response                              |
 | ------------------------------------------------------------------------------- | ------------------------------------- |
-| Unknown or disabled profile                                                     | `400 validation_failed` (`profile`)   |
+| Unknown or disabled profile, or `discovery`                                     | `400 validation_failed` (`profile`)   |
 | Active profile and `ACTIVE_SCANNING_ENABLED` is not `true`                      | `409 conflict`                        |
 | Unknown domain                                                                  | `404 not_found`                       |
 | Active profile and the domain is not `verified` (or its review date has passed) | `409 conflict`                        |
@@ -380,6 +381,31 @@ into the job's immutable `scopeSnapshot`, together with — for active profiles 
 active [approved network](#approved-networks--scan_policiesmanage) (networks are organisation-wide;
 passive snapshots carry none). Audited `scan.requested` (domain, profile, active, target count,
 approved-network count, reason).
+
+### `POST /api/v1/domains/:id/discovery` — `scans:request`
+
+No body. Queues passive subdomain discovery for the domain: a job with `jobType: "discovery"`, profile
+`discovery` (checks `["discovery"]`, `active: false`) and exactly one target, the apex hostname with
+`assetId: null`. Passive (the worker queries Certificate Transparency logs and public resolvers, never
+the domain's hosts), so domain verification is not required. Returns `discoveryRequestResponseSchema`:
+
+- **`201`** `{ "scanJobId": "uuid", "created": true }` — a job was queued (audited `scan.requested` with
+  `jobType: "discovery"`);
+- **`200`** `{ "scanJobId": "uuid", "created": false }` — a discovery job for the domain is already
+  `queued`/`claimed`/`running` (also when a concurrent request wins the race).
+
+`404 not_found` for an unknown domain; `403` without `scans:request`. Progress and results: `GET
+/scans/:id`. Discovery is also scheduled weekly by the cron (see [Discovery scheduling](#discovery-scheduling-cron)).
+
+### Discovery scheduling (cron)
+
+Each 5-minute maintenance run creates discovery jobs (`trigger: "schedule"`, priority 250 — behind
+user-requested scans at 100 and scheduled passive monitoring at 200) for domains with
+`monitoring_enabled` that have had no discovery job queued, running or created in the last 7 days. A
+domain that has never had discovery waits for its slot in the week (a stable hash of its id over a
+7-day cycle), so a large inventory spreads over the week; afterwards each domain recurs about 7 days
+after its previous job. At most 50 jobs per run; the one-active-job-per-domain+profile index absorbs
+races. Scheduled jobs are refused at claim time if monitoring was switched off meanwhile.
 
 ### `GET /api/v1/scans` — `scans:read`
 
@@ -595,8 +621,9 @@ Body `{ body }` (1–4000 chars). `201 { comment }`. Append-only. Audit `finding
 ### `POST /api/v1/findings/:id/reassess` — `scans:request`
 
 Queues a scan of the finding's domain with the cheapest enabled profile (passive → quick → standard →
-deep) that runs the rule's checks, through the normal scan rules (active scanning switch, domain
-authorisation). `201 { scanJobId, profile, created: true }`, or `200` with `created: false` when the same
+deep, then `discovery` for asset-inventory rules such as ASSET-001/ASSET-002) that runs the rule's
+checks, through the normal scan rules (active scanning switch, domain authorisation; discovery jobs are
+passive and created as by `POST /domains/:id/discovery`). `201 { scanJobId, profile, created: true }`, or `200` with `created: false` when the same
 job is already queued or running. `409 conflict` path `ruleId` when no profile runs the rule.
 
 ### `GET /api/v1/users/assignable` — `findings:assign`
@@ -616,6 +643,91 @@ The rule catalogue (id, version, category, severity, detection, resolution, evid
 Every 5 minutes, accepted risks whose review date has passed return to `open` (history
 `accepted_risk_expired` with the previous reason as note; system audit
 `finding.risk_acceptance_expired`).
+
+## Assets
+
+The asset inventory: hostnames beneath a registered domain (design §5.4–5.5, §7, §10). Contracts:
+`packages/shared/src/api/assets.ts`. Passive discovery creates `pending` candidates; only an explicit,
+audited approval puts a hostname into scan scope, and approval never authorises network-tier checks
+against third-party hosting (those still need an [approved network](#approved-networks--scan_policiesmanage)).
+
+| Permission       | Roles                                 | Grants                                     |
+| ---------------- | ------------------------------------- | ------------------------------------------ |
+| `assets:read`    | admin, analyst, viewer, asset_owner\* | list and read assets                       |
+| `assets:approve` | admin                                 | approve, reject, suspend (single and bulk) |
+
+\* Asset owners see only assets with `owner_user_id` = themselves; any other asset is `404 not_found`.
+
+**Asset** (`assetSchema`): `id`, `domain {id, fqdn}`, `hostname`, `assetType` (`apex`/`subdomain`),
+`status` (`pending`/`approved`/`rejected`/`suspended`), `source` (`manual`/`import`/
+`certificate_transparency`/`dns`), `firstSeenAt`, `lastSeenAt`, `currentIps` (addresses with
+`asset_ips.is_current`), `hostingHint` (`{provider, kind, matchedName}` or `null` — `null` means no
+known provider matched, not that the host is self-hosted), `wildcardOnly`, `decidedBy {id, email}|null`,
+`decidedAt`, `decisionReason`, `activeFindings` (non-resolved findings with the asset's domain and
+hostname).
+
+### `GET /api/v1/assets` — `assets:read`
+
+Query (`assetListQuerySchema`): `page` (≥1), `pageSize` (1–100, default 25), `status`, `domainId`,
+`source`, `thirdParty` (`true` = has a hosting hint, `false` = none), `q` (substring of the hostname,
+case-insensitive, LIKE wildcards literal), `sort` (`hostname` default, `-lastSeenAt`, `-firstSeenAt`).
+Returns the standard page envelope `{ items, page, pageSize, total }`.
+
+### `GET /api/v1/domains/:id/assets` — `assets:read`
+
+As `GET /assets`, scoped to the domain (a `domainId` query parameter cannot widen it). `404` for an
+unknown domain, and for an asset owner who owns no asset in it.
+
+### `GET /api/v1/assets/:id` — `assets:read`
+
+`{ asset, ips, discovery }`: `ips` is the address history (`ipAddress`, `firstSeenAt`, `lastSeenAt`,
+`isCurrent`, `source`; current first, then most recently seen); `discovery` is the latest 50 discovery
+sightings, newest first (`source`, `observedAt`, `wildcard`, `scanJobId`, `evidence`).
+
+### Decisions — `assets:approve`
+
+| Endpoint                          | Body                                                         | Allowed from                                      |
+| --------------------------------- | ------------------------------------------------------------ | ------------------------------------------------- |
+| `POST /api/v1/assets/:id/approve` | `{ reason (3–1000), acknowledgeThirdPartyHosting? = false }` | `pending`, `suspended`, `rejected`                |
+| `POST /api/v1/assets/:id/reject`  | `{ reason }`                                                 | `pending` subdomains (the apex is never rejected) |
+| `POST /api/v1/assets/:id/suspend` | `{ reason }`                                                 | `approved`                                        |
+
+The rules are `allowedAssetActions(status, assetType)` from the shared package. Responses: `200 { asset }`.
+Errors:
+
+| Condition                                                        | Response                                                     |
+| ---------------------------------------------------------------- | ------------------------------------------------------------ |
+| Unknown asset (or not visible)                                   | `404 not_found`                                              |
+| Decision not allowed from the current status (incl. same status) | `409 conflict`, details path `status`                        |
+| Approving an asset with a `hostingHint` without acknowledgement  | `400 validation_failed`, path `acknowledgeThirdPartyHosting` |
+| Invalid body (short reason, unknown fields)                      | `400 validation_failed`                                      |
+| Missing `assets:approve`                                         | `403 forbidden`                                              |
+
+Effects, all in one transaction:
+
+- `approve` sets `approved_by`/`approved_at`, `monitoring_enabled = true`; `reject`/`suspend` set
+  `monitoring_enabled = false`. Every decision records `decided_by`, `decided_at`, `decision_reason`.
+- Audit `asset.approved` / `asset.rejected` / `asset.suspended` with `domainId`, `hostname`, `from`,
+  `to`, `reason`, `hostingHint`, `acknowledgeThirdPartyHosting` (and `bulk: true` for bulk).
+- The hostname's active **ASSET-001** finding (fingerprint `ASSET-001|domainId|hostname|hostname`) is
+  resolved at once: `status = resolved`, `resolved_at` = now, a status-history entry with
+  `reason = asset_decided`, `changed_by` = the actor and `note = "Asset <status>: <reason>"`, and an
+  audit `finding.status_changed`. The per-domain findings lock is taken so a concurrent rules
+  evaluation cannot reopen it from stale asset data.
+- `suspend` also stops in-flight **active** jobs that target the asset (`scan_job_targets.asset_id`):
+  its unfinished targets are skipped (`asset_suspended`), claimed/running jobs are flagged for
+  cancellation (the worker stops at its next heartbeat; audited `scan.cancel_requested`), and active
+  evidence for it is refused from then on. Passive jobs are unaffected.
+
+Approved subdomains become scan targets of later jobs (re-checked on an exact label boundary at job
+creation); suspended and rejected assets are skipped at claim time.
+
+### `POST /api/v1/assets/bulk` — `assets:approve`
+
+Body `{ ids: uuid[1..500], action: "approve"|"reject"|"suspend", reason, acknowledgeThirdPartyHosting? }`.
+Set-based (a few statements regardless of size). Response `{ updated, skipped: [{ id, code }] }` with
+codes `not_found`, `invalid_transition`, `third_party_not_acknowledged`, `no_change` (already in the
+target status). Effects per updated asset as above.
 
 ## Internal worker API — signed requests
 
@@ -743,18 +855,37 @@ Body:
 - `complete: true` marks every target not reported as finished `failed` (`errorCode: not_reported`) and
   the job `succeeded` — also after a cancel request, since the work was done.
 - Response `{ "accepted": true, "status": "running" | "succeeded" }`.
-- `observations` (≤ 500, default `[]`): `dns`, `registration`, `tls`, `http`, `port` observations
+- `observations` (≤ 500, default `[]`): `discovery`, `dns`, `registration`, `tls`, `http`, `port` observations
   (shapes and rules in [`worker-protocol.md`](worker-protocol.md#observations-milestone-5)), stored in
   the same transaction. Any invalid observation rejects the whole submission (`400 validation_failed`
   with the observation's index and field). Highlights: `tls.hostname` and the `http` URL host must equal
   the target's hostname; addresses must be public unicast; `port` (and `tls` with
   `check: "tls_configuration"`) addresses must lie in the job's currently approved networks; evidence
   ≤ 16 KB (UTF-8 bytes).
+- **`discovery` observations** are accepted only for a job with `jobType: "discovery"` whose snapshot
+  profile lists the `discovery` check (else `400`, field `kind`), and the hostname is re-checked on an
+  exact label boundary against the job's domain (else `400`, field `hostname`: `evil-example.com`,
+  `example.com.evil.net` are rejected). Every observation is stored in `discovery_observations`. Each
+  **successful** hostname is upserted as an asset in one statement per submission: a new hostname becomes
+  a `pending` candidate (`apex` if it equals the domain, else `subdomain`; source
+  `certificate_transparency`; first/last seen = `observedAt`; `wildcard_only` = the sighting's
+  `wildcard`); an existing asset only gets `last_seen_at` advanced (never moved back) and
+  `wildcard_only` narrowed (`existing AND incoming`). **Ingestion never changes an asset's approval
+  status**, so discovery cannot put a hostname into scan scope. `error`/`timeout`/`partial`
+  observations are stored as evidence only.
+- **DNS → inventory (any job type):** successful `A`/`AAAA` observations whose hostname is an asset of
+  the job's domain upsert `asset_ips` (source `dns`, `last_seen_at` advanced); addresses of the same
+  family last seen before the newest answer stop being current (an empty answer leaves none current; an
+  older, out-of-order answer revives nothing). A successful `CNAME` observation recomputes the asset's
+  `hosting_hint` with `classifyHosting(values)` (empty answer or no known provider → `null`); no CNAME
+  observation leaves it unchanged. Set-based (a few statements per submission).
 - **Authorisation withdrawn:** the job's authorisation is re-checked first. If it no longer holds, the
   job is flagged for cancellation (committed), and a submission containing any `tls`, `http` or `port`
   observation is refused with **`409 conflict`** ("This job is no longer authorised for active checks;
   its active evidence was not accepted."). Status-only and passive (`dns`/`registration`) submissions
-  are still accepted. The worker treats any `409` as "stop work on this job".
+  are still accepted. The same `409` applies to active evidence for a target whose asset is no longer
+  `approved` (suspended or rejected mid-job); the job is flagged for cancellation too. The worker treats
+  any `409` as "stop work on this job".
 
 After a successful submission that completes the job, the rules engine evaluates its observations
 (immediately, best effort, and otherwise by the 5-minute cron).

@@ -93,6 +93,7 @@ describe('App shell', () => {
   it.each([
     ['Findings', 'Findings'],
     ['Advisories', 'Advisories'],
+    ['Assets', 'Assets'],
   ])('routes %s to its implemented page, not a placeholder', async (link, heading) => {
     renderApp();
     await userEvent.click(screen.getByRole('link', { name: link }));

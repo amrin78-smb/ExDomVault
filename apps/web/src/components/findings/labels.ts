@@ -36,6 +36,7 @@ const REASON_LABELS: Record<string, string> = {
   recurrence: 'Observed again after being resolved',
   condition_absent: 'Resolved by scan',
   accepted_risk_expired: 'Risk acceptance expired',
+  asset_decided: 'Resolved by asset review',
 };
 
 /** Friendly text for a status-history reason code; `manual` names the user who made the change. */

@@ -199,6 +199,71 @@ describe('Domain scans card', () => {
   });
 });
 
+describe('Discovery jobs', () => {
+  const discoveryJob = () =>
+    job({ id: crypto.randomUUID(), jobType: 'discovery', profile: 'discovery' });
+
+  it('shows the job type in the scan list', async () => {
+    stubApi('viewer', {
+      'GET /api/v1/scans': ok({ items: [job(), discoveryJob()], page: 1, pageSize: 25, total: 2 }),
+    });
+    renderAt('/scans');
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Type' })).toBeInTheDocument();
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(within(rows[0]!).getByText('Scan')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('Discovery')).toBeInTheDocument();
+  });
+
+  it('titles a discovery job and explains that nothing is contacted or scanned', async () => {
+    const d = job({ jobType: 'discovery', profile: 'discovery' });
+    stubApi('viewer', { [`GET /api/v1/scans/${JOB_ID}`]: ok(detail(d)) });
+    renderAt(`/scans/${JOB_ID}`);
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Discovery for example.com' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Discovery job')).toBeInTheDocument();
+    const note = screen.getByTestId('discovery-note');
+    expect(note).toHaveTextContent(/never contacts the domain's hosts/);
+    expect(within(note).getByRole('link', { name: 'Assets' })).toHaveAttribute(
+      'href',
+      `/assets?domainId=${DOMAIN_ID}`,
+    );
+  });
+
+  it('never offers the discovery profile in the scan picker', async () => {
+    const withDiscovery = profiles(false);
+    withDiscovery.items.push({
+      key: 'discovery',
+      name: 'Discovery',
+      description: 'Certificate Transparency.',
+      version: 1,
+      defaultSchedule: 'weekly',
+      enabled: true,
+      config: { ...passiveConfig, checks: ['discovery'] },
+    });
+    stubApi('analyst', {
+      [`GET /api/v1/domains/${DOMAIN_ID}`]: ok({ domain, verification: null }),
+      'GET /api/v1/scan-profiles': ok(withDiscovery),
+      [`GET /api/v1/scans?domainId=${DOMAIN_ID}&pageSize=5`]: ok({
+        items: [discoveryJob()],
+        page: 1,
+        pageSize: 5,
+        total: 1,
+      }),
+    });
+    renderAt(`/domains/${DOMAIN_ID}`);
+    const scans = await screen.findByRole('region', { name: 'Scans' });
+    await within(scans).findByRole('option', { name: /Passive/ });
+    expect(
+      within(scans)
+        .getAllByRole('option')
+        .map((o) => o.getAttribute('value')),
+    ).toEqual(['passive', 'quick']);
+    expect(await within(scans).findByRole('link', { name: /^Discovery ·/ })).toBeInTheDocument();
+  });
+});
+
 describe('Settings: workers', () => {
   it('registers a worker by public key and shows its key id', async () => {
     const worker = {

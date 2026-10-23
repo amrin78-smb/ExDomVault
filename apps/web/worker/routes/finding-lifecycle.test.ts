@@ -801,8 +801,17 @@ describe('POST /findings/:id/reassess', () => {
     expect(await profileOf(hdr)).toBe('standard');
     expect(await profileOf(port)).toBe('standard'); // reuses the standard job
     expect(await profileOf(tlsCfg)).toBe('deep');
-    // No profile runs discovery: nothing to queue.
-    await expectError(await reassess('analyst', disc, ACTIVE_ON), 409, 'conflict', 'ruleId');
+    // Asset-inventory rules are re-checked by passive discovery (no verification needed).
+    const discRes = await reassess('analyst', disc);
+    expect(discRes.status).toBe(201);
+    const discBody = findingReassessResponseSchema.parse(await discRes.json());
+    expect(discBody).toMatchObject({ profile: 'discovery', created: true });
+    const [discJob] = await t.db.select().from(scanJobs).where(eq(scanJobs.id, discBody.scanJobId));
+    expect(discJob).toMatchObject({ jobType: 'discovery', status: 'queued' });
+    // Asked again while queued: the same job.
+    expect(
+      findingReassessResponseSchema.parse(await (await reassess('analyst', disc)).json()),
+    ).toMatchObject({ scanJobId: discBody.scanJobId, created: false });
   });
 
   it('requires scans:request and a visible finding', async () => {

@@ -1,6 +1,7 @@
 import { SCAN_JOB_STATUSES, SCAN_JOB_STATUS_LABELS } from '@exdomainvault/shared';
 import { Radar } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router';
+import { JOB_TYPE_LABELS } from '../../components/scans/labels.ts';
 import { ScanStatusBadge } from '../../components/scans/ScanStatusBadge.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -82,6 +83,9 @@ export function ScansPage() {
                     Domain
                   </th>
                   <th scope="col" className="py-2 pr-4">
+                    Type
+                  </th>
+                  <th scope="col" className="py-2 pr-4">
                     Profile
                   </th>
                   <th scope="col" className="py-2 pr-4">
@@ -111,6 +115,7 @@ export function ScansPage() {
                           {j.domain?.fqdn ?? 'Deleted domain'}
                         </Link>
                       </td>
+                      <td className="py-2.5 pr-4">{JOB_TYPE_LABELS[j.jobType]}</td>
                       <td className="py-2.5 pr-4 capitalize">{j.profile}</td>
                       <td className="py-2.5 pr-4">
                         <ScanStatusBadge status={j.status} />

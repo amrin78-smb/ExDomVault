@@ -13,7 +13,7 @@ def test_valid_config_applies_defaults(valid_env):
     assert config.environment == "production"
     assert config.poll_interval_seconds == 30
     assert config.log_level == "INFO"
-    assert config.profiles == ("passive",)
+    assert config.profiles == ("passive", "discovery")
     assert config.dns_resolvers == ("1.1.1.1", "9.9.9.9", "2606:4700:4700::1111", "2620:fe::fe")
     assert config.health_file == DEFAULT_HEALTH_FILE
     assert config.access_client_id is None

@@ -2,6 +2,7 @@ import { schema, type Database } from '@exdomainvault/database';
 import type { Rule } from '@exdomainvault/rules';
 import {
   ACCEPTED_RISK_MAX_DAYS,
+  DISCOVERY_PROFILE_KEY,
   SCAN_PROFILE_KEYS,
   canTransition,
   hasPermission,
@@ -429,7 +430,8 @@ async function activeJobFor(db: Database, domainId: string, profile: string) {
 
 /**
  * POST /findings/:id/reassess — queues a scan of the finding's domain with the cheapest enabled
- * profile (passive < quick < standard < deep) that runs one of the rule's checks. Scan creation
+ * profile (passive < quick < standard < deep, then discovery for asset-inventory rules) that runs
+ * one of the rule's checks. Scan creation
  * rules (active scanning switch, domain authorisation, approved targets, audit) are createScan's.
  * An identical queued/running job is returned instead of a new one (`created: false`).
  */
@@ -446,11 +448,13 @@ export async function reassessFinding(
   const rule = rules.find((r) => r.id === finding.ruleId);
   const profiles = (await listProfiles(db)).filter((p) => p.enabled);
   const profile = rule
-    ? SCAN_PROFILE_KEYS.map((k) => profiles.find((p) => p.key === k)).find(
-        (p) =>
-          p !== undefined &&
-          rule.requiresChecks.some((c) => (p.config.checks as readonly string[]).includes(c)),
-      )
+    ? [...SCAN_PROFILE_KEYS, DISCOVERY_PROFILE_KEY]
+        .map((k) => profiles.find((p) => p.key === k))
+        .find(
+          (p) =>
+            p !== undefined &&
+            rule.requiresChecks.some((c) => (p.config.checks as readonly string[]).includes(c)),
+        )
     : undefined;
   if (!profile) {
     throw new ApiError(409, 'conflict', 'No scan profile re-checks this finding.', [
@@ -468,6 +472,7 @@ export async function reassessFinding(
       actor,
       now,
       policy,
+      profile.key === DISCOVERY_PROFILE_KEY ? 'discovery' : 'scan',
     );
     return { scanJobId: jobId, profile: profile.key, created: true };
   } catch (err) {

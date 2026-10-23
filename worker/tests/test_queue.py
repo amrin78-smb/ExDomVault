@@ -250,7 +250,7 @@ def test_passive_job_end_to_end(setup):
     assert endpoints[1] == "heartbeat"
     assert endpoints[-1] == "results"
     assert "failures" not in endpoints
-    assert api.endpoint_calls("claim")[0] == {"profiles": ["passive"]}
+    assert api.endpoint_calls("claim")[0] == {"profiles": ["passive", "discovery"]}
     hb = api.endpoint_calls("heartbeat")[0]
     assert hb == {
         "jobId": JOB_ID,

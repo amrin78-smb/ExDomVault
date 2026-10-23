@@ -27,6 +27,9 @@ Commands marked `sudo` are run by the owner. Nothing here is automated.
   `timedatectl show -p NTPSynchronized` prints `NTPSynchronized=yes`.
 - An ExDomainVault administrator account (to register the worker) and access to the Cloudflare
   dashboard (to create the Access service token).
+- Outbound HTTPS (TCP 443) to `crt.sh` for passive subdomain discovery (profile `discovery`,
+  Milestone 9). This is the only new destination; nothing else about the host, firewall or systemd
+  unit changes (crt.sh is a public address, so the unit's `IPAddressDeny=` list does not affect it).
 - Nmap, only for the network-tier checks of the `standard`/`deep` profiles (`sudo apt install nmap`;
   this host has 7.94). It runs unprivileged as a TCP connect scan (no `CAP_NET_RAW`). Without it those
   checks fail with `nmap_unavailable`; passive and web checks are unaffected.
@@ -149,13 +152,14 @@ EXDV_ACCESS_CLIENT_ID=<Client ID from step 6>
 EXDV_ACCESS_CLIENT_SECRET=<Client Secret from step 6>
 EXDV_ENVIRONMENT=production
 EXDV_POLL_INTERVAL_SECONDS=30
-EXDV_PROFILES=passive
+EXDV_PROFILES=passive,discovery
 EXDV_LOG_LEVEL=INFO
 EXDV_ACTIVE_SCANNING_ENABLED=false
 #EXDV_DENY_NETWORKS=
 ```
 
-`EXDV_ACTIVE_SCANNING_ENABLED` stays `false` (the default) until you deliberately enable active scanning
+`discovery` is passive (Certificate Transparency via crt.sh plus public DNS resolvers); drop it from
+`EXDV_PROFILES` to stop this worker from running discovery jobs. `EXDV_ACTIVE_SCANNING_ENABLED` stays `false` (the default) until you deliberately enable active scanning
 (step 15). Leave `EXDV_DNS_RESOLVERS` unset to query the public resolvers 1.1.1.1 and 9.9.9.9 (and their IPv6
 addresses), so records are seen as the internet sees them. `system` uses the host's resolver
 (`127.0.0.53`, systemd-resolved), which answers DS/DNSKEY queries with SERVFAIL. Write
@@ -269,6 +273,11 @@ EXDV_ACTIVE_SCANNING_ENABLED=false
 Both are optional (the defaults are `false` and empty), so an upgrade without them keeps the worker
 passive-only. Set them when enabling active scanning (step 15).
 
+For the Milestone 9 upgrade (passive discovery), add `discovery` to the existing profile list, e.g.
+`EXDV_PROFILES=passive,discovery` (or `passive,discovery,quick,standard` with active scanning). An
+explicit `EXDV_PROFILES` without `discovery` means discovery jobs stay queued until another worker
+claims them. The upgrade also needs outbound HTTPS to `crt.sh`.
+
 **Application first.** When the new worker version goes with application changes that need a database
 migration (Milestone 6: `0003_approved_networks`), the migration and application deploy come first
 ([`deployment.md`](deployment.md#milestone-6-scope-validator-and-active-checks)); the worker is
@@ -351,6 +360,8 @@ is in the application's Workers logs as `worker_auth_failed` with a `reason` fie
 | Service in `failed` state, `start request repeated too quickly`     | Start limit reached (usually invalid configuration). `journalctl -u exdomainvault-worker -o cat -n 50`, fix, `sudo systemctl reset-failed exdomainvault-worker`, start again.                                                                                                           |
 | `invalid_config` at start                                           | Read the `detail` field; run `exdv_run --check-config` after each fix.                                                                                                                                                                                                                  |
 | `Failed to set up credentials` / status `243/CREDENTIALS`           | `/etc/exdomainvault/worker.key` is missing or unreadable by root.                                                                                                                                                                                                                       |
+| Discovery jobs fail with `discovery_provider_unavailable`           | crt.sh timed out, rate-limited (429) or returned 5xx; the application retries with backoff. Persistent failures: check outbound HTTPS to `crt.sh` (`curl -sI https://crt.sh/`); crt.sh is often slow for very large domains.                                                            |
+| Discovery target `failed` with `discovery_provider_error`           | crt.sh returned something other than JSON (HTML error page, redirect, 4xx). The `discovery` observation's `evidence.errorClass` says which; the next scheduled run retries.                                                                                                             |
 | DNS checks all time out                                             | `EXDV_DNS_RESOLVERS` points at a LAN address blocked by `IPAddressDeny=`; unset it or add it to `IPAddressAllow=`.                                                                                                                                                                      |
 
 ## 14. Security notes
@@ -365,8 +376,8 @@ is in the application's Workers logs as `worker_auth_failed` with a `reason` fie
   worker's credentials and network position.
 - **Active scanning is off by default.** The worker runs active checks only with
   `EXDV_ACTIVE_SCANNING_ENABLED=true`, and the application refuses active profiles while its own
-  `ACTIVE_SCANNING_ENABLED` is `false` (both ship `false`). Until both are switched on only passive DNS
-  and RDAP checks run. Nmap runs unprivileged (TCP connect scans; no `CAP_NET_RAW`).
+  `ACTIVE_SCANNING_ENABLED` is `false` (both ship `false`). Until both are switched on only passive DNS,
+  RDAP and Certificate Transparency discovery checks run. Nmap runs unprivileged (TCP connect scans; no `CAP_NET_RAW`).
 - Keep the OS and Python packages patched (`sudo apt upgrade`, then step 11 for Python dependencies).
 
 ## 15. Enabling active scanning
@@ -393,7 +404,7 @@ either one off stops active checks.
 
    ```bash
    EXDV_ACTIVE_SCANNING_ENABLED=true
-   EXDV_PROFILES=passive,quick,standard
+   EXDV_PROFILES=passive,discovery,quick,standard
    EXDV_DENY_NETWORKS=203.0.113.7/32,2001:db8:1234:5678::/64
    ```
 

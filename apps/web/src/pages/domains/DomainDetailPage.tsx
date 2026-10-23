@@ -1,7 +1,8 @@
 import type { DomainDetailResponse } from '@exdomainvault/shared';
-import { AlertTriangle, ArrowLeft, Construction } from 'lucide-react';
+import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { DomainAssetsCard } from '../../components/assets/DomainAssetsCard.tsx';
 import { DnsRecordsCard } from '../../components/domains/DnsRecordsCard.tsx';
 import { CriticalityLabel, VerificationBadge } from '../../components/domains/DomainBadges.tsx';
 import { DomainScansCard } from '../../components/domains/DomainScansCard.tsx';
@@ -12,8 +13,6 @@ import { RegistrationCard } from '../../components/domains/RegistrationCard.tsx'
 import { TlsCard } from '../../components/domains/TlsCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
 import { DomainFindingsCard } from '../../components/findings/DomainFindingsCard.tsx';
-import { Card } from '../../components/ui/Card.tsx';
-import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDate } from '../../lib/format.ts';
@@ -103,11 +102,7 @@ export function DomainDetailPage() {
 
         <PortsCard state={observations} />
 
-        <Card title="Assets">
-          <EmptyState title="Not available yet" icon={Construction}>
-            Discovered hostnames and assets arrive with discovery (Milestone 9).
-          </EmptyState>
-        </Card>
+        <DomainAssetsCard domain={domain} />
       </div>
     </>
   );

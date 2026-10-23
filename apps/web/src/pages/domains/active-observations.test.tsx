@@ -317,7 +317,7 @@ describe('Domain page: ports', () => {
 });
 
 describe('Domain page layout and scan tiers', () => {
-  it('orders the cards and keeps only the assets/findings placeholder', async () => {
+  it('orders the cards, with the Assets card last', async () => {
     stubPage({});
     renderAt(`/domains/${DOMAIN_ID}`);
     await card('Ports');

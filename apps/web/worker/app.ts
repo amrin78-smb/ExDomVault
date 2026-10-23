@@ -9,6 +9,7 @@ import { requestContext } from './middleware/request-context.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
 import type { Rule } from '@exdomainvault/rules';
 import { advisoryRoutes } from './routes/advisories.ts';
+import { assetRoutes } from './routes/assets.ts';
 import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
 import { findingRoutes } from './routes/findings.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
@@ -58,6 +59,7 @@ export function createApp(deps: AppDeps = {}) {
   authed.use('*', requireAuth(deps.auth));
   authed.route('/me', meRoutes);
   authed.route('/domains', domainRoutes({ now: deps.now, ...deps.domains }));
+  authed.route('/assets', assetRoutes({ now: deps.now }));
   authed.route('/scan-profiles', scanProfileRoutes());
   authed.route('/scans', scanRoutes({ now: deps.now }));
   authed.route('/workers', workerAdminRoutes({ now: deps.now }));

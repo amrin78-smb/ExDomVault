@@ -14,9 +14,11 @@ Related: [`threat-model.md`](threat-model.md), [`worker-protocol.md`](worker-pro
 - Active scanning is **off** unless both independent kill switches are turned on (see
   [Kill switches](#kill-switches)). `apps/web/wrangler.jsonc` ships `ACTIVE_SCANNING_ENABLED: "false"`;
   the worker defaults `EXDV_ACTIVE_SCANNING_ENABLED` to `false`, and the shipped `worker.env`
-  (`worker/deploy/install.sh`, `worker/.env.example`) sets `EXDV_PROFILES=passive`.
-- Passive checks (`dns`, `rdap`) query public resolvers and registries only and never contact the
-  domain's own hosts.
+  (`worker/deploy/install.sh`, `worker/.env.example`) sets `EXDV_PROFILES=passive,discovery` (both
+  passive).
+- Passive checks (`dns`, `rdap`, `discovery`) query public resolvers, registries and one fixed
+  Certificate Transparency provider only, and never contact the domain's own hosts (see
+  [Passive discovery](#passive-discovery-milestone-9)).
 
 ## Tiered policy (owner decision)
 
@@ -24,11 +26,11 @@ Every check belongs to exactly one tier (`policy.tier_of`, `PASSIVE_TIER_CHECKS`
 `NETWORK_TIER_CHECKS`; mirrored server-side by `PASSIVE_CHECKS` / `WEB_CHECKS` / `NETWORK_CHECKS` in
 `packages/shared/src/api/scans.ts`). An unknown check is refused (`check_not_allowed`).
 
-| Tier    | Checks                                                     | May contact                                                                                              |
-| ------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| passive | `dns`, `rdap`                                              | Configured DNS resolvers, IANA RDAP bootstrap and the registry's RDAP server. Never a target host.       |
-| web     | `tls_certificate`, `http_availability`, `http_headers`     | Any **public** address an in-scope hostname resolves to (browser-like: one handshake / one GET per hop). |
-| network | `tcp_ports`, `service_identification`, `tls_configuration` | Only public addresses **inside the job's admin-approved networks**.                                      |
+| Tier    | Checks                                                     | May contact                                                                                                                            |
+| ------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| passive | `dns`, `rdap`, `discovery`                                 | Configured DNS resolvers, IANA RDAP bootstrap and the registry's RDAP server, `https://crt.sh/` (discovery only). Never a target host. |
+| web     | `tls_certificate`, `http_availability`, `http_headers`     | Any **public** address an in-scope hostname resolves to (browser-like: one handshake / one GET per hop).                               |
+| network | `tcp_ports`, `service_identification`, `tls_configuration` | Only public addresses **inside the job's admin-approved networks**.                                                                    |
 
 Domain verification never authorises the network tier on its own: a verified domain hosted on a CDN or
 cloud provider gets web checks only, unless an administrator approves the specific network
@@ -279,7 +281,45 @@ Two independent switches; both must be on for any target connection.
 | `EXDV_ACTIVE_SCANNING_ENABLED` (worker) | `/etc/exdomainvault/worker.env` | Job with an active profile or connecting check refused before any check (`Worker._refusal`); and `assert_check_allowed` / `assert_destination` refuse every connection (`active_scanning_disabled`). Only `true`/`false`; read at start-up, so changes need a restart (which also ends the current job; its lease expires and it is retried). |
 
 `EXDV_PROFILES` is a further operator control: the worker claims only the listed profiles (default
-`passive`). A user can also cancel a running job (picked up at the next heartbeat).
+`passive,discovery`). A user can also cancel a running job (picked up at the next heartbeat).
+
+## Passive discovery (Milestone 9)
+
+`worker/app/discovery.py` (protocol details in
+[`worker-protocol.md`](worker-protocol.md#passive-discovery-milestone-9)). Discovery finds candidate
+hostnames; it is evidence, not authorisation.
+
+- **Passive only.** The `discovery` check is in the passive tier (`PASSIVE_TIER_CHECKS`,
+  `scope.PASSIVE_CHECKS`). It makes one HTTPS request to a **fixed** provider URL
+  (`https://crt.sh/?q=%25.<domain>&output=json`, the domain being the validated registrable job
+  domain) and resolves candidates through the configured public resolvers. It never opens a connection
+  to a candidate or target, never builds a scope policy, and never runs a web/network check: a
+  profile that combines `discovery` with `active: true` or any connecting check is refused before
+  anything runs (`invalid_profile`), whatever `EXDV_ACTIVE_SCANNING_ENABLED` says. Tests replace every
+  connecting primitive (`net.connect_tcp`, `tls_handshake`, `http_get`), the policy factory and
+  self-protection with functions that fail the test (`tests/test_discovery.py`).
+- **Provider request hygiene.** HTTPS with certificate verification; redirects are never followed (a
+  redirect is a permanent provider error); proxy variables from the environment are ignored
+  (`trust_env=False`); identifying `User-Agent: ExDomainVault-worker/<version> (passive discovery)`;
+  profile connect/read timeouts clipped to the target budget; the body is streamed and capped at
+  32 MB (beyond it the run is `partial`); one JSON element is capped at 1 MB; at most 50 000 distinct
+  raw names are tracked; at most one provider request every 3 s per worker process.
+- **Never expands scope.** Candidates are reported as `discovery` observations; the server stores them
+  as `pending` assets. Nothing the worker discovers is added to the running job, to its scope snapshot
+  or to any later job; only an explicit approval in the application can make a discovered name a scan
+  target.
+- **Filters.** Certificates expired for more than 365 days are ignored. Names are lowercased, one
+  trailing dot stripped, a leading `*.` stripped and flagged (`wildcard`), any other `*` dropped; IDNs
+  are converted to A-labels that must round-trip (`idna` package, IDNA 2008 + UTS #46); emails, IP
+  literals, empty labels, non-LDH labels (including `_`), labels over 63 and names over 253 characters
+  are dropped; the exact label-boundary check (`name == domain or name.endswith("." + domain)`) rejects
+  `example.com.evil.com`, `evilexample.com` and similar. The server re-validates every hostname.
+- **Limits.** At most 2000 candidates per run (more → `partial`), at most 300 resolved (A, AAAA,
+  CNAME), DNS rate-limited by the profile's `ratePerSecond` and `concurrency`, everything within
+  `targetSeconds`.
+- **Failures never look like absence.** Transient provider failures are reported as retryable job
+  failures; permanent ones and truncated runs produce one `error`/`partial` observation for the domain
+  so the run is known to be incomplete.
 
 ## Home-network self-protection
 

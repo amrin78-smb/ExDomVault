@@ -5,7 +5,8 @@ while it holds the lease (``attempt`` is the fencing token). A ``409`` stops wor
 nothing further is reported for that job. Failed or incomplete work is never reported as success:
 targets that could not be checked are reported ``failed`` with an error code.
 
-Checks run per target, grouped by tier (``app.policy``): passive (``dns``, ``rdap``), web
+Checks run per target, grouped by tier (``app.policy``): passive (``dns``, ``rdap``, and
+``discovery`` at the apex target, see ``app.discovery``), web
 (``tls_certificate``, ``http_availability``, ``http_headers``) and network (``tcp_ports`` with
 ``service_identification``; ``tls_configuration`` is accepted but not run, see ``tls_checks``).
 Every connecting check goes through a per-job :class:`ScopePolicy`; a refusal (``ScopeError``) or
@@ -21,6 +22,12 @@ deny list (refreshed at start-up and hourly). When the egress address is unknown
 Heartbeat scope shrink: when a heartbeat response carries ``approvedNetworks`` (the server's current
 effective list), the running job's policy is replaced by one whose approved networks are the
 intersection with it (never widened) before any further check starts.
+
+Discovery: a transient provider failure (``DiscoveryUnavailable``) aborts the job and is reported
+as a retryable ``failures`` call (``discovery_provider_unavailable``) so the server retries with
+backoff; a permanent provider error fails the apex target with ``discovery_provider_error`` (one
+``error`` observation) and the job completes. A profile that combines ``discovery`` with an active
+flag or a connecting check is refused (``invalid_profile``): discovery jobs never contact targets.
 
 Target status: ``succeeded`` when at least one observation is ``success``/``partial`` (with the
 first refusal/failure code, if any, as ``errorCode``); otherwise ``failed`` with the first
@@ -40,6 +47,7 @@ from typing import Any
 from app.checks import CheckContext, CheckFailed, CheckStopped, RateLimiter, TargetTimeout
 from app.client import ApiError, AuthError, LeaseLost, WorkerApiClient
 from app.config import WorkerConfig
+from app.discovery import DiscoveryProvider, DiscoveryUnavailable, run_discovery
 from app.dns_checks import DnsResolver, check_dns
 from app.health import HealthReporter
 from app.http_checks import check_http
@@ -235,6 +243,7 @@ class Worker:
         logger: logging.Logger | None = None,
         policy_factory: PolicyFactory = ScopePolicy.from_job,
         self_protection: SelfProtection | None = None,
+        discovery_provider: DiscoveryProvider | None = None,
     ) -> None:
         self._config = config
         self._api = api
@@ -250,6 +259,7 @@ class Worker:
         self._self_protection = self_protection or SelfProtection(
             configured_deny=config.deny_networks
         )
+        self._discovery = discovery_provider
         self._completed = 0
         self._total = 0
 
@@ -332,6 +342,12 @@ class Worker:
                 "The profile lists a check this worker does not know.",
                 False,
             )
+        if "discovery" in spec.checks and (spec.active or spec.active_checks):
+            return (
+                "invalid_profile",
+                "A discovery profile must be passive and list no connecting checks.",
+                False,
+            )
         if (spec.active or spec.active_checks) and self._config.active_scanning_enabled is not True:
             return (
                 "active_scanning_disabled",
@@ -388,6 +404,15 @@ class Worker:
         control = JobControl(self.shutdown, holder)
         try:
             self._run_job(spec, control, holder)
+        except DiscoveryUnavailable as exc:
+            if control.lease_lost.is_set():
+                return
+            if control.cancelled.is_set():
+                self._report_failure(
+                    spec.id, spec.attempt, "cancelled", "The job was cancelled by a user.", False
+                )
+                return
+            self._report_failure(spec.id, spec.attempt, exc.code, str(exc), True)
         except LeaseLost:
             control.lease_lost.set()
             log_event(self._log, logging.WARNING, "lease_lost", jobId=spec.id)
@@ -548,6 +573,18 @@ class Worker:
         checks = spec.checks
         holder = run.policy
         resolver = run.resolver
+        discovery_ran: list[bool] = []
+
+        def discover(_policy: ScopePolicy | None) -> None:
+            if self._discovery is None:
+                raise CheckFailed("discovery_unavailable", "No discovery provider configured.")
+            outcome = run_discovery(
+                self._discovery, resolver, target.id, hostname, ctx, sink,
+                concurrency=spec.concurrency,
+            )  # fmt: skip
+            if outcome.status == "error":
+                raise CheckFailed("discovery_provider_error", "Provider returned unusable data.")
+            discovery_ran.append(True)
 
         def guarded(
             names: tuple[str, ...],
@@ -595,6 +632,9 @@ class Worker:
                     lambda _p: check_rdap(self._rdap, target.id, hostname, ctx, sink),
                     connecting=False,
                 )
+            if "discovery" in checks and is_apex:
+                # Passive: one request to a fixed CT provider + public resolvers; never a target.
+                guarded(("discovery",), discover, connecting=False)
             if holder is not None:
                 # Web tier: any public address of the in-scope hostname.
                 if "tls_certificate" in checks:
@@ -636,6 +676,8 @@ class Worker:
                     )  # fmt: skip
         except CheckStopped:
             return None
+        except DiscoveryUnavailable:
+            raise  # job-level, retryable (see process_job)
         except TargetTimeout:
             return TargetResult(target.id, "failed", "target_timeout", observations)
         except Exception as exc:
@@ -644,6 +686,9 @@ class Worker:
                 jobId=spec.id, targetId=target.id, error=type(exc).__name__,
             )  # fmt: skip
             return TargetResult(target.id, "failed", "check_error", observations)
+        if discovery_ran and not observations and not codes:
+            # A complete provider run that found nothing is a successful check.
+            return TargetResult(target.id, "succeeded", None, observations)
         return target_outcome(target.id, observations, codes)
 
 

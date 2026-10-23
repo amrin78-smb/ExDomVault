@@ -481,6 +481,13 @@ describe('Finding detail: comments and history', () => {
             reason: 'condition_absent',
             scanJobId: SCAN_ID,
           },
+          {
+            ...entry,
+            id: crypto.randomUUID(),
+            fromStatus: 'open',
+            toStatus: 'resolved',
+            reason: 'asset_decided',
+          },
         ],
       }),
     );
@@ -490,6 +497,7 @@ describe('Finding detail: comments and history', () => {
     expect(within(history).getByText('Compensating control in place')).toBeInTheDocument();
     expect(within(history).getByText('Risk acceptance expired')).toBeInTheDocument();
     expect(within(history).getByText('Resolved by scan')).toBeInTheDocument();
+    expect(within(history).getByText('Resolved by asset review')).toBeInTheDocument();
     expect(within(history).getByRole('link', { name: 'scan' })).toHaveAttribute(
       'href',
       `/scans/${SCAN_ID}`,

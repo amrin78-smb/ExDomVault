@@ -24,6 +24,8 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 DEFAULT_HEALTH_FILE = "/var/lib/exdomainvault-worker/health.json"
 DEFAULT_DNS_RESOLVERS = "1.1.1.1,9.9.9.9,2606:4700:4700::1111,2620:fe::fe"
 DEFAULT_NMAP_PATH = "/usr/bin/nmap"
+#: Both passive: DNS/RDAP monitoring and Certificate Transparency discovery.
+DEFAULT_PROFILES = "passive,discovery"
 
 _WORKER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -49,7 +51,7 @@ class WorkerConfig:
     environment: Environment
     poll_interval_seconds: int
     log_level: LogLevel
-    profiles: tuple[str, ...] = ("passive",)
+    profiles: tuple[str, ...] = ("passive", "discovery")
     dns_resolvers: tuple[str, ...] = ()
     health_file: str = DEFAULT_HEALTH_FILE
     access_client_id: str | None = None
@@ -164,7 +166,7 @@ def load_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
     if not 5 <= poll_interval <= 3600:
         raise ConfigError("EXDV_POLL_INTERVAL_SECONDS must be between 5 and 3600")
 
-    profiles = tuple(dict.fromkeys(_csv(source.get("EXDV_PROFILES", "passive"))))
+    profiles = tuple(dict.fromkeys(_csv(source.get("EXDV_PROFILES", DEFAULT_PROFILES))))
     if not profiles:
         raise ConfigError("EXDV_PROFILES must list at least one profile")
     if len(profiles) > _MAX_PROFILES:

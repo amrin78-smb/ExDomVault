@@ -1,6 +1,8 @@
 import type { RouteObject } from 'react-router';
 import { AppShell } from './components/layout/AppShell.tsx';
 import { NAV_ITEMS } from './components/layout/nav.ts';
+import { AssetDetailPage } from './pages/assets/AssetDetailPage.tsx';
+import { AssetsPage } from './pages/assets/AssetsPage.tsx';
 import { AdvisoriesPage } from './pages/advisories/AdvisoriesPage.tsx';
 import { FindingDetailPage } from './pages/findings/FindingDetailPage.tsx';
 import { FindingsPage } from './pages/findings/FindingsPage.tsx';
@@ -16,7 +18,15 @@ import { PlaceholderPage } from './pages/PlaceholderPage.tsx';
 import { RouteErrorPage } from './pages/RouteErrorPage.tsx';
 
 /** Sections with real pages; the rest render a placeholder naming their milestone. */
-const IMPLEMENTED = new Set(['/', '/domains', '/scans', '/findings', '/advisories', '/settings']);
+const IMPLEMENTED = new Set([
+  '/',
+  '/domains',
+  '/assets',
+  '/scans',
+  '/findings',
+  '/advisories',
+  '/settings',
+]);
 
 export const routes: RouteObject[] = [
   {
@@ -28,6 +38,8 @@ export const routes: RouteObject[] = [
       { path: 'domains', element: <DomainsPage /> },
       { path: 'domains/import', element: <DomainImportPage /> },
       { path: 'domains/:id', element: <DomainDetailPage /> },
+      { path: 'assets', element: <AssetsPage /> },
+      { path: 'assets/:id', element: <AssetDetailPage /> },
       { path: 'scans', element: <ScansPage /> },
       { path: 'scans/:id', element: <ScanDetailPage /> },
       { path: 'findings', element: <FindingsPage /> },

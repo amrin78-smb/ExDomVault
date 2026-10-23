@@ -90,8 +90,8 @@ Rules the worker must follow:
 - The final batch sets `complete: true`; targets not reported by then are marked failed by the server.
 - `errorCode` matches `^[a-z0-9_]{1,64}$`; `errorSummary` ≤ 500 chars, no secrets or stack traces.
 - **Never run a check the profile does not list, never contact a host that is not a target, and never
-  run a network-connecting check while active scanning is disabled.** Passive checks (`dns`, `rdap`)
-  query resolvers and registries only.
+  run a network-connecting check while active scanning is disabled.** Passive checks (`dns`, `rdap`,
+  `discovery`) query resolvers, registries and a fixed Certificate Transparency provider only.
 
 ### Authorisation withdrawn mid-job
 
@@ -116,6 +116,7 @@ The worker then stops and reports `failures` with `cancelled`; the job ends `can
 
 Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `resultStatus`
 (`success|partial|error|timeout|skipped`), `evidence` (object ≤ 16 KB, no secrets).
+`discovery` observations are described in [Passive discovery](#passive-discovery-milestone-9).
 
 - `dns`: `hostname` (lowercase A-label, no trailing dot; the target or a name beneath the job domain
   such as `_dmarc.<domain>`), `recordType` (`A AAAA CNAME MX NS TXT CAA SOA DS DNSKEY`), `ttl`
@@ -129,6 +130,65 @@ Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `re
 - `registration` (RDAP, apex target only): `registrar`, `registeredAt`, `expiresAt` (ISO or null),
   `nameservers` (lowercase, no trailing dot), `dataStatus` (`available` | `redacted` when the registry
   withholds data | `unavailable` when no RDAP data could be obtained).
+
+## Passive discovery (Milestone 9)
+
+Profile `discovery` (seeded by migration `0006_asset_discovery`): `active: false`, `checks:
+["discovery"]`, one target (the domain apex), `scan_jobs.job_type = 'discovery'`. The worker claims it
+only when `EXDV_PROFILES` lists `discovery` (default `passive,discovery`). Implementation:
+`worker/app/discovery.py`; the check runs only for the apex target and never contacts the domain's
+hosts.
+
+1. **Provider** (`DiscoveryProvider` protocol: `name`, `source`, `fetch(domain, budget)`; first
+   provider `CrtShProvider`): one `GET https://crt.sh/?q=%25.<domain>&output=json` (fixed URL; the
+   domain is the validated, registrable job domain). HTTPS with certificate verification, redirects
+   never followed, no proxy settings from the environment (`trust_env=False`), `User-Agent:
+ExDomainVault-worker/<version> (passive discovery)`, connect/read timeouts from the profile
+   (`connectMs`/`readMs`) clipped to the target budget (`targetSeconds`), body streamed and capped at
+   32 MB, and at most one provider request every 3 s per worker process.
+2. **Certificates** are kept only when `not_after` lies within the last 365 days or in the future;
+   names come from `name_value` (newline-separated) and `common_name`.
+3. **Candidates**: lowercase, one trailing dot stripped; a leading `*.` is stripped and sets
+   `wildcard: true` (any other `*` drops the name); IDNs are mapped (UTS #46) and converted to
+   A-labels that must round-trip, `xn--` labels must round-trip too; emails, IP literals, empty labels,
+   non-LDH labels (including `_`) and names over 253 characters are dropped; the name must equal the
+   job domain or end with `.` + domain (exact label boundary). Duplicates are merged (seen both as
+   wildcard and exactly → `wildcard: false`). Sorted by (label count, name); at most 2000.
+4. **Resolution**: the first 300 candidates (sorted order, apex excluded) are resolved through the
+   worker's configured public resolvers (A, AAAA, CNAME, exactly as the `dns` check), rate-limited by
+   the profile's `ratePerSecond`, `concurrency` threads, within the target deadline. NXDOMAIN → `success`
+   with `values: []`; resolver failures → `error`/`timeout` for that name and type. When the deadline
+   is reached, the remaining candidates get no `dns` observation (the candidates are still reported).
+
+Observations (all with the apex target's `targetId`):
+
+- `discovery`: `hostname` (lowercase A-label, no trailing dot, the domain or beneath it), `source:
+"certificate_transparency"`, `wildcard` (true when the name was only seen as `*.<hostname>`),
+  `resultStatus: "success"`, `evidence: { provider: "crt.sh", certificates, latestNotAfter?,
+issuers? (≤ 5) }`. The server stores candidates as `pending` assets; discovery never adds scan
+  targets.
+- `dns` for each resolved candidate (see above).
+- Incomplete run: a response over the size cap or more than 2000 candidates produces **one**
+  `discovery` observation with `hostname` = the domain, `resultStatus: "partial"`, `evidence: {
+provider, truncated: true, certificates }` (it replaces the apex's own candidate observation);
+  the candidates parsed before the cap are still reported.
+
+Failure handling:
+
+| Provider outcome                                                                                                   | Worker behaviour                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transient: timeout, connection/TLS error, HTTP 408/425/429/5xx, target budget exhausted before or during the fetch | `failures` with `errorCode: "discovery_provider_unavailable"`, `retryable: true` (the server retries with backoff, bounded attempts). No results are completed for that attempt.            |
+| Permanent: other HTTP status, any redirect, content type not `application/json`, malformed JSON                    | One `discovery` observation for the domain with `resultStatus: "error"`, `evidence: { provider, errorClass }`; the apex target `failed` with `discovery_provider_error`; the job completes. |
+| Success with no candidates                                                                                         | No observations; the apex target `succeeded`.                                                                                                                                               |
+
+A profile that lists `discovery` together with `active: true` or any connecting check is refused before
+anything runs (`invalid_profile`). Discovery jobs never build a scope policy and never reach the web or
+network tier.
+
+**Batching.** A discovery job can produce up to 2000 `discovery` + 900 `dns` observations for its single
+target. They are sent through the normal `ResultUploader`: batches of at most 500 observations (and
+≤ 900 KB), each with its own stable `resultId`; the target update and `complete: true` go in the last
+batch.
 
 ## Active checks (Milestone 6)
 
@@ -199,6 +259,7 @@ Job-level codes (sent by the worker in `failures`, or set by the server when it 
 
 | Code                                                                                                        | Meaning                                                                                                                                      |
 | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discovery_provider_unavailable`                                                                            | Discovery provider transiently unavailable (timeout, 429, 5xx, connection error); reported with `retryable: true`.                           |
 | `cancelled`                                                                                                 | The worker stopped because `cancelRequested` was true (user cancel or authorisation withdrawn).                                              |
 | `profile_not_supported`, `unsupported_check`, `invalid_profile`, `invalid_job`                              | The worker refused the job before running anything (profile not in `EXDV_PROFILES`, unknown check, malformed job).                           |
 | `active_scanning_disabled`                                                                                  | Worker: active job while `EXDV_ACTIVE_SCANNING_ENABLED` is not `true`. Server: active job claimed while the server flag is off.              |
@@ -207,13 +268,14 @@ Job-level codes (sent by the worker in `failures`, or set by the server when it 
 
 Target-level codes (`targets[].errorCode`):
 
-| Code                                                                                                                                                                                                 | Meaning                                                                                                                                    |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `asset_not_approved`                                                                                                                                                                                 | Server, at claim of an active job: the target's asset is no longer `approved` (rejected, suspended or deleted); the target is `skipped`.   |
-| `egress_ip_unknown`                                                                                                                                                                                  | Worker self-protection: the public egress IPv4 could not be detected and `EXDV_DENY_NETWORKS` is empty, so web/network checks fail closed. |
-| `out_of_scope_host`, `cname_out_of_scope`, `cname_chain_invalid`, `no_allowed_address`, `prohibited_address`, `deny_listed`, `network_not_approved`, `check_not_allowed`, `active_scanning_disabled` | Scope validator refusals (`worker/app/policy.py`).                                                                                         |
-| `target_timeout`, `http_error`, `http_timeout`, `nmap_unavailable`, `nmap_timeout`, `nmap_failed`, `nmap_output_too_large`, `nmap_output_invalid`, `nmap_no_results`                                 | Check failures.                                                                                                                            |
-| `not_reported`                                                                                                                                                                                       | Server: the target was not reported before `complete: true`.                                                                               |
+| Code                                                                                                                                                                                                 | Meaning                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `asset_not_approved`                                                                                                                                                                                 | Server, at claim of an active job: the target's asset is no longer `approved` (rejected, suspended or deleted); the target is `skipped`.    |
+| `egress_ip_unknown`                                                                                                                                                                                  | Worker self-protection: the public egress IPv4 could not be detected and `EXDV_DENY_NETWORKS` is empty, so web/network checks fail closed.  |
+| `out_of_scope_host`, `cname_out_of_scope`, `cname_chain_invalid`, `no_allowed_address`, `prohibited_address`, `deny_listed`, `network_not_approved`, `check_not_allowed`, `active_scanning_disabled` | Scope validator refusals (`worker/app/policy.py`).                                                                                          |
+| `discovery_provider_error`, `discovery_unavailable`                                                                                                                                                  | Discovery: the provider returned unusable data (one `error` observation carries `errorClass`); no provider configured in this worker build. |
+| `target_timeout`, `http_error`, `http_timeout`, `nmap_unavailable`, `nmap_timeout`, `nmap_failed`, `nmap_output_too_large`, `nmap_output_invalid`, `nmap_no_results`                                 | Check failures.                                                                                                                             |
+| `not_reported`                                                                                                                                                                                       | Server: the target was not reported before `complete: true`.                                                                                |
 
 RDAP failures are not target codes: they are recorded in the `registration` observation's
 `evidence.error` (`resultStatus` `error`/`timeout`). Besides the bootstrap/HTTP codes
@@ -237,7 +299,7 @@ name again itself, so this is a pre-check, not pinning; the systemd `IPAddressDe
 | `EXDV_ACCESS_CLIENT_SECRET`    | no       | Cloudflare Access service token secret                                                                                                                                                                                                                                                                                |
 | `EXDV_ENVIRONMENT`             | no       | `production` (default) or `development`                                                                                                                                                                                                                                                                               |
 | `EXDV_POLL_INTERVAL_SECONDS`   | no       | idle poll interval, 5–3600, default 30                                                                                                                                                                                                                                                                                |
-| `EXDV_PROFILES`                | no       | comma-separated profiles to claim, default `passive` (e.g. `passive,quick,standard`)                                                                                                                                                                                                                                  |
+| `EXDV_PROFILES`                | no       | comma-separated profiles to claim, default `passive,discovery` (e.g. `passive,discovery,quick`)                                                                                                                                                                                                                       |
 | `EXDV_ACTIVE_SCANNING_ENABLED` | no       | `true` to run active (target-connecting) checks; default `false`. Only `true`/`false` accepted (anything else stops start-up). Read at start-up. The server's `ACTIVE_SCANNING_ENABLED` must also be `true`.                                                                                                          |
 | `EXDV_DENY_NETWORKS`           | no       | Extra networks never contacted, on top of the prohibited ranges: comma-separated canonical CIDRs (host bits zero) or single addresses, ≤ 100; a malformed entry stops start-up. Put the home's public IPv4 (`/32`) and IPv6 prefix (`/64`) here. **IPv6-only hosts must set it** (egress detection only counts IPv4). |
 | `EXDV_NMAP_PATH`               | no       | absolute path without whitespace, default `/usr/bin/nmap`; network checks fail (`nmap_unavailable`) if it is not an executable file                                                                                                                                                                                   |
