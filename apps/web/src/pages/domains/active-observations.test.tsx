@@ -335,6 +335,7 @@ describe('Domain page layout and scan tiers', () => {
       'TLS certificates',
       'HTTP',
       'Ports',
+      'Software',
       'Assets',
     ]);
   });

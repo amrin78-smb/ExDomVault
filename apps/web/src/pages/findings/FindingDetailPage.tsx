@@ -107,6 +107,13 @@ function FindingDetail({
           This is an observation from automated, non-intrusive checks of public data and
           internet-facing services. It describes a configuration or exposure condition; it is not
           evidence that the system has been compromised.
+          {finding.category === 'software' && (
+            <>
+              {' '}
+              The version was self-reported by the server and distributions often backport fixes
+              without changing it: treat this as possibly affected and verify.
+            </>
+          )}
         </div>
       </div>
 

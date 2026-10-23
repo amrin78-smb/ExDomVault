@@ -13,6 +13,7 @@ import { RegistrationCard } from '../../components/domains/RegistrationCard.tsx'
 import { TlsCard } from '../../components/domains/TlsCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
 import { DomainFindingsCard } from '../../components/findings/DomainFindingsCard.tsx';
+import { DomainSoftwareCard } from '../../components/software/DomainSoftwareCard.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDate } from '../../lib/format.ts';
@@ -101,6 +102,8 @@ export function DomainDetailPage() {
         <HttpCard state={observations} />
 
         <PortsCard state={observations} />
+
+        <DomainSoftwareCard domain={domain} />
 
         <DomainAssetsCard domain={domain} />
       </div>

@@ -203,6 +203,7 @@ describe('GET /findings/summary', () => {
       exposure: 3,
       registration: 0,
       asset: 0,
+      software: 0,
     });
 
     const perDomain = findingSummaryResponseSchema.parse(

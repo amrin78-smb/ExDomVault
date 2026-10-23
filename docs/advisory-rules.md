@@ -92,6 +92,8 @@ exposure rules). Exceptions are handled as accepted risk.
 | [HTTP-005](#http-005--software-version-disclosed-in-http-headers)                           | 1       | http         | Software version disclosed in HTTP headers                         | informational    | high               |
 | [REG-001](#reg-001--domain-registration-expiry-within-30-days)                              | 1       | registration | Domain registration expiry within 30 days                          | high             | high               |
 | [REG-002](#reg-002--unexpected-registrar-or-nameserver-change)                              | 1       | registration | Unexpected registrar or nameserver change                          | medium           | medium             |
+| [SOFT-001](#soft-001--end-of-life-software-exposed)                                         | 1       | software     | End-of-life software exposed                                       | medium           | medium             |
+| [SOFT-002](#soft-002--version-possibly-affected-by-a-known-exploited-vulnerability)         | 1       | software     | Version possibly affected by a known-exploited vulnerability       | high             | medium             |
 | [TLS-001](#tls-001--expired-or-not-yet-valid-tls-certificate)                               | 1       | tls          | Expired or not-yet-valid TLS certificate                           | high             | high               |
 | [TLS-002](#tls-002--certificate-hostname-mismatch)                                          | 1       | tls          | Certificate hostname mismatch                                      | medium           | high               |
 | [TLS-003](#tls-003--certificate-expiry-within-14-days)                                      | 1       | tls          | Certificate expiry within 14 days                                  | medium           | high               |
@@ -178,7 +180,7 @@ References:
 
 **Detection.** The apex NS set, or the SOA primary name server (MNAME), differs from the previous successful observation. There is no change-approval workflow yet, so every change is treated as unexpected until reviewed.
 
-**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it (a repeated identical observation does not undo the change). A user with `findings:triage` can also resolve it after review (change-detection rule).
+**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it (a repeated identical observation does not undo the change). A user with `findings:triage` can also resolve it manually after review.
 
 **Sample advisory** (for `example.com`): _Review the authoritative DNS change for example.com_
 
@@ -414,7 +416,7 @@ References:
 
 **Detection.** A port is open now on an address that has a baseline (a successful earlier port observation of that address), and the same address+port was absent, closed or filtered in the baseline. The first scan of an address establishes the baseline and raises nothing. Low; informational when the port is also an administrative service (EXP-002 carries the severity).
 
-**Resolution.** A successful observation shows the address+port closed or filtered. While the port stays open the finding stays active (it records the change until reviewed). A user with `findings:triage` can also resolve it after review (change-detection rule).
+**Resolution.** A successful observation shows the address+port closed or filtered. While the port stays open the finding stays active (it records the change until reviewed). A user with `findings:triage` can also resolve it manually after review.
 
 **Sample advisory** (for `example.com`): _Confirm the newly exposed port is intended_
 
@@ -678,7 +680,7 @@ References:
 
 **Detection.** The registrar name (compared case- and whitespace-insensitively) or the registration nameserver set differs from the previous observation. Components: registrar, nameservers. There is no change-approval workflow yet, so every change is reported for review.
 
-**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it. A user with `findings:triage` can also resolve it after review (change-detection rule).
+**Resolution.** Not auto-resolved: a change is an event that needs review, so the finding stays open until an analyst resolves or accepts it. A user with `findings:triage` can also resolve it manually after review.
 
 **Sample advisory** (for `example.com`): _Review the registrar change for example.com_
 
@@ -697,6 +699,74 @@ References:
 - <https://www.cisa.gov/news-events/directives/ed-19-01-mitigate-dns-infrastructure-tampering>
 - <https://www.icann.org/resources/pages/epp-status-codes-2014-06-16-en>
 - <https://www.rfc-editor.org/rfc/rfc9083>
+
+### SOFT-001 — End-of-life software exposed
+
+| Field                      | Value                                                         |
+| -------------------------- | ------------------------------------------------------------- |
+| Version                    | 1                                                             |
+| Category                   | `software`                                                    |
+| Default severity           | medium                                                        |
+| Default confidence         | medium                                                        |
+| Observation kinds required | —                                                             |
+| Profile checks (any of)    | `http_headers`, `http_availability`, `service_identification` |
+
+**Evidence required.** A successful http observation with evidence.server / evidence.xPoweredBy (profile runs `http_headers`) or a successful open port observation with evidence.product / evidence.version (`service_identification`), plus end-of-life cycles from endoflife.date in `context.softwareIntel`. Without feed data the rule produces nothing.
+
+**Detection.** A catalogue product reports a version whose release cycle (the longest numeric cycle that is a dotted prefix of the version) is end of life upstream: the feed says `eol: true` or the EOL date is on or before the evaluation time. Severity medium; high when the cycle has been end of life for more than 365 days AND (the evidence is service identification OR the product is PHP, Apache HTTP Server, nginx, OpenSSL or IIS). Confidence medium; low when the banner names a distribution (fixes may be backported).
+
+**Resolution.** A successful observation of the same source and location reports the product with a version whose cycle is not end of life. A hidden version, a missing product, a cycle the feed does not know, or failed/partial evidence is unknown and does not resolve. A user with `findings:triage` can also resolve it manually after review.
+
+**Sample advisory** (for `www.example.com`): _Upgrade PHP to a supported release_
+
+www.example.com reports PHP 7.4.3-4ubuntu2.19 (release cycle 7.4), which is end of life upstream. Because the banner names Ubuntu, the distribution may still ship security fixes for it. End-of-life software stops receiving upstream security fixes, so newly found vulnerabilities stay open. The finding is based on the version the server reports; it does not confirm a vulnerability or an attack.
+
+Recommended actions:
+
+- Confirm which PHP version actually runs on this host.
+- The banner names Ubuntu. Check the Ubuntu security tracker / support status for this package: a supported distribution release may carry the fixes despite the old upstream version. If it does, record that and resolve the finding manually.
+- Plan an upgrade to a supported PHP release cycle and track it to completion.
+- Hide version details in banners once patched (this reduces disclosure, not risk).
+
+References:
+
+- <https://endoflife.date/php>
+- <https://www.php.net/supported-versions.php>
+- <https://ubuntu.com/about/release-cycle>
+- <https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/>
+
+### SOFT-002 — Version possibly affected by a known-exploited vulnerability
+
+| Field                      | Value                                                         |
+| -------------------------- | ------------------------------------------------------------- |
+| Version                    | 1                                                             |
+| Category                   | `software`                                                    |
+| Default severity           | high                                                          |
+| Default confidence         | medium                                                        |
+| Observation kinds required | —                                                             |
+| Profile checks (any of)    | `http_headers`, `http_availability`, `service_identification` |
+
+**Evidence required.** A successful http observation with evidence.server / evidence.xPoweredBy (`http_headers`) or a successful open port observation with evidence.product / evidence.version (`service_identification`), plus CISA KEV advisories with NVD affected version ranges in `context.softwareIntel`. Advisories without ranges are ignored. Without feed data the rule produces nothing.
+
+**Detection.** A catalogue product reports a version (at least two numeric segments, e.g. not `Apache/2`) inside ANY affected range of a CISA KEV CVE for that product. One finding per location, product and CVE. Severity high; critical when the CVSS base score is 9.0 or more or KEV marks the CVE as used in ransomware campaigns. Confidence medium; low when the banner names a distribution (fixes may be backported). Wording: possibly affected — verify; never a claim of compromise.
+
+**Resolution.** A successful observation of the same source and location reports the product with a version outside every affected range of that CVE. A hidden or too-coarse version, a missing product, failed/partial evidence, or a CVE no longer in the feed does not resolve. A user with `findings:triage` can also resolve it manually after review.
+
+**Sample advisory** (for `www.example.com`): _Verify and patch PHP for CVE-2024-4577_
+
+www.example.com reports PHP 8.1.2, which falls in the affected range of CVE-2024-4577, a vulnerability CISA lists as exploited in the wild. This is possibly affected, not confirmed. Vulnerabilities in the KEV catalogue are actively used by attackers, so an affected internet-facing service is a priority to verify. The match is based on the version the server reports; backported fixes or configuration may mean the host is not affected, and nothing here indicates that the host was attacked.
+
+Recommended actions:
+
+- Confirm the exact PHP version and build installed on this host.
+- If affected, apply the vendor fix or mitigation for CVE-2024-4577 without delay (see the KEV entry for required actions).
+- If the host is not affected (backport, feature not in use), record the evidence and resolve the finding manually.
+
+References:
+
+- <https://www.cisa.gov/known-exploited-vulnerabilities-catalog>
+- <https://nvd.nist.gov/vuln/detail/CVE-2024-4577>
+- <https://www.php.net/supported-versions.php>
 
 ### TLS-001 — Expired or not-yet-valid TLS certificate
 

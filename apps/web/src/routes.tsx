@@ -13,6 +13,7 @@ import { NotFoundPage } from './pages/NotFoundPage.tsx';
 import { ScanDetailPage } from './pages/scans/ScanDetailPage.tsx';
 import { ScansPage } from './pages/scans/ScansPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
+import { SoftwarePage } from './pages/software/SoftwarePage.tsx';
 import { OverviewPage } from './pages/OverviewPage.tsx';
 import { PlaceholderPage } from './pages/PlaceholderPage.tsx';
 import { ReportsPage } from './pages/reports/ReportsPage.tsx';
@@ -23,6 +24,7 @@ const IMPLEMENTED = new Set([
   '/',
   '/domains',
   '/assets',
+  '/software',
   '/scans',
   '/findings',
   '/advisories',
@@ -42,6 +44,7 @@ export const routes: RouteObject[] = [
       { path: 'domains/:id', element: <DomainDetailPage /> },
       { path: 'assets', element: <AssetsPage /> },
       { path: 'assets/:id', element: <AssetDetailPage /> },
+      { path: 'software', element: <SoftwarePage /> },
       { path: 'scans', element: <ScansPage /> },
       { path: 'scans/:id', element: <ScanDetailPage /> },
       { path: 'findings', element: <FindingsPage /> },

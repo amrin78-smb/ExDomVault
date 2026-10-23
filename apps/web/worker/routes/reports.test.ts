@@ -344,6 +344,7 @@ describe('GET /reports/summary', () => {
         exposure: 0,
         registration: 0,
         asset: 0,
+        software: 0,
       },
       meanDaysToResolve: 3,
     });

@@ -131,3 +131,12 @@ export const meAs = (role: Role, id: string, email = `${role}@example.com`) =>
     permissions: PERMISSIONS[role],
     authProvider: 'cloudflare_access',
   });
+
+/** Request paths of the software inventory and intelligence-feed endpoints (Milestone 11). */
+export const SOFTWARE_PATHS = {
+  list: (query = '') => `GET /api/v1/software${query}`,
+  summary: 'GET /api/v1/software/summary',
+  domain: (domainId: string, query = '') => `GET /api/v1/domains/${domainId}/software${query}`,
+  feeds: 'GET /api/v1/intel/feeds',
+  sync: 'POST /api/v1/intel/feeds/sync',
+} as const;

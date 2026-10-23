@@ -3,6 +3,7 @@ import { dnsRules } from './rules/dns.ts';
 import { exposureRules } from './rules/exposure.ts';
 import { httpRules } from './rules/http.ts';
 import { registrationRules } from './rules/registration.ts';
+import { softwareRules } from './rules/software.ts';
 import { tlsRules } from './rules/tls.ts';
 import type { Rule } from './types.ts';
 
@@ -14,6 +15,7 @@ export const RULES: readonly Rule[] = [
   ...httpRules,
   ...exposureRules,
   ...assetRules,
+  ...softwareRules,
 ];
 
 export function ruleById(id: string): Rule | undefined {

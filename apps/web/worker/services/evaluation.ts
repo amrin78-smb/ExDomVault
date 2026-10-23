@@ -3,6 +3,7 @@ import {
   DEFAULT_ADMINISTRATIVE_SERVICES,
   RULES,
   evaluate,
+  extractSoftware,
   type DnsRecordSetObservation,
   type EvaluationInput,
   type FindingUpsert,
@@ -14,6 +15,7 @@ import { canonicalIp } from '@exdomainvault/shared/net';
 import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Logger } from '../lib/logger.ts';
 import { domainAuthorisedForActive, type ScanJobRow } from './scans.ts';
+import { loadSoftwareIntel, upsertSoftwareInventory } from './software.ts';
 
 const {
   advisories,
@@ -55,6 +57,8 @@ export interface EvaluationSummary {
   resolved: number;
   skippedRules: number;
   ruleErrors: number;
+  /** Software inventory rows upserted from this job's sightings. */
+  software: number;
 }
 
 /** Per-kind cap on observations loaded for one evaluation (current and previous each). */
@@ -71,6 +75,7 @@ const summary = (jobId: string, status: EvaluationStatus): EvaluationSummary => 
   resolved: 0,
   skippedRules: 0,
   ruleErrors: 0,
+  software: 0,
 });
 
 /**
@@ -160,6 +165,15 @@ async function evaluateInTx(
     .where(eq(assets.domainId, domainId))
     .orderBy(asc(assets.hostname));
 
+  const current = await currentObservations(tx, job.id);
+  // Exposed software (Milestone 11): what hosts reported about themselves in this job, and the
+  // feed intelligence for just those products (undefined if no feed ever synced: rules skip).
+  const sightings = extractSoftware(current);
+  const softwareIntel = await loadSoftwareIntel(
+    tx,
+    sightings.map((s) => s.product),
+  );
+
   const input: EvaluationInput = {
     context: {
       now: seenAt.toISOString(),
@@ -178,8 +192,9 @@ async function evaluateInTx(
         monitoringEnabled: a.monitoringEnabled,
       })),
       administrativeServices: DEFAULT_ADMINISTRATIVE_SERVICES,
+      ...(softwareIntel ? { softwareIntel } : {}),
     },
-    current: await currentObservations(tx, job.id),
+    current,
     previous: await previousObservations(tx, job, domainId, seenAt),
   };
 
@@ -194,6 +209,17 @@ async function evaluateInTx(
 
   const categoryOf = new Map(rules.map((r) => [r.id, r.category]));
   const assetOf = new Map(domainAssets.map((a) => [a.hostname, a.id]));
+
+  // Inventory follows the evidence, not the findings: updated for every evaluated job.
+  out.software = await upsertSoftwareInventory(tx, {
+    domainId,
+    jobId: job.id,
+    sightings,
+    current,
+    assetOf,
+    seenAt,
+    now,
+  });
   const fingerprints = [
     ...result.upserts.map((u) => u.fingerprint),
     ...result.resolutions.map((r) => r.fingerprint),

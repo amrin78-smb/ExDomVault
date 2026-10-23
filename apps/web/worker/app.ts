@@ -20,6 +20,8 @@ import { approvedNetworkRoutes } from './routes/networks.ts';
 import { reportRoutes } from './routes/reports.ts';
 import { ruleRoutes } from './routes/rules.ts';
 import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
+import { intelRoutes, softwareRoutes } from './routes/software.ts';
+import type { FetchLike } from './lib/feed-fetch.ts';
 import { userRoutes } from './routes/users.ts';
 import { workerAdminRoutes } from './routes/workers.ts';
 import type { AppBindings } from './types.ts';
@@ -34,6 +36,8 @@ export interface AppDeps {
   now?: () => Date;
   /** Rule registry for the rule catalogue and finding detail (tests; defaults to RULES). */
   rules?: readonly Rule[];
+  /** Public intelligence feeds (tests inject a mock fetch; defaults to the Workers fetch). */
+  intel?: { fetch?: FetchLike };
 }
 
 /**
@@ -72,6 +76,8 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/users', userRoutes({ now: deps.now }));
   authed.route('/audit-logs', auditLogRoutes());
   authed.route('/reports', reportRoutes({ now: deps.now }));
+  authed.route('/software', softwareRoutes({ now: deps.now }));
+  authed.route('/intel', intelRoutes({ now: deps.now, fetch: deps.intel?.fetch }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

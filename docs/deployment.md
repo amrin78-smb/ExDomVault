@@ -152,8 +152,8 @@ the default privileges give `exdomainvault_app` DML on them (the nonce pruning n
 ```
 
 `wrangler deploy` registers it with the Worker; the `scheduled()` handler in `apps/web/worker/index.ts`
-runs lease reaping, verification expiry/lapse, nonce pruning and passive-monitoring scheduling
-([`architecture.md`](architecture.md#scan-jobs-and-the-worker-protocol)). It connects through the same
+runs lease reaping, verification expiry/lapse, nonce pruning, passive-monitoring scheduling, rules
+evaluation and (Milestone 11) the intelligence feed sync ([`architecture.md`](architecture.md#scan-jobs-and-the-worker-protocol)). It connects through the same
 `HYPERDRIVE` binding; without it the run logs `maintenance_skipped` and does nothing. Results appear in
 Workers observability logs as `maintenance_step` / `maintenance_step_failed`.
 
@@ -244,6 +244,25 @@ Then, as an administrator:
   IPv4 or ≤ /32 IPv6, public only, reason, review date ≤ 24 months; audited). Without an approval those
   checks are refused for every address. Jobs snapshot the networks active when they are created, so
   approve first, then request the scan.
+
+## Milestone 11: exposed software and intelligence feeds
+
+The feeds (endoflife.date, CISA KEV, NVD) are public and need **no keys**; they are synced by the
+existing `*/5` Cron Trigger (`intel_endoflife`, `intel_cisa_kev`, `intel_nvd` steps in the
+`maintenance_step` logs) and appear in the app under the software views (`GET /api/v1/intel/feeds`).
+Migration `0007_software_intel` must be applied (and the app role granted privileges on
+`software_inventory`, `software_eol_cycles`, `vulnerability_advisories` and `intel_feeds`) before deploying.
+
+Optional NVD API key (raises the NVD batch from 5 to 20 CVEs per run, within NVD's 50 requests / 30 s):
+
+```bash
+cd apps/web && npx wrangler secret put NVD_API_KEY
+```
+
+Request a key at https://nvd.nist.gov/developers/request-an-api-key. Without it the Worker stays within
+the public limit (5 requests / 30 s). To force the first endoflife.date + KEV sync after a deploy, an
+admin can use the sync action (`POST /api/v1/intel/feeds/sync`); NVD then fills in over the following
+cron runs (≈ 5 CVEs per 5 minutes without a key).
 
 ## Application deployment
 

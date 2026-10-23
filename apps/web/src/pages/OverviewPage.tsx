@@ -1,5 +1,13 @@
 import type { Finding, FindingSummaryResponse, Permission } from '@exdomainvault/shared';
-import { Activity, CalendarClock, ListChecks, Lock, Network, ShieldCheck } from 'lucide-react';
+import {
+  Activity,
+  CalendarClock,
+  ListChecks,
+  Lock,
+  Network,
+  PackageSearch,
+  ShieldCheck,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { FindingList } from '../components/findings/FindingList.tsx';
@@ -135,8 +143,8 @@ export function OverviewPage() {
         </Card>
       </div>
 
-      <div className="mt-6">
-        <Card title="Findings created and resolved over time">
+      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <Card title="Findings created and resolved over time" className="lg:col-span-2">
           <Gate access={reports}>
             <Loadable state={loaded(report)} title="Could not load the trend">
               {(data) => (
@@ -148,6 +156,12 @@ export function OverviewPage() {
                 </div>
               )}
             </Loadable>
+          </Gate>
+        </Card>
+
+        <Card title="Exposed software">
+          <Gate access={findings}>
+            <ExposedSoftware />
           </Gate>
         </Card>
       </div>
@@ -473,6 +487,50 @@ function FindingsByRules({
           <FindingList items={items} showLastSeen />
         )
       }
+    </Loadable>
+  );
+}
+
+/**
+ * Software rollup: hosts on end-of-life versions and hosts possibly affected by a known-exploited
+ * CVE, summed over products (a host running two flagged products counts twice).
+ */
+function ExposedSoftware() {
+  const state = useAsync((signal) => api.software.summary({ signal }), []);
+  return (
+    <Loadable state={state} title="Could not load software">
+      {(data) => {
+        if (data.products.length === 0) {
+          return (
+            <EmptyState title="No software recorded yet" icon={PackageSearch}>
+              Quick scans record HTTP server headers; Standard and Deep scans also identify service
+              versions.
+            </EmptyState>
+          );
+        }
+        const eol = data.products.reduce((n, p) => n + p.eol, 0);
+        const kev = data.products.reduce((n, p) => n + p.knownExploited, 0);
+        return (
+          <div className="space-y-3">
+            <dl className="grid grid-cols-2 gap-3">
+              <div>
+                <dt className="text-xs text-slate-500">End-of-life installs</dt>
+                <dd className="text-2xl font-semibold tabular-nums text-slate-900">{eol}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Possibly KEV-affected</dt>
+                <dd className="text-2xl font-semibold tabular-nums text-slate-900">{kev}</dd>
+              </div>
+            </dl>
+            <p className="text-xs text-slate-500">
+              Versions are self-reported; matches mean possibly affected — verify.
+            </p>
+            <Link to="/software" className="text-xs text-sky-800 hover:underline">
+              Open the software inventory
+            </Link>
+          </div>
+        );
+      }}
     </Loadable>
   );
 }

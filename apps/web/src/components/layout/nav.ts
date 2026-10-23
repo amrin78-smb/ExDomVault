@@ -4,6 +4,7 @@ import {
   FileText,
   Globe,
   LayoutDashboard,
+  Package,
   Radar,
   Server,
   Settings,
@@ -40,6 +41,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: Server,
     description: 'Hostnames, IP history and the discovery approval queue.',
     milestone: 'Milestone 9',
+  },
+  {
+    path: '/software',
+    label: 'Software',
+    icon: Package,
+    description: 'Self-reported software versions with end-of-life and known-exploited matches.',
+    milestone: 'Milestone 11',
   },
   {
     path: '/scans',

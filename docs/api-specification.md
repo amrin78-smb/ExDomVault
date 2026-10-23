@@ -841,6 +841,118 @@ injection), then RFC 4180 quoting applies (cells containing `"`, `,`, CR or LF a
 Each export is audited `report.exported` (`resourceType: report`, `resourceId: findings.csv`, metadata
 `report`, `format`, `filters`, `rows`, `truncated`) in the same transaction as the read.
 
+## Exposed software (Milestone 11)
+
+Contracts: `packages/shared/src/api/software.ts`, catalogue `packages/shared/src/domain/software.ts`.
+Server: `apps/web/worker/routes/software.ts`, `services/software.ts`.
+
+Software is what hosts **report about themselves** (HTTP `Server` / `X-Powered-By`, Nmap service
+identification). It is evidence to verify, never proof: distributions backport fixes without changing
+the version string (`backportHint`), and a hidden version is unknown, not "not affected".
+
+**Permission:** `findings:read` for all three endpoints (the inventory is evidence in the same sense as
+findings). Admins, analysts and viewers see everything; **asset owners** see only rows whose
+`software_inventory.asset_id` is an asset they own (rows without an asset are invisible to them).
+
+**Inventory maintenance:** rules evaluation of every succeeded job upserts `software_inventory` from
+`extractSoftware(current observations)` (successful observations only, open ports only), keyed by
+`(domain_id, location_key)` with `location_key = source|hostname|ip|port|product` (HTTP sightings have
+no ip/port: CDN addresses rotate). Existing rows advance `last_seen_at` and take the newest version,
+banner and backport hint, only from evidence at least as new as theirs; rows are never deleted. The
+asset is the asset with the sighting's hostname; for service identification, the asset whose name
+resolved to that address in the same job, when exactly one did.
+
+**Status at read time:** `eol` (`eolStatus`) and `knownExploited` (`matchAdvisories`, KEV advisories
+only) are computed from the stored intelligence on every read, so they follow feed updates
+immediately. Findings (SOFT-001 / SOFT-002) are **not** re-evaluated when feeds change; they update on
+the domain's next successful scan.
+
+### `GET /api/v1/software` — `findings:read`
+
+Query `softwareListQuerySchema`: `page` (default 1), `pageSize` (1–100, default 50), `domainId`,
+`product` (catalogue key), `status` = `all` (default) | `eol` (end-of-life versions) | `kev` (possibly
+affected by a known-exploited CVE), `q` (substring of hostname, IP, domain, product, version or banner).
+Response `softwareListResponseSchema`, ordered by domain, hostname, IP, port, product.
+
+- `status=all` pages in SQL; status is computed for the page's rows only.
+- `status=eol|kev` needs the computed status to filter: rows with a disclosed version of products that
+  have the relevant intelligence are pre-scanned (at most `STATUS_PRESCAN_LIMIT` = 5000, in list order),
+  filtered in memory and paged. Beyond 5000 candidates results and `total` are truncated.
+
+### `GET /api/v1/software/summary` — `findings:read`
+
+`softwareSummaryResponseSchema`: per product, `hosts` (inventory locations), `eol` and `knownExploited`
+(locations whose version is end-of-life / possibly KEV-affected) and the version distribution. One
+`GROUP BY (product, version)` (≤ 5000 groups) with status computed once per pair; products sorted by
+`hosts` descending. Same visibility as the list.
+
+### `GET /api/v1/domains/:id/software` — `findings:read`
+
+The list endpoint with `domainId` fixed (same query parameters and visibility). Unknown domain → `404`.
+
+## Intelligence feeds (Milestone 11)
+
+Server: `apps/web/worker/services/intel-feeds.ts`, `lib/feed-fetch.ts`. Feed state lives in
+`intel_feeds` (one row per feed).
+
+| Feed        | Source (verified 2026-10-23)                                                                                        | Schedule                                                                              |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `endoflife` | endoflife.date **API v1** (current): `https://endoflife.date/api/v1/products/<eolSlug>` → `result.releases[]`       | Daily (cron); retried at most hourly after a failure; manual sync                     |
+| `cisa_kev`  | `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` (linked from CISA's KEV page) | Daily (cron), conditional request (ETag / Last-Modified); manual sync                 |
+| `nvd`       | `https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=<id>`                                                       | Every cron run: ≤ 5 CVEs (≤ 20 with `NVD_API_KEY`), runs ≥ 30 s apart; no manual sync |
+
+- **endoflife.date:** each release maps to a `software_eol_cycles` row: `cycle = name`, `release_date`,
+  `eol_date = eolFrom`, `eol_boolean = isEol` only when `eolFrom` is null, `latest = latest.name`. One
+  product failing does not stop the others (`last_error = partial_<class>`); the feed fails only if all
+  fail. No conditional requests (validators are per URL; the feed has one state row).
+- **CISA KEV:** `catalogVersion` → `source_version`. An entry pre-matches a catalogue product when any
+  of its `kevAliases` occurs as a whole word sequence in lowercase `vendorProject + ' ' + product`
+  (`php` matches "PHP FPM" but not "phpMyAdmin"; `iis` matches "Internet Information Services (IIS)").
+  Upsert per (CVE, product): `kev = true`, `kev_date_added`, `ransomware = (knownRansomwareCampaignUse
+=== 'Known')`, `title = vulnerabilityName`, `description = shortDescription`; new rows have empty
+  ranges and `nvd_fetched_at` null. CVEs that leave the catalogue keep their row with `kev = false`.
+  Malformed entries are skipped (logged); a malformed envelope fails the sync. Remaining alias false
+  positives are dropped by the NVD step (`no_product_match`).
+- **NVD:** pending = `nvd_fetched_at` null and not in back-off. From `configurations`, `cpeMatch`
+  entries with `vulnerable: true` whose criteria is `cpe:2.3:a:<vendor>:<product>:…` for the
+  advisory's catalogue CPE (negated nodes ignored). A concrete version (`…:openssh:8.2:p1:…` → `8.2p1`)
+  becomes `{startIncluding = endIncluding = version}`; `*` uses `versionStart*` / `versionEnd*` (none =
+  every version); `-` is skipped. CVSS: v3.1 base score (`Primary` first), else v4.0, else v3.0.
+  `published_at` from `published` (UTC). Outcome `nvd_status`: `ok` (ranges found), `no_product_match`
+  (empty ranges, never matches), `not_found` (no record / 404) — all three set `nvd_fetched_at`.
+  `error` leaves the row pending and records the attempt (`updated_at`); it is retried after 6 hours.
+  Rate limits: a sliding window of 5 (50 with a key) requests per 30 s within a run, plus a feed claim
+  that keeps runs at least 30 s apart; HTTP 403/429 (`rate_limited`) stops the batch without
+  penalising the CVE. The optional key is sent as the `apiKey` header.
+
+Every fetch: HTTPS to the fixed host only (same-host `https` redirects, ≤ 2, are followed; any other
+redirect is refused), timeout (endoflife 10 s, KEV 30 s, NVD 15 s), body cap (2 MB / 16 MB / 4 MB),
+`User-Agent: ExDomainVault/<APP_VERSION> (+https://exdomainvault.amrin78.workers.dev)`, zod validation
+before any write, set-based writes. Failures are stored as a short class in `last_error` (`timeout`,
+`network`, `http_<status>`, `rate_limited`, `redirect_refused`, `too_large`, `invalid_json`,
+`invalid_schema`, `not_found`, `internal`), never a response body.
+
+**Evaluation:** `context.softwareIntel` contains the cycles and the `nvd_status = 'ok'` advisories of
+the products sighted in the job; `asOf` = newest `last_success_at` of any feed. If no feed has ever
+synced it is omitted, and the software rules neither raise nor resolve.
+
+### `GET /api/v1/intel/feeds` — `findings:read`
+
+`intelFeedsResponseSchema`: per feed (`endoflife`, `cisa_kev`, `nvd`, always all three)
+`lastSuccessAt`, `lastAttemptAt`, `lastError`, `items` (cycles held / KEV advisories with `kev = true` /
+advisories with `nvd_status = 'ok'`), `sourceVersion` (KEV `catalogVersion`), `pending` (NVD only:
+advisories with `nvd_fetched_at` null). Readable by everyone who can read software, because feed
+freshness qualifies every software verdict.
+
+### `POST /api/v1/intel/feeds/sync` — `settings:manage`
+
+Admins. No body (same-origin rule applies). Audited `intel.sync_requested` (`resourceType:
+intel_feed`, metadata `feeds: ['endoflife', 'cisa_kev']`) before the sync runs, then synchronises
+endoflife.date and CISA KEV immediately (bounded by the timeouts above; at most once a minute per feed —
+within a minute of the last attempt the call is a no-op). NVD is never triggered manually (rate limits).
+Response `200` with **`intelFeedsResponseSchema`** — the feed list after the sync, so feed errors show
+up as `lastError` rather than as an HTTP error.
+
 ## Internal worker API — signed requests
 
 `/api/v1/internal/worker/*` is used only by the home scanning worker. It does **not** use Cloudflare

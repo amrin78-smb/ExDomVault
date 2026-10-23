@@ -5,6 +5,7 @@ import { writeAudit } from './audit.ts';
 import { expireStaleChallenges } from './domain-verification.ts';
 import { evaluatePendingJobs } from './evaluation.ts';
 import { expireAcceptedRisks } from './finding-lifecycle.ts';
+import { intelMaintenanceSteps, type IntelDeps } from './intel-feeds.ts';
 import { reapExpiredLeases } from './job-lifecycle.ts';
 import { buildSnapshot, listProfiles } from './scans.ts';
 import { DISCOVERY_PROFILE_KEY, WORKER_SIGNATURE_MAX_SKEW_SECONDS } from '@exdomainvault/shared';
@@ -237,11 +238,24 @@ export async function pruneNonces(db: Database, now: Date): Promise<number> {
   return deleted.length;
 }
 
+export interface MaintenanceOptions {
+  /**
+   * Intelligence feed sync (Milestone 11). Omitted → the feed steps are skipped, so nothing ever
+   * contacts the public feeds unless the caller (the Cron entry point) passes a fetch explicitly.
+   */
+  intel?: Omit<IntelDeps, 'logger'>;
+}
+
 /**
  * Periodic housekeeping (Cron Trigger). Each step is independent: one failing does not stop the
  * others, and every step is safe to run repeatedly or concurrently.
  */
-export async function runMaintenance(db: Database, now: Date, logger: Logger): Promise<void> {
+export async function runMaintenance(
+  db: Database,
+  now: Date,
+  logger: Logger,
+  opts: MaintenanceOptions = {},
+): Promise<void> {
   const steps: [string, () => Promise<number>][] = [
     ['leases_reaped', () => reapExpiredLeases(db, now)],
     ['verifications_expired', () => expireStaleChallenges(db, now)],
@@ -253,6 +267,9 @@ export async function runMaintenance(db: Database, now: Date, logger: Logger): P
     ['evaluate_pending_jobs', () => evaluatePendingJobs(db, now, { logger })],
     // Accepted risks past their review date return to `open` (audited, history kept).
     ['accepted_risks_expired', () => expireAcceptedRisks(db, now)],
+    // Public intelligence feeds last (they wait on the network): endoflife.date and CISA KEV once
+    // a day, NVD a small rate-limited batch per run. Each feed is its own step.
+    ...(opts.intel ? intelMaintenanceSteps(db, now, { ...opts.intel, logger }) : []),
   ];
   for (const [name, step] of steps) {
     try {

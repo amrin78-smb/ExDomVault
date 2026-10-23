@@ -47,6 +47,29 @@ const SAMPLES: Record<string, Partial<FindingCandidate>> = {
   'REG-002': { component: 'registrar' },
   'ASSET-001': { hostname: `dev.${APEX}`, component: `dev.${APEX}` },
   'ASSET-002': { hostname: `legacy.${APEX}`, component: 'discovery' },
+  'SOFT-001': {
+    hostname: `www.${APEX}`,
+    component: `http_header:www.${APEX}:php`,
+    evidence: {
+      product: 'php',
+      productLabel: 'PHP',
+      version: '7.4.3-4ubuntu2.19',
+      cycle: '7.4',
+      eolDate: '2022-11-28',
+      backportDistribution: 'Ubuntu',
+    },
+  },
+  'SOFT-002': {
+    hostname: `www.${APEX}`,
+    component: `http_header:www.${APEX}:php:CVE-2024-4577`,
+    evidence: {
+      product: 'php',
+      productLabel: 'PHP',
+      version: '8.1.2',
+      cveId: 'CVE-2024-4577',
+      backportDistribution: null,
+    },
+  },
 };
 
 const sampleContext: EvaluationContext = {
@@ -98,7 +121,7 @@ function renderRule(rule: Rule): string {
     '',
     `**Detection.** ${rule.detection}`,
     '',
-    `**Resolution.** ${rule.resolution}${rule.manualResolution ? ' A user with `findings:triage` can also resolve it after review (change-detection rule).' : ''}`,
+    `**Resolution.** ${rule.resolution}${rule.manualResolution ? ' A user with `findings:triage` can also resolve it manually after review.' : ''}`,
     '',
   ];
   const advisory = sampleAdvisory(rule);

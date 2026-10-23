@@ -233,6 +233,37 @@ Kill switches: the worker refuses any active job and every connection unless
 `EXDV_ACTIVE_SCANNING_ENABLED=true` (read at start-up); the server refuses active jobs unless
 `ACTIVE_SCANNING_ENABLED=true`. `tls_configuration` is accepted in profiles but not run yet.
 
+## Exposed software and intelligence feeds (Milestone 11)
+
+```
+Cron (*/5) ─ runMaintenance ─┬─ intel_endoflife ─ daily ─ endoflife.date API v1 ─▶ software_eol_cycles
+                             ├─ intel_cisa_kev ── daily ─ CISA KEV JSON (ETag) ──▶ vulnerability_advisories (pending NVD)
+                             └─ intel_nvd ─ ≤5 CVEs/run ─ NVD CVE API 2.0 ───────▶ ranges, cvss, nvd_status
+Admin POST /intel/feeds/sync ─ endoflife + KEV now (audited)
+
+succeeded job ─ evaluateJob ─ extractSoftware(current) ─┬─ upsert software_inventory
+                                                        └─ loadSoftwareIntel(products) ─▶ context.softwareIntel ─▶ SOFT-001/002
+GET /software, /software/summary, /domains/:id/software ─ eolStatus / matchAdvisories at read time
+```
+
+- `services/intel-feeds.ts` owns the three feeds. Each is its own maintenance step (the existing
+  per-step try/catch isolates failures) and records its state in `intel_feeds`. A feed run is claimed
+  atomically (`UPDATE … SET last_attempt_at … WHERE` not attempted recently and due), so concurrent cron
+  runs or repeated manual syncs never fetch twice. Steps run last in maintenance because they wait on the
+  network.
+- `lib/feed-fetch.ts` is the only network path: fixed HTTPS hosts (`endoflife.date`, `www.cisa.gov`,
+  `services.nvd.nist.gov`), same-host redirects only, timeout, streamed size cap, conditional request
+  headers, short error classes. Network access is injected (`AppDeps.intel.fetch`,
+  `runMaintenance(..., { intel })`); without it maintenance skips the feed steps, so tests never reach
+  the network. The Cron entry point (`worker/index.ts`) passes the Workers `fetch`, the User-Agent from
+  `APP_VERSION` and the optional `NVD_API_KEY` secret.
+- Evaluation (`services/evaluation.ts`) calls the rules package's `extractSoftware` on the job's
+  observations, loads only the intelligence rows for the sighted products (`services/software.ts`
+  `loadSoftwareIntel`; omitted entirely when no feed ever synced), passes it as `context.softwareIntel`,
+  and upserts `software_inventory` in the same transaction as the findings (set-based, never deletes).
+- Feed changes do **not** trigger re-evaluation: SOFT findings change on the next successful scan of the
+  domain; the read API always shows status against the current intelligence.
+
 ## Testing
 
 - Vitest projects: `web` (jsdom UI tests; API/service tests with `// @vitest-environment node`), `shared`,

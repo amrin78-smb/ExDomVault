@@ -204,6 +204,7 @@ describe('Settings: sections', () => {
       'Users',
       'Scan profiles',
       'Audit log',
+      'Intelligence feeds',
     ]);
     expect(nav.getByRole('link', { name: 'Workers and networks' })).toHaveAttribute(
       'aria-current',

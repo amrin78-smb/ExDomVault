@@ -9,6 +9,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   exposure: 'Network exposure',
   registration: 'Registration',
   asset: 'Assets',
+  software: 'Exposed software',
 };
 
 export const CONFIDENCE_LABELS: Record<string, string> = {

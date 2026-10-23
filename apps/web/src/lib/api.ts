@@ -88,6 +88,14 @@ import {
   type UserUpdateRequest,
 } from '@exdomainvault/shared';
 import { reportSummaryResponseSchema, type ReportSummaryResponse } from '@exdomainvault/shared';
+import {
+  intelFeedsResponseSchema,
+  softwareListResponseSchema,
+  softwareSummaryResponseSchema,
+  type IntelFeedsResponse,
+  type SoftwareListResponse,
+  type SoftwareSummaryResponse,
+} from '@exdomainvault/shared';
 import { z } from 'zod';
 
 export class ApiClientError extends Error {
@@ -414,6 +422,35 @@ export const api = {
         truncated: res.headers.get('X-Truncated') === 'true',
       };
     },
+  },
+
+  /**
+   * Exposed-software inventory (Milestone 11, `findings:read`; asset owners see only their own
+   * assets). Versions are self-reported by hosts: matches mean "possibly affected — verify".
+   */
+  software: {
+    list: (params: QueryParams, init?: RequestInit): Promise<SoftwareListResponse> =>
+      getJson(`/api/v1/software${toQuery(params)}`, softwareListResponseSchema, init),
+    summary: (init?: RequestInit): Promise<SoftwareSummaryResponse> =>
+      getJson('/api/v1/software/summary', softwareSummaryResponseSchema, init),
+    forDomain: (
+      id: string,
+      params: QueryParams,
+      init?: RequestInit,
+    ): Promise<SoftwareListResponse> =>
+      getJson(`${domainPath(id)}/software${toQuery(params)}`, softwareListResponseSchema, init),
+  },
+
+  /** Public intelligence feeds (endoflife.date, CISA KEV, NVD) synchronised by the server. */
+  intel: {
+    feeds: (init?: RequestInit): Promise<IntelFeedsResponse> =>
+      getJson('/api/v1/intel/feeds', intelFeedsResponseSchema, init),
+    /**
+     * Runs a feed sync now (`settings:manage`). The body may carry the updated feed status; callers
+     * reload the status list either way.
+     */
+    sync: (): Promise<Partial<IntelFeedsResponse> | null> =>
+      sendJson('POST', '/api/v1/intel/feeds/sync', intelFeedsResponseSchema.partial().nullable()),
   },
 
   workers: {

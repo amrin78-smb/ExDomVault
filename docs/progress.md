@@ -16,10 +16,14 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 8   | Finding lifecycle                           | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
 | 9   | Passive subdomain discovery                 | done        | Deployed 2026-10-23 (`d12f8709`)        |
 | 10  | Frontend integration                        | done        | Deployed 2026-10-23 (`43af2122`)        |
-| 11  | Exposed-software / vulnerability monitoring | not started | Owner decision 2026-10-23: after M10    |
+| 11  | Exposed-software / vulnerability monitoring | done        | Built; not yet deployed                 |
 | 12  | Production hardening                        | not started | Prompt: `docs/prompts/11-*.md`          |
 
 ## Decisions log
+
+- 2026-10-23 — **Exposed-software monitoring uses public feeds, not nocvault-eol/secvault** (both cover network/firewall gear only): endoflife.date API v1 (release cycles), CISA KEV (known-exploited CVEs, word-boundary alias pre-match), NVD CVE API 2.0 (affected ranges of those KEV CVEs, 5 lookups per cron run, 20 with optional `NVD_API_KEY`). Feeds sync from the 5-minute cron, each isolated, fetched over HTTPS from three allow-listed hosts with timeouts, size caps and zod validation; errors stored as short classes.
+- 2026-10-23 — **Software is parsed server-side from existing evidence** (HTTP `Server`/`X-Powered-By`, Nmap product/version) — no worker change. Catalogue of 16 products (`packages/shared/src/domain/software.ts`); unknown tokens ignored; distribution markers (Ubuntu, Debian, RHEL…) recorded as backport hints. HTTP sightings are located by hostname only (CDN addresses rotate).
+- 2026-10-23 — **Rules SOFT-001 (end-of-life software) and SOFT-002 (version possibly affected by a CISA KEV CVE)**: fingerprints exclude the version; SOFT-001 medium (high when EOL > 365 days for key web products or service identification); SOFT-002 high (critical for CVSS ≥ 9 or ransomware-associated); confidence low when a distribution is named. Resolve only when the same location reports a non-affected version; a hidden version or missing product is unknown and never resolves. Both allow manual resolution after verifying a backport. Findings refresh on the next scan, not when feeds change.
 
 - 2026-10-23 — **User administration** (`users:manage`): adding a user pre-provisions email + role (the person must also be allowed by the Cloudflare Access policy; identity binds on first sign-in). Guards: no self role change/deactivation; the last active admin can never be demoted or deactivated (active-admin rows locked before counting, so concurrent demotions serialise). Deactivated users are refused on every request (their Access session may remain until it expires).
 - 2026-10-23 — **Reports:** `GET /reports/summary` is pure SQL aggregation (eight fixed statements). Asset owners see only their visible findings; domain-level sections are empty for them. Expiring certificates use the latest successful TLS observation per hostname from the last 90 days (hosts no longer scanned don't stay "expired" forever). Trend "resolved" counts only findings still resolved.
@@ -137,6 +141,8 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~Upgrade to Workers Paid~~ — done by the owner 2026-10-23 (Standard plan; verified: a request using 15 ms CPU completed `ok`).
 - [x] ~~Production migrated to 0005 and `finding_comments` made append-only for `exdomainvault_app`~~ — done 2026-10-22 (verified: INSERT, SELECT only).
 
+- [ ] Optional: `cd apps/web && npx wrangler secret put NVD_API_KEY` (free key from NVD) to look up KEV CVE ranges 4× faster.
+
 ## Future enhancements (owner requests)
 
 - **Exposed software / vulnerability monitoring** (asked 2026-10-22, re CSA alert AL-2026-151 "PHP2Shell", CVE-2026-109618/-109619). Approach agreed in principle, not scheduled: the worker records product/version fingerprints it already sees (HTTP `Server`/`X-Powered-By`, cookies, TLS, limited service identification) with confidence levels (M5–6); deterministic rules for EOL versions, version disclosure and advisory matches reported as "possibly affected — verify" (M7); feed data (CISA KEV + a web-stack CVE/EOL feed, ideally published by nocvault-eol, which already serves Ed25519-signed EOL and firewall-CVE feeds) after M11. Caveats: distro backports keep old version strings, hidden banners mean "unknown" never "not affected", no exploit or vulnerability probing.
@@ -166,6 +172,16 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Milestone 11 — 2026-10-23
+
+**Built (contracts first, then three parallel agents: rules, server, UI):** contracts — software catalogue, `api/software.ts`, migration `0007_software_intel` (software_inventory, software_eol_cycles, vulnerability_advisories, intel_feeds; findings category `software`), `SoftwareIntel` evaluation context, rules software API contract. Rules: `packages/rules/src/software/` (banner parser, version comparator, EOL cycle mapping, advisory matching), SOFT-001/SOFT-002 (25 rules total). Server: `lib/feed-fetch.ts`, `services/intel-feeds.ts` (endoflife.date, KEV, NVD), `services/software.ts`, evaluation loads intel + upserts inventory, `GET /software`, `/software/summary`, `/domains/:id/software`, `GET /intel/feeds`, `POST /intel/feeds/sync`. UI: Software page (rollup + inventory + explainer), domain Software card, Settings → Intelligence feeds, CVE/range evidence rendering, Overview tile. Docs: api-specification, architecture, threat-model (feeds as untrusted input), deployment, advisory-rules (regenerated).
+
+**Checks:** `npm run lint` pass; `npm run typecheck` pass; `npm run db:check` pass; `npm run rules:docs:check` pass; `npm test` 68 files, 1651 tests pass (all feed tests mocked — no network); `npm run build` pass; `npm run worker:test` 1391 pass (worker unchanged).
+
+**Limitations:** software data appears only after Quick/Standard/Deep scans (still on request); IIS/OpenSSH have no endoflife.date data; NVD `not_found`/`no_product_match` are final; summary `hosts` counts locations; feeds were verified against provider documentation, not yet fetched live.
+
+**Next:** deploy (migration 0007, owner approval); proposed scheduled Quick scans; then Milestone 12 — production hardening.
 
 ### Milestone 10 — 2026-10-23
 
