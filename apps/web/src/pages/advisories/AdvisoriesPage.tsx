@@ -5,11 +5,12 @@ import { Pagination } from '../../components/findings/Pagination.tsx';
 import { RiskScore } from '../../components/findings/RiskScore.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
-import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
+import { LoadError } from '../../components/ui/LoadError.tsx';
+import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
 import { api } from '../../lib/api.ts';
-import { useAsync } from '../../lib/use-async.ts';
+import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
 const selectClass =
   'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
@@ -20,7 +21,10 @@ export function AdvisoriesPage() {
     page: params.get('page') ?? undefined,
     status: params.get('status') ?? undefined,
   };
-  const state = useAsync((signal) => api.advisories.list(query, { signal }), [params.toString()]);
+  const { state, stale, refreshing, retry } = useRefreshableAsync(
+    (signal) => api.advisories.list(query, { signal }),
+    [params.toString()],
+  );
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -56,13 +60,21 @@ export function AdvisoriesPage() {
         }
       />
 
+      {stale && (
+        <StaleDataNotice
+          loadedAt={stale.loadedAt}
+          error={stale.error}
+          onRetry={retry}
+          retrying={refreshing}
+        />
+      )}
       {state.status === 'loading' && (
         <p className="py-8 text-center text-sm text-slate-500" role="status">
           Loading advisories…
         </p>
       )}
       {state.status === 'error' && (
-        <ErrorAlert error={state.error} title="Could not load advisories" />
+        <LoadError error={state.error} title="Could not load advisories" onRetry={retry} />
       )}
       {state.status === 'success' && items.length === 0 && (
         <Card>

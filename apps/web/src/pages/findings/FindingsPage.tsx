@@ -16,17 +16,19 @@ import { BULK_PERMISSIONS, bulkResultText } from '../../components/findings/life
 import { FindingStatusBadge } from '../../components/findings/FindingStatusBadge.tsx';
 import { CATEGORY_LABELS, SORT_LABELS, userLabel } from '../../components/findings/labels.ts';
 import { Pagination } from '../../components/findings/Pagination.tsx';
+import { ExportFindingsButton } from '../../components/reports/ExportFindingsButton.tsx';
 import { RiskScore } from '../../components/findings/RiskScore.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
-import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
+import { LoadError } from '../../components/ui/LoadError.tsx';
+import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { usePermissions } from '../../lib/session.ts';
-import { useAsync } from '../../lib/use-async.ts';
+import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
 const FILTER_KEYS = [
   'status',
@@ -52,9 +54,10 @@ export function FindingsPage() {
   const canSelect = BULK_PERMISSIONS.some((p) => can(p));
 
   const query = Object.fromEntries(QUERY_KEYS.map((k) => [k, params.get(k) ?? undefined]));
-  const state = useAsync(
+  const { state, stale, refreshing, retry } = useRefreshableAsync(
     (signal) => api.findings.list(query, { signal }),
-    [params.toString(), reloadKey],
+    [params.toString()],
+    reloadKey,
   );
   const filtered = FILTER_KEYS.some((k) => params.get(k));
 
@@ -92,6 +95,14 @@ export function FindingsPage() {
       <PageHeader
         title="Findings"
         description="Evidence-backed observations about DNS, email, certificates, web and network exposure. A finding describes a configuration or exposure condition, not a confirmed compromise."
+        actions={
+          <ExportFindingsButton
+            label="Export CSV"
+            filters={Object.fromEntries(
+              [...FILTER_KEYS, 'sort'].map((k) => [k, params.get(k) ?? undefined]),
+            )}
+          />
+        }
       />
 
       <Card>
@@ -231,13 +242,21 @@ export function FindingsPage() {
           />
         )}
 
+        {stale && (
+          <StaleDataNotice
+            loadedAt={stale.loadedAt}
+            error={stale.error}
+            onRetry={retry}
+            retrying={refreshing}
+          />
+        )}
         {state.status === 'loading' && (
           <p className="py-8 text-center text-sm text-slate-500" role="status">
             Loading findings…
           </p>
         )}
         {state.status === 'error' && (
-          <ErrorAlert error={state.error} title="Could not load findings" />
+          <LoadError error={state.error} title="Could not load findings" onRetry={retry} />
         )}
         {state.status === 'success' && state.data.items.length === 0 && (
           <EmptyState

@@ -18,6 +18,7 @@ export const asset = (overrides: Partial<Asset> = {}): Asset => ({
   currentIps: ['192.0.2.10'],
   hostingHint: null,
   wildcardOnly: false,
+  owner: null,
   decidedBy: null,
   decidedAt: null,
   decisionReason: null,

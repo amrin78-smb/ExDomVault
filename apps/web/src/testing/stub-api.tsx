@@ -29,6 +29,10 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'findings:assign',
     'findings:accept_risk',
     'findings:remediate',
+    'users:manage',
+    'audit:read',
+    'reports:read',
+    'reports:generate',
   ],
   analyst: [
     'domains:read',
@@ -40,9 +44,11 @@ export const PERMISSIONS: Record<Role, Permission[]> = {
     'findings:assign',
     'findings:accept_risk',
     'findings:remediate',
+    'reports:read',
+    'reports:generate',
   ],
-  viewer: ['domains:read', 'assets:read', 'scans:read', 'findings:read'],
-  asset_owner: ['assets:read', 'findings:read', 'findings:remediate'],
+  viewer: ['domains:read', 'assets:read', 'scans:read', 'findings:read', 'reports:read'],
+  asset_owner: ['assets:read', 'findings:read', 'findings:remediate', 'reports:read'],
 };
 
 export const ok = (body: unknown) => () => ({ status: 200, body });
@@ -105,4 +111,23 @@ export const ASSET_PATHS = {
   bulk: 'POST /api/v1/assets/bulk',
   domainAssets: (domainId: string, query = '') => `GET /api/v1/domains/${domainId}/assets${query}`,
   discovery: (domainId: string) => `POST /api/v1/domains/${domainId}/discovery`,
+  setOwner: (id: string) => `PATCH /api/v1/assets/${id}`,
 } as const;
+
+/** Request paths of the user administration and audit endpoints, matching the server routes. */
+export const ADMIN_PATHS = {
+  users: (query = '') => `GET /api/v1/users${query}`,
+  createUser: 'POST /api/v1/users',
+  updateUser: (id: string) => `PATCH /api/v1/users/${id}`,
+  assignable: 'GET /api/v1/users/assignable',
+  audit: (query = '') => `GET /api/v1/audit-logs${query}`,
+  scanProfiles: 'GET /api/v1/scan-profiles',
+} as const;
+
+/** A `/me` handler for a fixed user id, so tests can recognise the signed-in user's own rows. */
+export const meAs = (role: Role, id: string, email = `${role}@example.com`) =>
+  ok({
+    user: { id, email, displayName: null, role },
+    permissions: PERMISSIONS[role],
+    authProvider: 'cloudflare_access',
+  });

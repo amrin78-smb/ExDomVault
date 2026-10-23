@@ -57,6 +57,7 @@ function visibleAssets(user: User): SQL | undefined {
 }
 
 const decider = alias(users, 'decider');
+const ownerUser = alias(users, 'owner_user');
 
 /** Active (non-resolved) findings on the asset's hostname. */
 const activeFindingCount = sql<number>`(
@@ -70,6 +71,7 @@ const assetSelect = {
   a: assets,
   fqdn: domains.fqdn,
   deciderEmail: decider.email,
+  ownerEmail: ownerUser.email,
   activeFindings: activeFindingCount,
 };
 
@@ -78,10 +80,17 @@ function baseQuery(db: Database) {
     .select(assetSelect)
     .from(assets)
     .innerJoin(domains, eq(domains.id, assets.domainId))
-    .leftJoin(decider, eq(decider.id, assets.decidedBy));
+    .leftJoin(decider, eq(decider.id, assets.decidedBy))
+    .leftJoin(ownerUser, eq(ownerUser.id, assets.ownerUserId));
 }
 
-type JoinRow = { a: AssetRow; fqdn: string; deciderEmail: string | null; activeFindings: number };
+type JoinRow = {
+  a: AssetRow;
+  fqdn: string;
+  deciderEmail: string | null;
+  ownerEmail: string | null;
+  activeFindings: number;
+};
 
 const displayIp = (v: string) => canonicalIp(v) ?? v;
 
@@ -112,6 +121,7 @@ function toAssetDto(r: JoinRow, currentIps: string[]): Asset {
     currentIps,
     hostingHint: hint.success ? hint.data : null,
     wildcardOnly: a.wildcardOnly,
+    owner: a.ownerUserId && r.ownerEmail ? { id: a.ownerUserId, email: r.ownerEmail } : null,
     decidedBy: a.decidedBy && r.deciderEmail ? { id: a.decidedBy, email: r.deciderEmail } : null,
     decidedAt: iso(a.decidedAt),
     decisionReason: a.decisionReason,
@@ -452,4 +462,65 @@ export async function decideAsset(
         },
       ]);
   }
+}
+
+// --- Owner --------------------------------------------------------------------------------------
+
+/**
+ * PATCH /assets/:id: sets or clears the asset owner (asset owners see only assets they own). The
+ * new owner must be an existing, active user. Audited `asset.owner_changed`; no-op if unchanged.
+ */
+export async function setAssetOwner(
+  db: Database,
+  id: string,
+  ownerUserId: string | null,
+  actor: Actor,
+  now: Date,
+): Promise<void> {
+  const target = ownerUserId?.toLowerCase() ?? null;
+  await db.transaction(async (raw) => {
+    const tx = raw as unknown as Database;
+    const [asset] = await tx.select().from(assets).where(eq(assets.id, id)).for('update');
+    if (!asset) throw notFound();
+
+    let ownerEmail: string | null = null;
+    if (target !== null) {
+      // Lock the user row so a concurrent deactivation cannot slip in before commit.
+      const [owner] = await tx
+        .select({ email: users.email, isActive: users.isActive })
+        .from(users)
+        .where(eq(users.id, target))
+        .for('share');
+      if (!owner?.isActive) {
+        throw new ApiError(400, 'validation_failed', 'The owner must be an active user.', [
+          { path: 'ownerUserId', message: 'Choose an active user.' },
+        ]);
+      }
+      ownerEmail = owner.email;
+    }
+    if (asset.ownerUserId === target) return;
+
+    const [previous] = asset.ownerUserId
+      ? await tx.select({ email: users.email }).from(users).where(eq(users.id, asset.ownerUserId))
+      : [];
+    await tx.update(assets).set({ ownerUserId: target, updatedAt: now }).where(eq(assets.id, id));
+    await writeAuditMany(tx, [
+      {
+        actorType: 'user',
+        actorUserId: actor.userId,
+        action: 'asset.owner_changed',
+        resourceType: 'asset',
+        resourceId: id,
+        requestId: actor.requestId,
+        metadata: {
+          domainId: asset.domainId,
+          hostname: asset.hostname,
+          from: asset.ownerUserId
+            ? { id: asset.ownerUserId, email: previous?.email ?? null }
+            : null,
+          to: target ? { id: target, email: ownerEmail } : null,
+        },
+      },
+    ]);
+  });
 }

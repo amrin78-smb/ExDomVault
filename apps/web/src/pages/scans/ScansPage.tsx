@@ -1,16 +1,17 @@
 import { SCAN_JOB_STATUSES, SCAN_JOB_STATUS_LABELS } from '@exdomainvault/shared';
-import { Radar } from 'lucide-react';
+import { Radar, RefreshCw } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router';
 import { JOB_TYPE_LABELS } from '../../components/scans/labels.ts';
 import { ScanStatusBadge } from '../../components/scans/ScanStatusBadge.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
-import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
+import { LoadError } from '../../components/ui/LoadError.tsx';
+import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
-import { useAsync } from '../../lib/use-async.ts';
+import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
 const selectClass =
   'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
@@ -22,7 +23,10 @@ export function ScansPage() {
     status: params.get('status') ?? undefined,
     domainId: params.get('domainId') ?? undefined,
   };
-  const state = useAsync((signal) => api.scans.list(query, { signal }), [params.toString()]);
+  const { state, stale, refreshing, retry } = useRefreshableAsync(
+    (signal) => api.scans.list(query, { signal }),
+    [params.toString()],
+  );
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -37,6 +41,12 @@ export function ScansPage() {
       <PageHeader
         title="Scans"
         description="Scan jobs, their progress and history. Start scans from a domain's page."
+        actions={
+          <Button onClick={retry} disabled={refreshing || state.status === 'loading'}>
+            <RefreshCw className="size-4" aria-hidden />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        }
       />
       <Card>
         <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -60,13 +70,21 @@ export function ScansPage() {
           )}
         </div>
 
+        {stale && (
+          <StaleDataNotice
+            loadedAt={stale.loadedAt}
+            error={stale.error}
+            onRetry={retry}
+            retrying={refreshing}
+          />
+        )}
         {state.status === 'loading' && (
           <p className="py-8 text-center text-sm text-slate-500" role="status">
             Loading scans…
           </p>
         )}
         {state.status === 'error' && (
-          <ErrorAlert error={state.error} title="Could not load scans" />
+          <LoadError error={state.error} title="Could not load scans" onRetry={retry} />
         )}
         {state.status === 'success' && state.data.items.length === 0 && (
           <EmptyState title="No scans yet" icon={Radar}>

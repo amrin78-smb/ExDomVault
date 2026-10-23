@@ -10,12 +10,14 @@ import { securityHeaders } from './middleware/security-headers.ts';
 import type { Rule } from '@exdomainvault/rules';
 import { advisoryRoutes } from './routes/advisories.ts';
 import { assetRoutes } from './routes/assets.ts';
+import { auditLogRoutes } from './routes/audit-logs.ts';
 import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
 import { findingRoutes } from './routes/findings.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import { internalWorkerRoutes } from './routes/internal-worker.ts';
 import { meRoutes } from './routes/me.ts';
 import { approvedNetworkRoutes } from './routes/networks.ts';
+import { reportRoutes } from './routes/reports.ts';
 import { ruleRoutes } from './routes/rules.ts';
 import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
 import { userRoutes } from './routes/users.ts';
@@ -67,7 +69,9 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/findings', findingRoutes({ rules: deps.rules, now: deps.now }));
   authed.route('/advisories', advisoryRoutes());
   authed.route('/rules', ruleRoutes({ rules: deps.rules }));
-  authed.route('/users', userRoutes());
+  authed.route('/users', userRoutes({ now: deps.now }));
+  authed.route('/audit-logs', auditLogRoutes());
+  authed.route('/reports', reportRoutes({ now: deps.now }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

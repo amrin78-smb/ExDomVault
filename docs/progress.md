@@ -21,6 +21,13 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-23 — **User administration** (`users:manage`): adding a user pre-provisions email + role (the person must also be allowed by the Cloudflare Access policy; identity binds on first sign-in). Guards: no self role change/deactivation; the last active admin can never be demoted or deactivated (active-admin rows locked before counting, so concurrent demotions serialise). Deactivated users are refused on every request (their Access session may remain until it expires).
+- 2026-10-23 — **Reports:** `GET /reports/summary` is pure SQL aggregation (eight fixed statements). Asset owners see only their visible findings; domain-level sections are empty for them. Expiring certificates use the latest successful TLS observation per hostname from the last 90 days (hosts no longer scanned don't stay "expired" forever). Trend "resolved" counts only findings still resolved.
+- 2026-10-23 — **CSV export** (`reports:generate`, ≤ 5000 rows, `X-Truncated`), formula-injection prefixing and RFC 4180 quoting, audited `report.exported`. The UI downloads with fetch + blob so errors, truncation and an expired Access session are reported in the page.
+- 2026-10-23 — **Charts are hand-written SVG** (no chart library; bundle 668 kB / 188 kB gzip), with a data-table alternative; severity colour only via `SeverityBadge`.
+- 2026-10-23 — **Asset owners** are set per asset (`PATCH /assets/:id`, `assets:approve`, audited); asset-owner users see only their assets and those assets' findings.
+- 2026-10-23 — **Page states:** permission-denied (403) empty states, Retry on load errors, and a stale-data notice that keeps the last data visible when a reload fails.
+
 - 2026-10-23 — **Workers Standard (paid) plan** in place (owner): the 10 ms CPU limit no longer applies (default 30 s per request).
 - 2026-10-23 — **Milestone order changed (owner):** exposed-software / vulnerability monitoring (see Future enhancements) becomes Milestone 11, right after frontend integration; production hardening moves to Milestone 12 (its kickoff prompt keeps the file name `docs/prompts/11-production-hardening.md`).
 - 2026-10-23 — **Discovery runs in the Python worker**, not the Cloudflare Worker: crt.sh responses can be tens of MB (far beyond the 10 ms CPU budget) and all outbound collection stays on one host. `discovery` is a passive check (never contacts target hosts) with its own profile and job type (`discovery`), requested via `POST /domains/:id/discovery` or scheduled weekly (priority 250, ≤ 50 per cron run, staggered over 7 days by domain-id hash). It is never offered as a scan profile.
@@ -146,7 +153,6 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Known limitations
 
 - Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
-- No user-management UI/API yet: non-bootstrap users must be inserted into `users` manually.
 - A positive DNS TXT verification has only been tested with a mocked resolver (needs a domain whose DNS you control); administrator authorisation was exercised end to end on the Neon `dev` branch with all 339 portfolio domains.
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
@@ -160,6 +166,16 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Milestone 10 — 2026-10-23
+
+**Built (contracts first, then three parallel agents: server, Settings UI, Reports/Overview UI):** contracts `packages/shared/src/api/{users,audit,reports}.ts` + asset owner. Server: `services/{user-admin,audit-log,reports}.ts`, `routes/{audit-logs,reports}.ts`, users routes, asset owner PATCH, `findingFilters` shared by list and CSV. UI: Settings sections (Workers/networks, Users, Scan profiles, Audit log; `?tab=`), asset owner picker, Reports page (coverage, severity/status, 30-day trend chart, mean time to resolve, top domains, business owners, expiring registrations/certificates, accepted risks due, CSV export also from Findings), Overview asset tiles + trend, `StaleDataNotice`/`PermissionDenied`/`LoadError` across list pages, workflow tests (add + verify domain, approve asset, launch scan, update finding). Docs: api-specification (Users, Audit log, Reports, asset owner), threat-model.
+
+**Checks:** `npm run lint` pass; `npm run typecheck` pass; `npm run db:check` pass; `npm run rules:docs:check` pass; `npm test` 61 files, 1478 tests pass; `npm run build` pass. Worker (Python) unchanged. No migration in this milestone.
+
+**Limitations:** the business-owner table has no drill-down (no business-owner filter on findings/domains); owner picker lists ≤ 100 active users; asset detail still lacks observed services/TLS.
+
+**Next:** deploy (owner approval), then Milestone 11 — exposed-software / vulnerability monitoring.
 
 ### Milestone 9 — 2026-10-23
 

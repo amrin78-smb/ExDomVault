@@ -25,12 +25,14 @@ import { Pagination } from '../../components/findings/Pagination.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
-import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
+import { LoadError } from '../../components/ui/LoadError.tsx';
+import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { usePermission } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
+import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
 /** Status shown when the URL names none: the review queue. */
 const DEFAULT_STATUS = 'pending';
@@ -67,9 +69,10 @@ export function AssetsPage() {
     q: params.get('q') ?? undefined,
     sort: params.get('sort') ?? undefined,
   };
-  const state = useAsync(
+  const { state, stale, refreshing, retry } = useRefreshableAsync(
     (signal) => api.assets.list(query, { signal }),
-    [params.toString(), reloadKey],
+    [params.toString()],
+    reloadKey,
   );
   const domains = useAsync(
     (signal) =>
@@ -261,13 +264,21 @@ export function AssetsPage() {
           />
         )}
 
+        {stale && (
+          <StaleDataNotice
+            loadedAt={stale.loadedAt}
+            error={stale.error}
+            onRetry={retry}
+            retrying={refreshing}
+          />
+        )}
         {state.status === 'loading' && (
           <p className="py-8 text-center text-sm text-slate-500" role="status">
             Loading assets…
           </p>
         )}
         {state.status === 'error' && (
-          <ErrorAlert error={state.error} title="Could not load assets" />
+          <LoadError error={state.error} title="Could not load assets" onRetry={retry} />
         )}
         {state.status === 'success' && state.data.items.length === 0 && (
           <EmptyState

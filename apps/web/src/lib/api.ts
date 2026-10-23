@@ -77,6 +77,17 @@ import {
   type UpdateDomainRequest,
   type VerifyDomainResponse,
 } from '@exdomainvault/shared';
+import {
+  auditListResponseSchema,
+  userListResponseSchema,
+  userResponseSchema,
+  type AuditListResponse,
+  type User,
+  type UserCreateRequest,
+  type UserListResponse,
+  type UserUpdateRequest,
+} from '@exdomainvault/shared';
+import { reportSummaryResponseSchema, type ReportSummaryResponse } from '@exdomainvault/shared';
 import { z } from 'zod';
 
 export class ApiClientError extends Error {
@@ -163,9 +174,17 @@ export function toQuery(params: Record<string, string | number | undefined>): st
 
 type QueryParams = Record<string, string | number | undefined>;
 
+/** A downloaded file; `truncated` when the server capped the rows (`X-Truncated: true`). */
+export interface CsvDownload {
+  blob: Blob;
+  filename: string;
+  truncated: boolean;
+}
+
 const domainPath = (id: string) => `/api/v1/domains/${encodeURIComponent(id)}`;
 const findingPath = (id: string) => `/api/v1/findings/${encodeURIComponent(id)}`;
 const assetPath = (id: string) => `/api/v1/assets/${encodeURIComponent(id)}`;
+const userPath = (id: string) => `/api/v1/users/${encodeURIComponent(id)}`;
 
 export const api = {
   health: (init?: RequestInit): Promise<HealthResponse> =>
@@ -257,6 +276,9 @@ export const api = {
     /** The same decision for many assets; each is checked individually and may be skipped. */
     bulkDecide: (body: AssetBulkDecisionRequest): Promise<AssetBulkDecisionResponse> =>
       sendJson('POST', '/api/v1/assets/bulk', assetBulkDecisionResponseSchema, body),
+    /** Sets (or clears, with `null`) the asset owner; requires `assets:approve`. Audited. */
+    setOwner: (id: string, ownerUserId: string | null): Promise<{ asset: Asset }> =>
+      sendJson('PATCH', assetPath(id), assetResponseSchema, { ownerUserId }),
   },
 
   /** Networks that network-tier checks (port probes, service identification) may contact. */
@@ -322,6 +344,23 @@ export const api = {
     /** Users a finding can be assigned to (requires `findings:assign`). */
     assignable: (init?: RequestInit): Promise<AssignableUsersResponse> =>
       getJson('/api/v1/users/assignable', assignableUsersResponseSchema, init),
+    /** User administration (requires `users:manage`). */
+    list: (params: QueryParams, init?: RequestInit): Promise<UserListResponse> =>
+      getJson(`/api/v1/users${toQuery(params)}`, userListResponseSchema, init),
+    get: (id: string, init?: RequestInit): Promise<{ user: User }> =>
+      getJson(userPath(id), userResponseSchema, init),
+    /** Pre-provisions a user; they must also be allowed by the Cloudflare Access policy. */
+    create: (body: UserCreateRequest): Promise<{ user: User }> =>
+      sendJson('POST', '/api/v1/users', userResponseSchema, body),
+    /** Role / active flag / display name. 409 `conflict` for self-changes and the last admin. */
+    update: (id: string, body: UserUpdateRequest): Promise<{ user: User }> =>
+      sendJson('PATCH', userPath(id), userResponseSchema, body),
+  },
+
+  /** Append-only audit log (requires `audit:read`). */
+  audit: {
+    list: (params: QueryParams, init?: RequestInit): Promise<AuditListResponse> =>
+      getJson(`/api/v1/audit-logs${toQuery(params)}`, auditListResponseSchema, init),
   },
 
   advisories: {
@@ -331,6 +370,51 @@ export const api = {
 
   rules: (init?: RequestInit): Promise<{ items: RuleCatalogueEntry[] }> =>
     getJson('/api/v1/rules', ruleCatalogueResponseSchema, init),
+
+  /** Portfolio reporting (design §10, §14). */
+  reports: {
+    /** Coverage, finding counts, trend and expiry lists (`reports:read`). */
+    summary: (init?: RequestInit): Promise<ReportSummaryResponse> =>
+      getJson('/api/v1/reports/summary', reportSummaryResponseSchema, init),
+    /**
+     * Downloads the findings CSV for the given Findings-page filters (`reports:generate`). Fetched (same-origin, so the Cloudflare Access cookie is sent)
+     * rather than navigated to, so API errors show in the page and `X-Truncated` can be reported.
+     */
+    findingsCsv: async (params: QueryParams): Promise<CsvDownload> => {
+      let res: Response;
+      try {
+        res = await fetch(`/api/v1/reports/findings.csv${toQuery(params)}`, {
+          headers: { Accept: 'text/csv' },
+        });
+      } catch {
+        throw new ApiClientError('The API could not be reached.', 0, 'network_error');
+      }
+      if (!res.ok) {
+        const parsed = errorResponseSchema.safeParse(await res.json().catch(() => null));
+        if (parsed.success) {
+          const { message, code, requestId, details } = parsed.data.error;
+          throw new ApiClientError(message, res.status, code, requestId, details);
+        }
+        throw new ApiClientError(`Unexpected API response (${res.status}).`, res.status, 'unknown');
+      }
+      const type = res.headers.get('Content-Type') ?? '';
+      if (type && !type.includes('csv')) {
+        // e.g. an identity-provider login page after the access session expired.
+        throw new ApiClientError(
+          'The export did not return a CSV file. Reload the page to sign in again.',
+          res.status,
+          'invalid_response',
+        );
+      }
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const named = /filename="?([\w.-]+)"?/.exec(disposition)?.[1];
+      return {
+        blob: await res.blob(),
+        filename: named ?? `findings-${new Date().toISOString().slice(0, 10)}.csv`,
+        truncated: res.headers.get('X-Truncated') === 'true',
+      };
+    },
+  },
 
   workers: {
     list: (init?: RequestInit): Promise<{ items: Worker[] }> =>

@@ -83,11 +83,12 @@ describe('App shell', () => {
     expect(screen.getByRole('note')).toHaveTextContent('not real scan results');
   });
 
-  it('navigates to a section placeholder', async () => {
+  it('shows a permission-denied state, not an error, for a section the role cannot read', async () => {
     renderApp();
     await userEvent.click(screen.getByRole('link', { name: 'Reports' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Reports' })).toBeInTheDocument();
-    expect(screen.getByText(/implemented in Milestone 10/)).toBeInTheDocument();
+    expect(await screen.findByText('Reports are not available to your role')).toBeInTheDocument();
+    expect(screen.queryByText(/implemented in Milestone/)).not.toBeInTheDocument();
   });
 
   it.each([

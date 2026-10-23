@@ -1,7 +1,11 @@
-import type { Worker } from '@exdomainvault/shared';
+import type { Permission, Worker } from '@exdomainvault/shared';
 import { Construction, KeyRound, Server } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { ApprovedNetworksSection } from '../../components/settings/ApprovedNetworksSection.tsx';
+import { AuditLogSection } from '../../components/settings/AuditLogSection.tsx';
+import { ScanProfilesSection } from '../../components/settings/ScanProfilesSection.tsx';
+import { UsersSection } from '../../components/settings/UsersSection.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
@@ -9,7 +13,7 @@ import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDate, formatDateTime } from '../../lib/format.ts';
-import { usePermission } from '../../lib/session.ts';
+import { usePermission, usePermissions, useSession } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
 
 const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
@@ -18,30 +22,98 @@ const KEYGEN = `openssl genpkey -algorithm ed25519 -out worker.key
 chmod 600 worker.key
 openssl pkey -in worker.key -pubout -outform DER | tail -c 32 | base64`;
 
+/** Settings sections, selected with `?tab=` so each one (and its filters) has a shareable URL. */
+const TABS = [
+  { key: 'general', label: 'Workers and networks', permission: null },
+  { key: 'users', label: 'Users', permission: 'users:manage' },
+  { key: 'profiles', label: 'Scan profiles', permission: 'scans:read' },
+  { key: 'audit', label: 'Audit log', permission: 'audit:read' },
+] as const satisfies readonly { key: string; label: string; permission: Permission | null }[];
+type TabKey = (typeof TABS)[number]['key'];
+
 export function SettingsPage() {
+  const [params] = useSearchParams();
+  const session = useSession();
+  const can = usePermissions();
+  const requested = params.get('tab') ?? 'general';
+  const tab = TABS.find((t) => t.key === requested) ?? TABS[0];
+  const visible = TABS.filter((t) => t.permission === null || can(t.permission));
+  const allowed = tab.permission === null || can(tab.permission);
+
+  return (
+    <>
+      <PageHeader
+        title="Settings"
+        description="Users, scan profiles, the audit log, scanning workers and approved networks."
+      />
+      <nav aria-label="Settings sections" className="mb-6 border-b border-slate-200">
+        <ul className="-mb-px flex flex-wrap gap-1">
+          {visible.map((t) => {
+            const current = t.key === tab.key;
+            return (
+              <li key={t.key}>
+                <Link
+                  to={t.key === 'general' ? '?' : `?tab=${t.key}`}
+                  aria-current={current ? 'page' : undefined}
+                  className={`inline-block border-b-2 px-3 py-2 text-sm font-medium ${
+                    current
+                      ? 'border-sky-700 text-sky-800'
+                      : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  {t.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+      {session.status === 'loading' && tab.permission !== null ? (
+        <p role="status" className="py-8 text-center text-sm text-slate-500">
+          Loading…
+        </p>
+      ) : allowed ? (
+        <TabContent tab={tab.key} />
+      ) : (
+        <Card>
+          <EmptyState title="Administrators only" icon={Construction}>
+            You do not have permission to view this section.
+          </EmptyState>
+        </Card>
+      )}
+    </>
+  );
+}
+
+function TabContent({ tab }: { tab: TabKey }) {
+  switch (tab) {
+    case 'users':
+      return <UsersSection />;
+    case 'profiles':
+      return <ScanProfilesSection />;
+    case 'audit':
+      return <AuditLogSection />;
+    case 'general':
+      return <GeneralSection />;
+  }
+}
+
+function GeneralSection() {
   const canManage = usePermission('settings:manage');
   const canManagePolicies = usePermission('scan_policies:manage');
   return (
-    <>
-      <PageHeader title="Settings" description="Scanning workers and operational settings." />
-      <div className="space-y-6">
-        {canManage ? (
-          <WorkersSection />
-        ) : (
-          <Card>
-            <EmptyState title="Administrators only" icon={Construction}>
-              Worker and system settings are managed by administrators.
-            </EmptyState>
-          </Card>
-        )}
-        {canManagePolicies && <ApprovedNetworksSection />}
-        <Card title="Users, scan policies and integrations">
-          <EmptyState title="Not available yet" icon={Construction}>
-            These settings are implemented in Milestone 10.
+    <div className="space-y-6">
+      {canManage ? (
+        <WorkersSection />
+      ) : (
+        <Card>
+          <EmptyState title="Administrators only" icon={Construction}>
+            Worker and system settings are managed by administrators.
           </EmptyState>
         </Card>
-      </div>
-    </>
+      )}
+      {canManagePolicies && <ApprovedNetworksSection />}
+    </div>
   );
 }
 

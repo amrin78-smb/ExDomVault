@@ -1,13 +1,14 @@
-import type { Finding, Permission } from '@exdomainvault/shared';
-import { Activity, CalendarClock, ListChecks, Network, ShieldCheck } from 'lucide-react';
+import type { Finding, FindingSummaryResponse, Permission } from '@exdomainvault/shared';
+import { Activity, CalendarClock, ListChecks, Lock, Network, ShieldCheck } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { FindingList } from '../components/findings/FindingList.tsx';
 import { SeverityCounts } from '../components/findings/SeverityCounts.tsx';
+import { TrendChart } from '../components/reports/TrendChart.tsx';
 import { ScanStatusBadge } from '../components/scans/ScanStatusBadge.tsx';
 import { Card } from '../components/ui/Card.tsx';
 import { EmptyState } from '../components/ui/EmptyState.tsx';
-import { ErrorAlert } from '../components/ui/ErrorAlert.tsx';
+import { LoadError } from '../components/ui/LoadError.tsx';
 import { PageHeader } from '../components/ui/PageHeader.tsx';
 import { StatCard } from '../components/ui/StatCard.tsx';
 import { api } from '../lib/api.ts';
@@ -18,8 +19,10 @@ import { useAsync, type AsyncState } from '../lib/use-async.ts';
 const FINDINGS_HINT =
   'Findings come from rules run on completed scans and appear within about five minutes of a scan finishing.';
 
+type Access = 'loading' | 'yes' | 'no';
+
 /** Whether the signed-in user holds a permission, distinguishing "not yet known". */
-function useAccess(permission: Permission): 'loading' | 'yes' | 'no' {
+function useAccess(permission: Permission): Access {
   const session = useSession();
   if (session.status === 'loading') return 'loading';
   return session.status === 'success' && session.data.permissions.includes(permission)
@@ -27,15 +30,39 @@ function useAccess(permission: Permission): 'loading' | 'yes' | 'no' {
     : 'no';
 }
 
+/** Loads only once access is known to be granted; never calls an endpoint the role cannot use. */
+function useAsyncIf<T>(
+  access: Access,
+  load: (signal: AbortSignal) => Promise<T>,
+): AsyncState<T | null> {
+  return useAsync((signal) => (access === 'yes' ? load(signal) : Promise.resolve(null)), [access]);
+}
+
+/** A state that is still meaningful only when its request actually ran. */
+const loaded = <T,>(s: AsyncState<T | null>): AsyncState<T> =>
+  s.status === 'success' && s.data === null ? { status: 'loading' } : (s as AsyncState<T>);
+
 /**
  * Operational dashboard built only from live API data. Every card loads independently, so one
- * failing endpoint never hides the others.
+ * failing endpoint never hides the others. The report summary and the findings summary are each
+ * fetched once and shared by the cards that use them.
  */
 export function OverviewPage() {
   const domains = useAccess('domains:read');
+  const assets = useAccess('assets:read');
   const findings = useAccess('findings:read');
   const scans = useAccess('scans:read');
   const workers = useAccess('settings:manage');
+  const reports = useAccess('reports:read');
+
+  const report = useAsyncIf(reports, (signal) => api.reports.summary({ signal }));
+  const findingSummary = loaded(
+    useAsyncIf(findings, (signal) => api.findings.summary({}, { signal })),
+  );
+  // Portfolio coverage comes from the report when available; otherwise from the list endpoints.
+  const coverage =
+    report.status === 'success' && report.data && domains === 'yes' ? report.data.coverage : null;
+  const coverageFallback = reports === 'no' || report.status === 'error';
 
   return (
     <>
@@ -44,14 +71,45 @@ export function OverviewPage() {
         description="External exposure across monitored domains, open findings and operational health."
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {domains === 'yes' ? (
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        {domains !== 'yes' ? (
+          <BlankStats labels={['Domains monitored', 'Verified domains']} />
+        ) : coverage ? (
+          <>
+            <StatCard
+              label="Domains monitored"
+              value={coverage.monitoredDomains}
+              hint={`of ${coverage.domains} domains`}
+            />
+            <StatCard
+              label="Verified domains"
+              value={coverage.verifiedDomains}
+              hint="Eligible for active checks"
+            />
+          </>
+        ) : coverageFallback ? (
           <DomainStats />
         ) : (
           <BlankStats labels={['Domains monitored', 'Verified domains']} />
         )}
+        {assets !== 'yes' || domains !== 'yes' ? (
+          <BlankStats labels={['Approved assets', 'Pending assets']} />
+        ) : coverage ? (
+          <>
+            <StatCard
+              label="Approved assets"
+              value={coverage.approvedAssets}
+              hint="In scan scope"
+            />
+            <PendingAssets value={coverage.pendingAssets} />
+          </>
+        ) : coverageFallback ? (
+          <AssetStats />
+        ) : (
+          <BlankStats labels={['Approved assets', 'Pending assets']} />
+        )}
         {findings === 'yes' ? (
-          <FindingStats />
+          <FindingStats state={findingSummary} />
         ) : (
           <BlankStats labels={['Open findings', 'Critical and high']} />
         )}
@@ -60,7 +118,7 @@ export function OverviewPage() {
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Card title="Open findings by severity">
           <Gate access={findings}>
-            <SeveritySummary />
+            <SeveritySummary state={findingSummary} />
           </Gate>
         </Card>
 
@@ -73,6 +131,23 @@ export function OverviewPage() {
         <Card title="Worker health">
           <Gate access={workers} denied="Worker health is visible to administrators.">
             <WorkerHealth />
+          </Gate>
+        </Card>
+      </div>
+
+      <div className="mt-6">
+        <Card title="Findings created and resolved over time">
+          <Gate access={reports}>
+            <Loadable state={loaded(report)} title="Could not load the trend">
+              {(data) => (
+                <div className="space-y-2">
+                  <TrendChart trend={data.trend} compact />
+                  <Link to="/reports" className="text-xs text-sky-800 hover:underline">
+                    Open the full report
+                  </Link>
+                </div>
+              )}
+            </Loadable>
           </Gate>
         </Card>
       </div>
@@ -115,12 +190,19 @@ function Gate({
   denied = 'Your role cannot view this information.',
   children,
 }: {
-  access: 'loading' | 'yes' | 'no';
+  access: Access;
   denied?: string;
   children: ReactNode;
 }) {
   if (access === 'loading') return <Loading />;
-  if (access === 'no') return <p className="text-sm text-slate-500">{denied}</p>;
+  if (access === 'no') {
+    return (
+      <p className="flex items-center gap-2 text-sm text-slate-500">
+        <Lock className="size-4 shrink-0 text-slate-400" aria-hidden />
+        {denied}
+      </p>
+    );
+  }
   return children;
 }
 
@@ -143,7 +225,7 @@ function Loadable<T>({
   children: (data: T) => ReactNode;
 }) {
   if (state.status === 'loading') return <Loading />;
-  if (state.status === 'error') return <ErrorAlert error={state.error} title={title} />;
+  if (state.status === 'error') return <LoadError error={state.error} title={title} />;
   return children(state.data);
 }
 
@@ -188,8 +270,50 @@ function DomainStats() {
   );
 }
 
-function FindingStats() {
-  const summary = useAsync((signal) => api.findings.summary({}, { signal }), []);
+function PendingAssets({ value, failed = false }: { value: number | null; failed?: boolean }) {
+  return (
+    <div className="relative">
+      <StatCard
+        label="Pending assets"
+        value={value}
+        hint={failed ? 'Could not load asset counts' : 'Discovered, awaiting review'}
+      />
+      {value !== null && value > 0 && (
+        <Link
+          to="/assets?status=pending"
+          className="absolute right-3 top-3 text-xs text-sky-800 hover:underline"
+        >
+          Review
+        </Link>
+      )}
+    </div>
+  );
+}
+
+/** Asset counts from the inventory list, for when the report summary is unavailable. */
+function AssetStats() {
+  const approved = useAsync(
+    (signal) => api.assets.list({ status: 'approved', pageSize: 1 }, { signal }),
+    [],
+  );
+  const pending = useAsync(
+    (signal) => api.assets.list({ status: 'pending', pageSize: 1 }, { signal }),
+    [],
+  );
+  const failed = [approved, pending].some((s) => s.status === 'error');
+  return (
+    <>
+      <StatCard
+        label="Approved assets"
+        value={totalOf(approved)}
+        hint={failed ? 'Could not load asset counts' : 'In scan scope'}
+      />
+      <PendingAssets value={totalOf(pending)} failed={failed} />
+    </>
+  );
+}
+
+function FindingStats({ state: summary }: { state: AsyncState<FindingSummaryResponse> }) {
   const data = summary.status === 'success' ? summary.data : null;
   return (
     <>
@@ -207,8 +331,7 @@ function FindingStats() {
   );
 }
 
-function SeveritySummary() {
-  const state = useAsync((signal) => api.findings.summary({}, { signal }), []);
+function SeveritySummary({ state }: { state: AsyncState<FindingSummaryResponse> }) {
   return (
     <Loadable state={state} title="Could not load findings">
       {(data) =>

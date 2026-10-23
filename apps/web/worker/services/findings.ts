@@ -174,7 +174,7 @@ function statusFilter(status: FindingListQuery['status']): SQL | undefined {
   return eq(findings.status, status);
 }
 
-function orderFor(sort: FindingListQuery['sort']): SQL[] {
+export function orderFor(sort: FindingListQuery['sort']): SQL[] {
   switch (sort) {
     case 'riskScore':
       return [asc(findings.riskScore), desc(findings.lastSeenAt), asc(findings.id)];
@@ -191,12 +191,12 @@ function orderFor(sort: FindingListQuery['sort']): SQL[] {
   }
 }
 
-export async function listFindings(
+/** The WHERE clause of GET /findings (visibility included); shared with the CSV report. */
+export function findingFilters(
   db: Database,
   user: Pick<CurrentUser, 'id' | 'role'>,
-  q: FindingListQuery,
-  rules: readonly Rule[],
-): Promise<FindingListResponse> {
+  q: Omit<FindingListQuery, 'page' | 'pageSize' | 'sort'>,
+): SQL | undefined {
   const filters: (SQL | undefined)[] = [
     visibleTo(db, user),
     statusFilter(q.status),
@@ -210,7 +210,16 @@ export async function listFindings(
     const term = `%${escapeLike(q.q.toLowerCase())}%`;
     filters.push(or(ilike(findings.title, term), ilike(findings.hostname, term)));
   }
-  const where = and(...filters);
+  return and(...filters);
+}
+
+export async function listFindings(
+  db: Database,
+  user: Pick<CurrentUser, 'id' | 'role'>,
+  q: FindingListQuery,
+  rules: readonly Rule[],
+): Promise<FindingListResponse> {
+  const where = findingFilters(db, user, q);
   const [rows, [totalRow]] = await Promise.all([
     findingQuery(db)
       .where(where)

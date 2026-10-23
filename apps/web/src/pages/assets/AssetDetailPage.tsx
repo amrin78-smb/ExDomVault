@@ -1,4 +1,4 @@
-import { allowedAssetActions, type Asset } from '@exdomainvault/shared';
+import { allowedAssetActions, ROLE_LABELS, type Asset, type Role } from '@exdomainvault/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
@@ -96,6 +96,8 @@ export function AssetDetailPage() {
             setReloadKey((k) => k + 1);
           }}
         />
+
+        <OwnerPanel asset={asset} onChanged={(next) => setOverride({ id, asset: next })} />
 
         <Card title="Overview">
           <dl className="grid gap-4 sm:grid-cols-2">
@@ -342,6 +344,171 @@ function DecisionPanel({
         )}
       </div>
     </Card>
+  );
+}
+
+interface OwnerOption {
+  id: string;
+  email: string;
+  role: Role;
+}
+
+/** Active users who can own an asset: `GET /users` for user admins, else the assignable list. */
+async function loadOwnerOptions(canManageUsers: boolean, signal: AbortSignal) {
+  if (!canManageUsers) return (await api.users.assignable({ signal })).items;
+  const res = await api.users.list({ active: 'true', pageSize: 100 }, { signal });
+  return res.items.map((u): OwnerOption => ({ id: u.id, email: u.email, role: u.role }));
+}
+
+/** Current owner and, for `assets:approve`, a picker to set or clear it. */
+function OwnerPanel({ asset, onChanged }: { asset: Asset; onChanged: (asset: Asset) => void }) {
+  const canAssign = usePermission('assets:approve');
+  const [editing, setEditing] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+
+  return (
+    <Card title="Owner">
+      <div className="space-y-3 text-sm">
+        <p className="text-slate-800">
+          {asset.owner ? (
+            <>
+              Owned by <span className="font-medium">{asset.owner.email}</span>
+            </>
+          ) : (
+            <span className="text-slate-600">No owner assigned</span>
+          )}
+        </p>
+        <p className="text-xs text-slate-500">
+          Users with the Asset owner role see only the assets they own and those assets&apos;
+          findings, where they can record remediation.
+        </p>
+        <div aria-live="polite">
+          {done && (
+            <p
+              role="status"
+              className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sky-900"
+            >
+              {done}
+            </p>
+          )}
+        </div>
+        {canAssign && !editing && (
+          <Button
+            onClick={() => {
+              setDone(null);
+              setEditing(true);
+            }}
+          >
+            Change owner
+          </Button>
+        )}
+        {canAssign && editing && (
+          <OwnerPicker
+            asset={asset}
+            onCancel={() => setEditing(false)}
+            onSaved={(next) => {
+              setEditing(false);
+              setDone(
+                next.owner
+                  ? `${next.owner.email} now owns ${next.hostname}.`
+                  : `${next.hostname} no longer has an owner.`,
+              );
+              onChanged(next);
+            }}
+          />
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function OwnerPicker({
+  asset,
+  onCancel,
+  onSaved,
+}: {
+  asset: Asset;
+  onCancel: () => void;
+  onSaved: (asset: Asset) => void;
+}) {
+  const canManageUsers = usePermission('users:manage');
+  const options = useAsync((signal) => loadOwnerOptions(canManageUsers, signal), [canManageUsers]);
+  const current = asset.owner?.id ?? '';
+  const [selected, setSelected] = useState(current);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { asset: next } = await api.assets.setOwner(asset.id, selected || null);
+      onSaved(next);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (options.status === 'loading') {
+    return (
+      <p role="status" className="text-slate-500">
+        Loading users…
+      </p>
+    );
+  }
+  if (options.status === 'error') {
+    return (
+      <div className="space-y-2">
+        <ErrorAlert error={options.error} title="Could not load users" />
+        <Button onClick={onCancel}>Cancel</Button>
+      </div>
+    );
+  }
+
+  const users = options.data;
+  // Keep the current owner selectable even if they are no longer an active user.
+  const currentMissing = asset.owner !== null && !users.some((u) => u.id === asset.owner?.id);
+
+  return (
+    <form
+      aria-label={`Change the owner of ${asset.hostname}`}
+      className="space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <label className="block font-medium text-slate-700">
+        Owner
+        <select
+          className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm"
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          disabled={busy}
+        >
+          <option value="">Unassigned</option>
+          {currentMissing && asset.owner && (
+            <option value={asset.owner.id}>{asset.owner.email} (current, inactive)</option>
+          )}
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.email} ({ROLE_LABELS[u.role]})
+            </option>
+          ))}
+        </select>
+      </label>
+      {error && <ErrorAlert error={error} title="The owner was not changed" />}
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" disabled={busy || selected === current}>
+          Save owner
+        </Button>
+        <Button onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

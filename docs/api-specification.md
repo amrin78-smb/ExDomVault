@@ -651,10 +651,10 @@ The asset inventory: hostnames beneath a registered domain (design §5.4–5.5, 
 audited approval puts a hostname into scan scope, and approval never authorises network-tier checks
 against third-party hosting (those still need an [approved network](#approved-networks--scan_policiesmanage)).
 
-| Permission       | Roles                                 | Grants                                     |
-| ---------------- | ------------------------------------- | ------------------------------------------ |
-| `assets:read`    | admin, analyst, viewer, asset_owner\* | list and read assets                       |
-| `assets:approve` | admin                                 | approve, reject, suspend (single and bulk) |
+| Permission       | Roles                                 | Grants                                                    |
+| ---------------- | ------------------------------------- | --------------------------------------------------------- |
+| `assets:read`    | admin, analyst, viewer, asset_owner\* | list and read assets                                      |
+| `assets:approve` | admin                                 | approve, reject, suspend (single and bulk); set the owner |
 
 \* Asset owners see only assets with `owner_user_id` = themselves; any other asset is `404 not_found`.
 
@@ -663,8 +663,9 @@ against third-party hosting (those still need an [approved network](#approved-ne
 `certificate_transparency`/`dns`), `firstSeenAt`, `lastSeenAt`, `currentIps` (addresses with
 `asset_ips.is_current`), `hostingHint` (`{provider, kind, matchedName}` or `null` — `null` means no
 known provider matched, not that the host is self-hosted), `wildcardOnly`, `decidedBy {id, email}|null`,
-`decidedAt`, `decisionReason`, `activeFindings` (non-resolved findings with the asset's domain and
-hostname).
+`decidedAt`, `decisionReason`, `owner {id, email}|null` (the asset owner: users with the `asset_owner`
+role see only assets they own and those assets' findings), `activeFindings` (non-resolved findings with
+the asset's domain and hostname).
 
 ### `GET /api/v1/assets` — `assets:read`
 
@@ -683,6 +684,15 @@ unknown domain, and for an asset owner who owns no asset in it.
 `{ asset, ips, discovery }`: `ips` is the address history (`ipAddress`, `firstSeenAt`, `lastSeenAt`,
 `isCurrent`, `source`; current first, then most recently seen); `discovery` is the latest 50 discovery
 sightings, newest first (`source`, `observedAt`, `wildcard`, `scanJobId`, `evidence`).
+
+### `PATCH /api/v1/assets/:id` — `assets:approve`
+
+Sets or clears the asset owner. Body (`assetOwnerUpdateRequestSchema`, strict): `{ ownerUserId: uuid | null }`.
+The owner must be an existing, **active** user of any role (`asset_owner` is the role it scopes);
+otherwise `400 validation_failed` path `ownerUserId`. The user row is share-locked in the same
+transaction, so a concurrent deactivation cannot interleave. Unknown asset → `404`. Response
+`200 { asset }`. A change is audited `asset.owner_changed` with `domainId`, `hostname`, `from` and `to`
+(`{id, email}` or `null`); setting the current owner again is a no-op without an audit row.
 
 ### Decisions — `assets:approve`
 
@@ -728,6 +738,108 @@ Body `{ ids: uuid[1..500], action: "approve"|"reject"|"suspend", reason, acknowl
 Set-based (a few statements regardless of size). Response `{ updated, skipped: [{ id, code }] }` with
 codes `not_found`, `invalid_transition`, `third_party_not_acknowledged`, `no_change` (already in the
 target status). Effects per updated asset as above.
+
+## Users — `users:manage`
+
+User administration (design §4; contracts `packages/shared/src/api/users.ts`). Administrators only.
+Identity comes from the identity provider: adding a user pre-provisions their email and role, and
+they must **also** be allowed by the Cloudflare Access policy. Their provider subject is bound at first
+sign-in (see _User mapping_ above). Deactivated users are refused at authentication with
+`403 forbidden` ("Your account has been deactivated.") on every route.
+
+**User** (`userSchema`): `id`, `email`, `displayName`, `role`, `isActive`, `signedIn` (subject bound),
+`lastLoginAt`, `createdAt`, `updatedAt`.
+
+### `GET /api/v1/users`
+
+Query (`userListQuerySchema`): `page`, `pageSize` (1–100, default 50), `q` (substring of email or display
+name, case-insensitive, LIKE wildcards literal), `role`, `active` (`true`/`false`). Ordered by email;
+standard page envelope.
+
+### `GET /api/v1/users/:id`
+
+`{ user }`; `404` for unknown or malformed ids.
+
+### `POST /api/v1/users`
+
+Body (`userCreateRequestSchema`, strict): `{ email, displayName?, role }`. The email is lowercased;
+`auth_provider` is the configured provider and the subject stays empty until first sign-in.
+`201 { user }`, audited `user.created` (`email`, `role`, `displayName`). Duplicate email
+(case-insensitive) → `409 conflict` path `email`.
+
+### `PATCH /api/v1/users/:id`
+
+Body (`userUpdateRequestSchema`, strict, at least one field): `{ role?, isActive?, displayName? (null
+clears) }`. Fields equal to the stored value are ignored; a request that changes nothing returns the
+user without an audit row. `200 { user }`. Each change is audited separately: `user.role_changed`
+(`from`, `to`), `user.activated` / `user.deactivated`, `user.updated` (`displayName {from, to}`); all
+carry `email`.
+
+| Condition                                  | Response                        |
+| ------------------------------------------ | ------------------------------- |
+| Changing your own role                     | `409 conflict`, path `role`     |
+| Deactivating yourself                      | `409 conflict`, path `isActive` |
+| Demoting the last **active** administrator | `409 conflict`, path `role`     |
+| Deactivating the last active administrator | `409 conflict`, path `isActive` |
+| Unknown user                               | `404 not_found`                 |
+| Empty body, unknown field, invalid role    | `400 validation_failed`         |
+
+The last-admin check runs in the update's transaction after locking every active admin row
+(`FOR UPDATE`, ordered by id, then the target row), so two concurrent cross-demotions serialise and the
+second sees the first one's result (one `200`, one `409`).
+
+## Audit log — `audit:read`
+
+### `GET /api/v1/audit-logs`
+
+Administrators only; read-only (entries are append-only). Query (`auditListQuerySchema`): `page`,
+`pageSize` (1–100, default 50), `action` (exact, or a prefix when it ends with `.`, e.g. `finding.`;
+characters `[a-z_.]`), `resourceType`, `resourceId`, `actorUserId`, `actorType`
+(`user`/`worker`/`system`), `from` / `to` (ISO date-times, inclusive, on `created_at`). Newest first.
+Items: `id`, `actorType`, `actor {id, email}|null` (null for system/worker entries or deleted users),
+`action`, `resourceType`, `resourceId`, `requestId`, `metadata`, `createdAt`.
+
+## Reports
+
+Contracts: `packages/shared/src/api/reports.ts`.
+
+### `GET /api/v1/reports/summary` — `reports:read`
+
+`reportSummaryResponseSchema`, computed from stored data with a fixed number of aggregate statements
+(GROUP BY, `generate_series`, `DISTINCT ON`) regardless of portfolio size. All windows are UTC.
+
+| Section                 | Definition                                                                                                                                                                                                                               |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coverage`              | Domain counts (all / `monitoring_enabled` / verified), asset counts (approved / pending), `lastScanAt` = newest `completed_at` of a succeeded scan or discovery job                                                                      |
+| `findings`              | `open` = non-resolved; `bySeverity`, `byCategory` over non-resolved; `byStatus` over all; `meanDaysToResolve` = mean (`resolved_at` − `first_seen_at`) of findings resolved in the last 90 days, 2 decimals, `null` if none              |
+| `trend`                 | 30 days ending today: `created` = findings whose `first_seen_at` falls on the day, `resolved` = findings whose `resolved_at` falls on the day (currently resolved findings only; a reopened finding's earlier resolution is not counted) |
+| `topDomains`            | Up to 10 domains by total `risk_score` of open findings (then open count, fqdn), with `highestSeverity`                                                                                                                                  |
+| `byBusinessOwner`       | Per `domains.business_owner` (null grouped): domain count, open findings, open high/critical; most open first; ≤ 100 rows                                                                                                                |
+| `expiringRegistrations` | Domains with `expires_at` ≤ now + 60 days (incl. expired), soonest first, ≤ 50; `daysLeft` = floor of days remaining (negative if expired)                                                                                               |
+| `expiringCertificates`  | The latest **successful** TLS observation per hostname within the last 90 days, if its `not_after` ≤ now + 30 days, soonest first, ≤ 50. The domain comes from the observation's asset, else its scan job                                |
+| `acceptedRisksDue`      | Accepted risks with a review date ≤ now + 30 days (incl. passed), soonest first, ≤ 50                                                                                                                                                    |
+
+**Asset owners** receive a summary of what they can see: the `findings`, `trend` and
+`acceptedRisksDue` sections cover only findings on assets they own; `coverage.approvedAssets` /
+`pendingAssets` count their own assets and `expiringCertificates` covers their own assets. Domain-level
+sections are zero or empty for them: `coverage.domains` / `monitoredDomains` / `verifiedDomains` = 0,
+`lastScanAt` = null, and `topDomains`, `byBusinessOwner`, `expiringRegistrations` = `[]`.
+
+### `GET /api/v1/reports/findings.csv` — `reports:generate`
+
+Admins and analysts. Query: the `GET /findings` filters (`status` default `active`, `severity`,
+`category`, `domainId`, `ruleId`, `assignee`, `q`, `sort`) without paging; the same filter builder and
+visibility rules are used. Response `200`, `Content-Type: text/csv; charset=utf-8`,
+`Content-Disposition: attachment; filename="findings-YYYYMMDD.csv"` (UTC date), CRLF line endings, no
+BOM. Columns (`REPORT_CSV_COLUMNS`): `finding_id, rule_id, severity, risk_score, status, domain,
+hostname, component, title, first_seen_at, last_seen_at, resolved_at, assignee` (email)`,
+business_owner`. At most `REPORT_CSV_MAX_ROWS` (5000) rows in the requested sort order; when more
+matched, the header `X-Truncated: true` is set.
+
+Cell encoding: any cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'` (CSV/formula
+injection), then RFC 4180 quoting applies (cells containing `"`, `,`, CR or LF are quoted, `"` doubled).
+Each export is audited `report.exported` (`resourceType: report`, `resourceId: findings.csv`, metadata
+`report`, `format`, `filters`, `rows`, `truncated`) in the same transaction as the read.
 
 ## Internal worker API — signed requests
 

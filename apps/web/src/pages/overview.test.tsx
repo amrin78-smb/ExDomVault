@@ -3,6 +3,7 @@ import { screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ok, renderAt, stubApi, type Handler } from '../testing/stub-api.tsx';
 import { DOMAIN_ID, NO_CATEGORIES, finding, page } from './findings/test-data.ts';
+import { REPORT_PATHS, reportSummary } from './reports/test-data.ts';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -55,6 +56,8 @@ const ALL: Record<string, Handler> = {
   'GET /api/v1/domains?pageSize=1': total(12),
   'GET /api/v1/domains?monitoring=true&pageSize=1': total(9),
   'GET /api/v1/domains?verificationStatus=verified&pageSize=1': total(4),
+  'GET /api/v1/assets?status=approved&pageSize=1': total(30),
+  'GET /api/v1/assets?status=pending&pageSize=1': total(5),
   'GET /api/v1/findings/summary': ok(summary),
   'GET /api/v1/scans?pageSize=5': ok(
     page([job(), job({ status: 'failed', domain: { id: DOMAIN_ID, fqdn: 'example.org' } })]),
@@ -81,6 +84,43 @@ const ALL: Record<string, Handler> = {
 const card = (name: string) => screen.findByRole('region', { name });
 
 describe('Overview', () => {
+  it('takes coverage and the trend from one report summary and loads each summary once', async () => {
+    const calls = stubApi('admin', { ...ALL, [REPORT_PATHS.summary]: ok(reportSummary()) });
+    renderAt('/');
+    expect(await screen.findByText('of 339 domains')).toBeInTheDocument();
+    const stat = (label: string) => screen.getByText(label).parentElement!;
+    expect(stat('Domains monitored')).toHaveTextContent('320');
+    expect(stat('Verified domains')).toHaveTextContent('41');
+    expect(stat('Approved assets')).toHaveTextContent('812');
+    expect(stat('Pending assets')).toHaveTextContent('27');
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute(
+      'href',
+      '/assets?status=pending',
+    );
+
+    const trend = await card('Findings created and resolved over time');
+    expect(within(trend).getByRole('img', { name: /Findings created/ })).toBeInTheDocument();
+    expect(within(trend).getByRole('link', { name: 'Open the full report' })).toBeVisible();
+
+    await screen.findByText('Not yet resolved');
+    const count = (path: string) => calls.filter((c) => c.path === path).length;
+    expect(count('/api/v1/reports/summary')).toBe(1);
+    expect(count('/api/v1/findings/summary')).toBe(1);
+    expect(calls.some((c) => c.path.startsWith('/api/v1/domains?'))).toBe(false);
+    expect(calls.some((c) => c.path.startsWith('/api/v1/assets?'))).toBe(false);
+  });
+
+  it('falls back to list counts when the report summary is unavailable', async () => {
+    stubApi('admin', ALL);
+    renderAt('/');
+    expect(await screen.findByText('of 12 domains')).toBeInTheDocument();
+    const stat = (label: string) => screen.getByText(label).parentElement!;
+    await vi.waitFor(() => expect(stat('Approved assets')).toHaveTextContent('30'));
+    expect(stat('Pending assets')).toHaveTextContent('5');
+    const trend = await card('Findings created and resolved over time');
+    expect(await within(trend).findByRole('alert')).toHaveTextContent('Could not load the trend');
+  });
+
   it('renders live counts, findings, scans, workers and priorities', async () => {
     stubApi('admin', ALL);
     renderAt('/');
@@ -181,6 +221,21 @@ describe('Overview', () => {
     ).toBeInTheDocument();
     await screen.findByText('of 12 domains');
     expect(calls.some((c) => c.path === '/api/v1/workers')).toBe(false);
+  });
+
+  it('shows locked cards, not errors, for an asset owner', async () => {
+    const calls = stubApi('asset_owner', {
+      ...ALL,
+      [REPORT_PATHS.summary]: ok(reportSummary()),
+    });
+    renderAt('/');
+    const scans = await card('Latest scans');
+    expect(
+      await within(scans).findByText('Your role cannot view this information.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(calls.some((c) => c.path.startsWith('/api/v1/scans'))).toBe(false);
+    expect(calls.some((c) => c.path.startsWith('/api/v1/domains'))).toBe(false);
   });
 
   it('flags a worker that has not polled recently', async () => {

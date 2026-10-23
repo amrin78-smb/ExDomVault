@@ -3,6 +3,7 @@ import {
   assetBulkDecisionRequestSchema,
   assetDecisionRequestSchema,
   assetListQuerySchema,
+  assetOwnerUpdateRequestSchema,
   type AssetBulkDecisionResponse,
   type AssetDetailResponse,
   type assetResponseSchema,
@@ -11,7 +12,13 @@ import type { z } from 'zod';
 import { Hono, type Context } from 'hono';
 import { parseJsonBody, parseQuery, uuidParam } from '../lib/validation.ts';
 import { requirePermission } from '../middleware/auth.ts';
-import { decideAsset, decideAssets, getAsset, listAssets } from '../services/assets.ts';
+import {
+  decideAsset,
+  decideAssets,
+  getAsset,
+  listAssets,
+  setAssetOwner,
+} from '../services/assets.ts';
 import type { Actor } from '../services/domains.ts';
 import type { AppBindings } from '../types.ts';
 
@@ -66,6 +73,15 @@ export function assetRoutes(deps: AssetRouteDeps = {}) {
         const id = uuidParam(c, 'id');
         const db = await c.get('db')();
         const res: AssetDetailResponse = await getAsset(db, c.get('user'), id);
+        return c.json(res);
+      })
+      .patch('/:id', requirePermission('assets:approve'), async (c) => {
+        const id = uuidParam(c, 'id');
+        const { ownerUserId } = await parseJsonBody(c, assetOwnerUpdateRequestSchema);
+        const db = await c.get('db')();
+        await setAssetOwner(db, id, ownerUserId, actorOf(c), now());
+        c.get('logger').info('asset_owner_changed', { assetId: id });
+        const res: AssetResponse = { asset: (await getAsset(db, c.get('user'), id)).asset };
         return c.json(res);
       })
       .post('/:id/approve', requirePermission('assets:approve'), async (c) => {

@@ -15,6 +15,7 @@ import { ScansPage } from './pages/scans/ScansPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
 import { OverviewPage } from './pages/OverviewPage.tsx';
 import { PlaceholderPage } from './pages/PlaceholderPage.tsx';
+import { ReportsPage } from './pages/reports/ReportsPage.tsx';
 import { RouteErrorPage } from './pages/RouteErrorPage.tsx';
 
 /** Sections with real pages; the rest render a placeholder naming their milestone. */
@@ -25,6 +26,7 @@ const IMPLEMENTED = new Set([
   '/scans',
   '/findings',
   '/advisories',
+  '/reports',
   '/settings',
 ]);
 
@@ -45,6 +47,7 @@ export const routes: RouteObject[] = [
       { path: 'findings', element: <FindingsPage /> },
       { path: 'findings/:id', element: <FindingDetailPage /> },
       { path: 'advisories', element: <AdvisoriesPage /> },
+      { path: 'reports', element: <ReportsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       ...NAV_ITEMS.filter((item) => !IMPLEMENTED.has(item.path)).map((item) => ({
         path: item.path.slice(1),

@@ -200,8 +200,10 @@ describe('GET /assets', () => {
       source: 'manual',
       currentIps: ['192.0.2.10'],
       hostingHint: null,
+      owner: { id: w.ownerId, email: 'asset_owner@example.com' },
       activeFindings: 1,
     });
+    expect(body.items.find((a) => a.hostname === 'example.com')!.owner).toBeNull();
     const cdn = body.items.find((a) => a.hostname === 'cdn.example.com')!;
     expect(cdn.hostingHint?.provider).toBe('Amazon CloudFront');
     expect(cdn.wildcardOnly).toBe(true);
@@ -637,5 +639,97 @@ describe('roles', () => {
   it('every role with assets:read can list', async () => {
     await seed();
     for (const role of ROLES) expect((await call(role, 'GET', '/assets')).status).toBe(200);
+  });
+});
+
+describe('PATCH /assets/:id (owner)', () => {
+  it('requires assets:approve', async () => {
+    const w = await seed();
+    for (const role of ['analyst', 'asset_owner', 'viewer'] as const) {
+      await expectError(
+        await call(role, 'PATCH', `/assets/${w.id['example.com']}`, { ownerUserId: null }),
+        403,
+        'forbidden',
+      );
+    }
+  });
+
+  it('sets the owner, audits it, and the owner then sees the asset and its findings', async () => {
+    const w = await seed();
+    const apex = w.id['example.com']!;
+    const findingId = await insertFinding(w.domainId, 'example.com', 'TST-X');
+    await t.db.update(findings).set({ assetId: apex }).where(eq(findings.id, findingId));
+    await expectError(await call('asset_owner', 'GET', `/assets/${apex}`), 404, 'not_found');
+    await expectError(await call('asset_owner', 'GET', `/findings/${findingId}`), 404, 'not_found');
+
+    const res = await call('admin', 'PATCH', `/assets/${apex}`, { ownerUserId: w.ownerId });
+    expect(res.status).toBe(200);
+    const { asset } = assetResponseSchema.parse(await res.json());
+    expect(asset.owner).toEqual({ id: w.ownerId, email: 'asset_owner@example.com' });
+
+    const [audit] = await t.db.select().from(auditLogs);
+    expect(audit).toMatchObject({
+      action: 'asset.owner_changed',
+      actorUserId: w.adminId,
+      resourceType: 'asset',
+      resourceId: apex,
+      metadata: {
+        hostname: 'example.com',
+        from: null,
+        to: { id: w.ownerId, email: 'asset_owner@example.com' },
+      },
+    });
+
+    const mine = await list('asset_owner');
+    expect(mine.items.map((a) => a.hostname).sort()).toEqual(['example.com', 'www.example.com']);
+    expect((await call('asset_owner', 'GET', `/assets/${apex}`)).status).toBe(200);
+    expect((await call('asset_owner', 'GET', `/findings/${findingId}`)).status).toBe(200);
+
+    // Unchanged → no new audit row; clearing → audited, and the owner loses access.
+    await call('admin', 'PATCH', `/assets/${apex}`, { ownerUserId: w.ownerId });
+    expect(await t.db.select().from(auditLogs)).toHaveLength(1);
+    const cleared = await call('admin', 'PATCH', `/assets/${apex}`, { ownerUserId: null });
+    expect(assetResponseSchema.parse(await cleared.json()).asset.owner).toBeNull();
+    const audits = await t.db.select().from(auditLogs);
+    expect(audits).toHaveLength(2);
+    expect(audits.find((a) => a.metadata.to === null)?.metadata).toMatchObject({
+      from: { id: w.ownerId, email: 'asset_owner@example.com' },
+    });
+    await expectError(await call('asset_owner', 'GET', `/assets/${apex}`), 404, 'not_found');
+  });
+
+  it('requires an existing, active owner and a valid body', async () => {
+    const w = await seed();
+    const apex = w.id['example.com']!;
+    await expectError(
+      await call('admin', 'PATCH', `/assets/${apex}`, { ownerUserId: MISSING }),
+      400,
+      'validation_failed',
+      'ownerUserId',
+    );
+    await t.db.update(schema.users).set({ isActive: false }).where(eq(schema.users.id, w.ownerId));
+    await expectError(
+      await call('admin', 'PATCH', `/assets/${apex}`, { ownerUserId: w.ownerId }),
+      400,
+      'validation_failed',
+      'ownerUserId',
+    );
+    await t.db.update(schema.users).set({ isActive: true }).where(eq(schema.users.id, w.ownerId));
+    await expectError(
+      await call('admin', 'PATCH', `/assets/${apex}`, { ownerUserId: 'nope' }),
+      400,
+      'validation_failed',
+    );
+    await expectError(
+      await call('admin', 'PATCH', `/assets/${apex}`, { ownerUserId: null, extra: 1 }),
+      400,
+      'validation_failed',
+    );
+    await expectError(
+      await call('admin', 'PATCH', `/assets/${MISSING}`, { ownerUserId: null }),
+      404,
+      'not_found',
+    );
+    expect(await t.db.select().from(auditLogs)).toHaveLength(0);
   });
 });
