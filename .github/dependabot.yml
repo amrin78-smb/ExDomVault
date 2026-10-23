@@ -1,0 +1,51 @@
+# Dependabot version updates (weekly, grouped). Security updates are enabled separately in the
+# repository settings (see docs/operations.md, "Security checks").
+# cooldown mirrors the project rule that a release must be at least 14 days old before adoption.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 5
+    ignore:
+      # typescript-eslint does not support TypeScript 7 yet (CLAUDE.md: pinned to ~6.0).
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+    groups:
+      npm-minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      npm-security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  - package-ecosystem: pip
+    directory: /worker
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 5
+    groups:
+      pip-minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      pip-security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 14
+    groups:
+      github-actions:
+        patterns: ['*']

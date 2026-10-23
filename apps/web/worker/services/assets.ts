@@ -52,6 +52,27 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
 
 /** Object-level visibility: asset owners see only their own assets. */
+/**
+ * 404 unless the domain exists and, for asset owners, they own at least one of its assets, so a
+ * domain-scoped route never reveals whether another tenant's domain id exists.
+ */
+export async function assertDomainVisible(db: Database, user: User, domainId: string) {
+  const [domain] = await db
+    .select({ id: domains.id })
+    .from(domains)
+    .where(eq(domains.id, domainId));
+  if (!domain) throw notFound();
+  const visible = visibleAssets(user);
+  if (visible) {
+    const [own] = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(eq(assets.domainId, domainId), visible))
+      .limit(1);
+    if (!own) throw notFound();
+  }
+}
+
 function visibleAssets(user: User): SQL | undefined {
   return user.role === 'asset_owner' ? eq(assets.ownerUserId, user.id) : undefined;
 }
@@ -147,21 +168,7 @@ export async function listAssets(
   scopedDomainId?: string,
 ): Promise<AssetListResponse> {
   const visible = visibleAssets(user);
-  if (scopedDomainId) {
-    const [domain] = await db
-      .select({ id: domains.id })
-      .from(domains)
-      .where(eq(domains.id, scopedDomainId));
-    if (!domain) throw notFound();
-    if (visible) {
-      const [own] = await db
-        .select({ id: assets.id })
-        .from(assets)
-        .where(and(eq(assets.domainId, scopedDomainId), visible))
-        .limit(1);
-      if (!own) throw notFound();
-    }
-  }
+  if (scopedDomainId) await assertDomainVisible(db, user, scopedDomainId);
 
   const filters: SQL[] = [];
   if (visible) filters.push(visible);

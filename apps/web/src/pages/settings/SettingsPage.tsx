@@ -7,6 +7,7 @@ import { AuditLogSection } from '../../components/settings/AuditLogSection.tsx';
 import { IntelFeedsSection } from '../../components/settings/IntelFeedsSection.tsx';
 import { ScanProfilesSection } from '../../components/settings/ScanProfilesSection.tsx';
 import { ScheduledScansSection } from '../../components/settings/ScheduledScansSection.tsx';
+import { SystemHealthSection } from '../../components/settings/SystemHealthSection.tsx';
 import { UsersSection } from '../../components/settings/UsersSection.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -32,6 +33,7 @@ const TABS = [
   { key: 'audit', label: 'Audit log', permission: 'audit:read' },
   // Readable by anyone who sees software matches; the API may still restrict it (403 → denied).
   { key: 'intel', label: 'Intelligence feeds', permission: 'findings:read' },
+  { key: 'health', label: 'System health', permission: 'settings:manage' },
 ] as const satisfies readonly { key: string; label: string; permission: Permission | null }[];
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -48,7 +50,7 @@ export function SettingsPage() {
     <>
       <PageHeader
         title="Settings"
-        description="Users, scan profiles, the audit log, intelligence feeds, scanning workers and approved networks."
+        description="Users, scan profiles, the audit log, intelligence feeds, system health, scanning workers and approved networks."
       />
       <nav aria-label="Settings sections" className="mb-6 border-b border-slate-200">
         <ul className="-mb-px flex flex-wrap gap-1">
@@ -104,6 +106,8 @@ function TabContent({ tab }: { tab: TabKey }) {
       return <AuditLogSection />;
     case 'intel':
       return <IntelFeedsSection />;
+    case 'health':
+      return <SystemHealthSection />;
     case 'general':
       return <GeneralSection />;
   }

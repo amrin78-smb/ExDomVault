@@ -1,6 +1,6 @@
 import { connect, type DatabaseConnection } from '@exdomainvault/database';
 import { createMiddleware } from 'hono/factory';
-import { ApiError } from '../lib/errors.ts';
+import { ApiError, classifyDatabaseError } from '../lib/errors.ts';
 import type { AppBindings } from '../types.ts';
 
 export type Connector = (connectionString: string) => Promise<DatabaseConnection>;
@@ -20,13 +20,18 @@ export const database = (connector: Connector = (cs) => connect(cs)) =>
           throw new ApiError(503, 'service_unavailable', 'The database is not configured.');
         }
         pending = connector(connectionString).catch((err: unknown) => {
-          c.get('logger').error('database_connect_failed', {
-            error: err instanceof Error ? err.message : String(err),
+          const info = classifyDatabaseError(err);
+          c.get('logger').error('db_error', {
+            kind: 'connect',
+            errorClass: info?.errorClass ?? (err instanceof Error ? err.name : 'unknown'),
+            sqlState: info?.sqlState ?? null,
           });
           throw new ApiError(
             503,
             'service_unavailable',
             'The database is temporarily unavailable.',
+            undefined,
+            { 'Retry-After': '30' },
           );
         });
       }

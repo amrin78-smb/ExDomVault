@@ -19,6 +19,7 @@ import { writeAudit, writeAuditMany } from './audit.ts';
 import type { Actor } from './domains.ts';
 import { isUniqueViolation } from './domains.ts';
 import { activeNetworkCidrs } from './networks.ts';
+import { enforceScanQuotas } from './quotas.ts';
 
 const { assets, domains, scanJobs, scanJobTargets, scanProfiles, users, workerRegistry } = schema;
 
@@ -245,6 +246,12 @@ export async function createScan(
       }
 
       const db2 = tx as unknown as Database;
+      // Scan quotas (exact counts; the domain row lock above serialises the per-domain ones).
+      await enforceScanQuotas(
+        db2,
+        { userId: actor.userId, domainId: domain.id, active: profile.config.active, jobType },
+        now,
+      );
       const targets =
         jobType === 'discovery'
           ? [{ assetId: null, hostname: domain.fqdn }]

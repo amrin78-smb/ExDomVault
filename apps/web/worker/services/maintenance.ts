@@ -1,12 +1,14 @@
 import { schema, type Database } from '@exdomainvault/database';
 import { and, asc, eq, exists, inArray, lt, notExists, or, sql, type SQL } from 'drizzle-orm';
-import type { Logger } from '../lib/logger.ts';
+import { errorFields, type Logger } from '../lib/logger.ts';
 import { writeAudit } from './audit.ts';
 import { expireStaleChallenges } from './domain-verification.ts';
 import { evaluatePendingJobs } from './evaluation.ts';
 import { expireAcceptedRisks } from './finding-lifecycle.ts';
 import { intelMaintenanceSteps, type IntelDeps } from './intel-feeds.ts';
 import { reapExpiredLeases } from './job-lifecycle.ts';
+import { checkWorkerOutage } from './ops.ts';
+import { runRetention } from './retention.ts';
 import { scheduleActiveScans } from './scan-schedule.ts';
 import { buildSnapshot, listProfiles } from './scans.ts';
 import { DISCOVERY_PROFILE_KEY, WORKER_SIGNATURE_MAX_SKEW_SECONDS } from '@exdomainvault/shared';
@@ -285,6 +287,10 @@ export async function runMaintenance(
     ['evaluate_pending_jobs', () => evaluatePendingJobs(db, now, { logger })],
     // Accepted risks past their review date return to `open` (audited, history kept).
     ['accepted_risks_expired', () => expireAcceptedRisks(db, now)],
+    // Persistent worker outage: logs worker_outage_started / worker_outage_ended once per transition.
+    ['worker_outage_check', () => checkWorkerOutage(db, now, logger)],
+    // Retention (RETENTION_POLICY): bounded batches, at most hourly unless a backlog remains.
+    ['retention', async () => (await runRetention(db, now, logger)).deleted],
     // Public intelligence feeds last (they wait on the network): endoflife.date and CISA KEV once
     // a day, NVD a small rate-limited batch per run. Each feed is its own step.
     ...(opts.intel ? intelMaintenanceSteps(db, now, { ...opts.intel, logger }) : []),
@@ -296,7 +302,7 @@ export async function runMaintenance(
     } catch (err) {
       logger.error('maintenance_step_failed', {
         step: name,
-        error: err instanceof Error ? err.message : String(err),
+        ...errorFields(err),
       });
     }
   }

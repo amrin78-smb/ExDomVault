@@ -1,3 +1,4 @@
+import type { Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { createLogger } from '../lib/logger.ts';
 import type { AppBindings } from '../types.ts';
@@ -14,15 +15,26 @@ export const requestContext = () =>
     const logger = createLogger({ requestId });
     c.set('requestId', requestId);
     c.set('logger', logger);
+    c.set('logFields', {});
 
     const started = Date.now();
     await next();
 
     c.header(REQUEST_ID_HEADER, requestId);
     logger.info('request', {
+      ...c.get('logFields'),
       method: c.req.method,
       path: c.req.path,
       status: c.res.status,
       durationMs: Date.now() - started,
     });
   });
+
+/**
+ * Adds correlation fields (user, worker, job IDs) to this request: they appear on the final
+ * `request` log line and on every later line written through `c.var.logger`.
+ */
+export function annotateRequest(c: Context<AppBindings>, fields: Record<string, unknown>): void {
+  c.set('logFields', { ...c.get('logFields'), ...fields });
+  c.set('logger', c.get('logger').child(fields));
+}

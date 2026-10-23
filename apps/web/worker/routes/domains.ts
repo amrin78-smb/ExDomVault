@@ -27,7 +27,7 @@ import { requirePermission } from '../middleware/auth.ts';
 import { authoriseDomains, revokeDomain } from '../services/domain-authorisation.ts';
 import { domainObservations } from '../services/observations.ts';
 import { createScan, getScan, requestDiscovery } from '../services/scans.ts';
-import { listAssets } from '../services/assets.ts';
+import { assertDomainVisible, listAssets } from '../services/assets.ts';
 import { listSoftware } from '../services/software.ts';
 import { confirmImport, previewImport } from '../services/domain-import.ts';
 import { ApiError } from '../lib/errors.ts';
@@ -236,7 +236,7 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         const id = uuidParam(c, 'id');
         const query = parseQuery(c, softwareListQuerySchema);
         const db = await c.get('db')();
-        await getDomainRow(db, id); // 404 for an unknown domain
+        await assertDomainVisible(db, c.get('user'), id); // 404: unknown, or not the owner's
         const res: SoftwareListResponse = await listSoftware(
           db,
           c.get('user'),

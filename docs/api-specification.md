@@ -23,8 +23,26 @@ lists **implemented** endpoints; the full planned surface is in `docs/design.md`
   `method_not_allowed`, `conflict`, `rate_limited`, `internal_error`, `service_unavailable`. Internal
   errors never include stack traces, hostnames or connection details.
 
-- **Headers:** `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-  `Referrer-Policy: no-referrer`, HSTS.
+- **Headers:** `Cache-Control: no-store`, `Content-Security-Policy: default-src 'none';
+frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`,
+  `Cross-Origin-Resource-Policy: same-origin`, `Permissions-Policy` (all sensor/device features off),
+  HSTS (`middleware/security-headers.ts`). The SPA's HTML and assets get their own CSP from
+  `apps/web/public/_headers` (see [threat-model.md](threat-model.md)).
+- **Rate limits (`429 rate_limited`):** every authenticated request counts against 300 requests per
+  minute per user, and `POST`/`PUT`/`PATCH`/`DELETE` also against 60 mutations per minute per user
+  (`RATE_LIMITS`; Workers Rate Limiting bindings `API_RATE_LIMITER` / `MUTATION_RATE_LIMITER`, keyed
+  by user ID, applied after authentication by `middleware/rate-limit.ts`). These limits are approximate
+  (counted per Cloudflare location) and **degrade open**: a missing or failing binding lets the request
+  through and logs `rate_limiter_unavailable`. A limited request answers `429` with the standard envelope
+  and `Retry-After: 60`. Scan creation also enforces exact quotas — see
+  [Scan quotas](#scan-quotas). The internal worker API has its own limit (120 signed requests per
+  minute per key).
+- **Database failures:** a connection failure, or a query failing with a connection/availability class
+  (SQLSTATE classes 08, 40, 53, 57, 58, `55P03`, or a network error), answers
+  `503 service_unavailable` with `Retry-After: 30`; any other database error is a bug and answers
+  `500 internal_error`. Both log one `db_error` line with only the error class and SQLSTATE (never the
+  SQL text or parameters).
 
 ## Authentication and authorisation
 
@@ -381,6 +399,25 @@ into the job's immutable `scopeSnapshot`, together with — for active profiles 
 active [approved network](#approved-networks--scan_policiesmanage) (networks are organisation-wide;
 passive snapshots carry none). Audited `scan.requested` (domain, profile, active, target count,
 approved-network count, reason).
+
+### Scan quotas
+
+Checked inside the job-creating transaction (`services/quotas.ts`, called by `createScan`) as exact
+counts over `scan_jobs`, for **user-requested** jobs only (snapshot `trigger = "manual"`: manual
+scans, `POST /findings/:id/reassess`, `POST /domains/:id/discovery`). Scheduled jobs never count and
+are never refused by a quota. Rolling windows; every created job counts, whatever its outcome.
+
+| Quota                               | Limit     | Counted over                                    |
+| ----------------------------------- | --------- | ----------------------------------------------- |
+| Scan requests per user              | 60 / hour | the requesting user's jobs (scan and discovery) |
+| Requested active scans per domain   | 24 / day  | jobs with an active profile, all users          |
+| Requested discovery runs per domain | 6 / day   | discovery jobs, all users                       |
+
+Over a quota → `429 rate_limited`, message naming the limit, `Retry-After` = seconds until the oldest
+counted job leaves the window (exact). No job is created and nothing is audited. The domain row lock
+taken by `createScan` serialises the per-domain quotas; a transaction-scoped advisory lock on the user
+serialises the per-user quota, so concurrent requests cannot both pass. A discovery or reassessment
+request that returns an already queued job (`created: false`) creates nothing and is not refused.
 
 ### `POST /api/v1/domains/:id/discovery` — `scans:request`
 
@@ -1185,3 +1222,61 @@ Response `{ "status": "queued" | "failed" | "cancelled", "retryAt": "…" | null
 - Otherwise → `failed` (remaining targets `failed` with the error code).
 
 A failed or cancelled job never resolves anything.
+
+## Operations (Milestone 12)
+
+Contracts: `packages/shared/src/api/ops.ts`. Implementation: `routes/ops.ts`, `services/ops.ts`.
+
+### `GET /api/v1/ops/health` — `settings:manage`
+
+`opsHealthResponseSchema`, computed from stored state with SQL aggregation (nothing estimated):
+
+- `workers`: every registered worker with `lastSeenAt` and `status` — `online` (seen ≤ 5 min ago),
+  `stale` (≤ 30 min), `offline`, `never_seen`.
+- `outage`: `active` when jobs are queued and no **active** (not disabled) worker has been seen for
+  30 minutes (a never-seen worker counts as unseen). `since` is the cron-recorded start
+  (`ops_state.outageSince`), or before the cron has run, the later of last-seen + 30 min and the
+  oldest queued job's creation. `queuedJobs` is the current number of queued jobs.
+- `queue`: queued, running (`claimed` + `running`), oldest queued job's age (from creation), per
+  profile.
+- `scans.last24h` / `last7d`: jobs **completed** in the window — succeeded, failed, cancelled,
+  `successRate` = succeeded / (succeeded + failed) (null when both are 0), p50/p95 run time
+  (`percentile_cont` over `completed_at − started_at` of succeeded jobs, seconds, one decimal).
+- `failuresByCode`: the 10 most frequent error codes of failed jobs and of targets completed in the
+  last 24 hours.
+- `database`: `ok: true` and the latency of a `select 1` (a database outage answers `503` instead).
+- `feeds`: the same entries as `GET /intel/feeds`.
+- `retention`: last run time and rows deleted (from `ops_state`), and `RETENTION_POLICY`.
+
+### `GET /api/v1/ops/alerts` — any authenticated user
+
+`opsAlertsResponseSchema`. Active alerts, for the banner:
+
+| Kind                       | Severity | Raised when                                                                                                        |
+| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `worker_outage`            | critical | the outage condition above holds                                                                                   |
+| `feeds_stale`              | warning  | a feed's last success is over 3 days old, or it was attempted and never succeeded; NVD only while CVEs are pending |
+| `active_scanning_disabled` | warning  | the scan schedule is enabled while `ACTIVE_SCANNING_ENABLED` is off                                                |
+
+Users with `settings:manage` get specific messages (queued job count, feed names and error classes,
+the switch name); everyone else gets generic text ("Scans are delayed. Administrators have been
+alerted.", "Vulnerability intelligence may be out of date.", "Scheduled active scans are paused.").
+
+### Cron steps (`services/maintenance.ts`)
+
+- `worker_outage_check` (`checkWorkerOutage`): compares the outage condition with
+  `application_settings` key `ops_state` (row locked) and logs `worker_outage_started` (error) or
+  `worker_outage_ended` (info) **once per transition**, with `alert: "worker_outage"`, `since`,
+  `queuedJobs` / `durationSeconds` and `lastSeenAt`. Alert routing: [operations.md](operations.md).
+- `retention` (`services/retention.ts`, `RETENTION_POLICY`): at most hourly (sooner while a previous run
+  hit the batch limit); per table at most 5000 rows per run, each table failure-isolated
+  (`retention_step_failed`). Observations older than 180 days are deleted except, per key, the latest
+  successful observation and the latest observation of any status (keys scoped to the job's domain:
+  DNS name+type, registration per domain, TLS host+IP+port, HTTP URL, port IP+port, discovery
+  hostname+source). Finished jobs (succeeded/failed/cancelled) completed over 365 days ago are deleted
+  with their targets and result receipts (`software_inventory.last_scan_job_id` → null), **except**
+  jobs referenced by a finding's status history, jobs that still own any observation (observations
+  cascade with their job, so this protects the latest-per-key ones), and succeeded jobs not yet
+  evaluated. Queued/claimed/running jobs are never touched. Audit logs, findings, status history and
+  comments are never deleted. The run's totals go to `ops_state.retention`
+  (`lastRunAt`, `deletedLastRun`, `byTable`, `more`, `failed`).

@@ -13,7 +13,7 @@ import {
 import { DNS_RECORD_TYPES, scopeSnapshotSchema, type DnsRecordType } from '@exdomainvault/shared';
 import { canonicalIp } from '@exdomainvault/shared/net';
 import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
-import type { Logger } from '../lib/logger.ts';
+import { errorFields, type Logger } from '../lib/logger.ts';
 import { domainAuthorisedForActive, type ScanJobRow } from './scans.ts';
 import { loadSoftwareIntel, upsertSoftwareInventory } from './software.ts';
 
@@ -669,7 +669,7 @@ export async function evaluatePendingJobs(
     } catch (err) {
       opts.logger?.error('rules_evaluation_failed', {
         jobId: id,
-        error: err instanceof Error ? err.message : String(err),
+        ...errorFields(err),
       });
     }
   }

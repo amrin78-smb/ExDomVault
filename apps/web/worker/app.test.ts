@@ -5,6 +5,7 @@ import { errorResponseSchema, healthResponseSchema, meResponseSchema } from '@ex
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDeps } from './app.ts';
+import { createLogger } from './lib/logger.ts';
 import { handleError } from './lib/errors.ts';
 import { requirePermission } from './middleware/auth.ts';
 import type { AppBindings } from './types.ts';
@@ -197,7 +198,7 @@ describe('requirePermission', () => {
     const app = new Hono<AppBindings>();
     app.use('*', async (c, next) => {
       c.set('requestId', 'r');
-      c.set('logger', { debug() {}, info() {}, warn() {}, error() {} });
+      c.set('logger', createLogger({ test: true }));
       c.set('user', { id: crypto.randomUUID(), email: 'x@example.com', displayName: null, role });
       await next();
     });

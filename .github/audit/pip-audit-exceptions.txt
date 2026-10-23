@@ -1,0 +1,13 @@
+# Time-boxed pip-audit exceptions, read by scripts/audit-python.sh (CI and `npm run worker:audit`).
+#
+# Format: <vulnerability id> <expires YYYY-MM-DD> <reason>
+# An exception applies only BEFORE its expiry date; after it the audit fails again, so an exception
+# can never silently become permanent. Add one only when the fix cannot be adopted yet, and record
+# it in docs/progress.md.
+#
+# certifi 2026.7.22 still trusts the `emSign ECC Root CA - G3` root (compromised eMudhra
+# intermediates). The fix, certifi 2026.10.19, was published 2026-10-20 and becomes eligible under
+# the 14-day release-age rule on 2026-11-03. Exposure: the worker's httpx clients (application API,
+# RDAP, crt.sh) use the certifi bundle; TLS checks use the system store. Requires an on-path
+# attacker holding one of the revoked intermediate keys. Upgrade certifi on/after 2026-11-03.
+PYSEC-2026-4320 2026-11-03 certifi-emsign-root-fix-not-yet-14-days-old

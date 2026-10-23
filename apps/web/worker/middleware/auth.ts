@@ -6,6 +6,7 @@ import type { AuthConfig } from '../config.ts';
 import { ApiError } from '../lib/errors.ts';
 import { resolveUser } from '../services/users.ts';
 import type { AppBindings } from '../types.ts';
+import { annotateRequest } from './request-context.ts';
 
 const DENIED_MESSAGES = {
   not_provisioned: 'Your account has not been granted access to ExDomainVault.',
@@ -60,6 +61,7 @@ export const requireAuth = (deps: AuthProviderDeps = {}) => {
     }
     if (resolved.created) logger.info('user_bootstrapped', { userId: resolved.user.id });
 
+    annotateRequest(c, { userId: resolved.user.id });
     c.set('identity', result.identity);
     c.set('user', resolved.user);
     await next();

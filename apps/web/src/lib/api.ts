@@ -101,6 +101,12 @@ import {
   type ScanSchedule,
   type ScanScheduleResponse,
 } from '@exdomainvault/shared';
+import {
+  opsAlertsResponseSchema,
+  opsHealthResponseSchema,
+  type OpsAlertsResponse,
+  type OpsHealthResponse,
+} from '@exdomainvault/shared';
 import { z } from 'zod';
 
 export class ApiClientError extends Error {
@@ -110,6 +116,8 @@ export class ApiClientError extends Error {
   readonly code: string;
   readonly requestId?: string;
   readonly details?: FieldError[];
+  /** 429 `rate_limited`: seconds until the server accepts requests again (`Retry-After`). */
+  readonly retryAfterSeconds?: number;
 
   constructor(
     message: string,
@@ -117,13 +125,57 @@ export class ApiClientError extends Error {
     code: string,
     requestId?: string,
     details?: FieldError[],
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.status = status;
     this.code = code;
     this.requestId = requestId;
     this.details = details;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/** `Retry-After` as whole seconds (delta-seconds or an HTTP date); undefined when absent/invalid. */
+export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, Math.ceil((at - now) / 1000));
+}
+
+/** The message shown for a 429; the server's own text is replaced so every screen says the same. */
+export function rateLimitedMessage(retryAfterSeconds: number | undefined): string {
+  if (retryAfterSeconds === undefined) return 'Too many requests — try again shortly.';
+  const n = Math.max(1, retryAfterSeconds);
+  return `Too many requests — try again in ${n} second${n === 1 ? '' : 's'}.`;
+}
+
+/**
+ * The client error for a non-2xx response. A 429 becomes `rate_limited` with the `Retry-After`
+ * seconds and a friendly message; it is never retried automatically (a mutation must not repeat
+ * behind the user's back), the user decides when to try again.
+ */
+function errorFromResponse(res: Response, body: unknown): ApiClientError {
+  const parsed = errorResponseSchema.safeParse(body);
+  if (res.status === 429) {
+    const retryAfter = parseRetryAfter(res.headers.get('Retry-After'));
+    return new ApiClientError(
+      rateLimitedMessage(retryAfter),
+      429,
+      'rate_limited',
+      parsed.success ? parsed.data.error.requestId : undefined,
+      undefined,
+      retryAfter,
+    );
+  }
+  if (parsed.success) {
+    const { message, code, requestId, details } = parsed.data.error;
+    return new ApiClientError(message, res.status, code, requestId, details);
+  }
+  return new ApiClientError(`Unexpected API response (${res.status}).`, res.status, 'unknown');
 }
 
 /** Fetches a JSON endpoint and validates the response against its shared schema. */
@@ -141,14 +193,7 @@ export async function getJson<T>(
 
   const body: unknown = await res.json().catch(() => null);
 
-  if (!res.ok) {
-    const parsed = errorResponseSchema.safeParse(body);
-    if (parsed.success) {
-      const { message, code, requestId, details } = parsed.data.error;
-      throw new ApiClientError(message, res.status, code, requestId, details);
-    }
-    throw new ApiClientError(`Unexpected API response (${res.status}).`, res.status, 'unknown');
-  }
+  if (!res.ok) throw errorFromResponse(res, body);
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -412,14 +457,7 @@ export const api = {
       } catch {
         throw new ApiClientError('The API could not be reached.', 0, 'network_error');
       }
-      if (!res.ok) {
-        const parsed = errorResponseSchema.safeParse(await res.json().catch(() => null));
-        if (parsed.success) {
-          const { message, code, requestId, details } = parsed.data.error;
-          throw new ApiClientError(message, res.status, code, requestId, details);
-        }
-        throw new ApiClientError(`Unexpected API response (${res.status}).`, res.status, 'unknown');
-      }
+      if (!res.ok) throw errorFromResponse(res, await res.json().catch(() => null));
       const type = res.headers.get('Content-Type') ?? '';
       if (type && !type.includes('csv')) {
         // e.g. an identity-provider login page after the access session expired.
@@ -466,6 +504,14 @@ export const api = {
      */
     sync: (): Promise<Partial<IntelFeedsResponse> | null> =>
       sendJson('POST', '/api/v1/intel/feeds/sync', intelFeedsResponseSchema.partial().nullable()),
+  },
+
+  /** Operations (Milestone 12): system health for administrators, alerts for everyone. */
+  ops: {
+    health: (init?: RequestInit): Promise<OpsHealthResponse> =>
+      getJson('/api/v1/ops/health', opsHealthResponseSchema, init),
+    alerts: (init?: RequestInit): Promise<OpsAlertsResponse> =>
+      getJson('/api/v1/ops/alerts', opsAlertsResponseSchema, init),
   },
 
   workers: {

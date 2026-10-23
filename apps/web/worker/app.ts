@@ -5,6 +5,8 @@ import { requireAuth } from './middleware/auth.ts';
 import { configMiddleware } from './middleware/config.ts';
 import { sameOriginWrites } from './middleware/csrf.ts';
 import { database, type Connector } from './middleware/database.ts';
+import { rateLimit } from './middleware/rate-limit.ts';
+import type { RateLimitDeps } from './lib/rate-limit.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
 import type { Rule } from '@exdomainvault/rules';
@@ -16,6 +18,7 @@ import { findingRoutes } from './routes/findings.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import { internalWorkerRoutes } from './routes/internal-worker.ts';
 import { meRoutes } from './routes/me.ts';
+import { opsRoutes } from './routes/ops.ts';
 import { approvedNetworkRoutes } from './routes/networks.ts';
 import { reportRoutes } from './routes/reports.ts';
 import { ruleRoutes } from './routes/rules.ts';
@@ -39,6 +42,8 @@ export interface AppDeps {
   rules?: readonly Rule[];
   /** Public intelligence feeds (tests inject a mock fetch; defaults to the Workers fetch). */
   intel?: { fetch?: FetchLike };
+  /** Per-user rate limiters (tests inject MemoryRateLimiter; defaults to the env bindings). */
+  rateLimit?: RateLimitDeps;
 }
 
 /**
@@ -64,6 +69,7 @@ export function createApp(deps: AppDeps = {}) {
   const authed = new Hono<AppBindings>();
   authed.use('*', sameOriginWrites());
   authed.use('*', requireAuth(deps.auth));
+  authed.use('*', rateLimit(deps.rateLimit));
   authed.route('/me', meRoutes);
   authed.route('/domains', domainRoutes({ now: deps.now, ...deps.domains }));
   authed.route('/assets', assetRoutes({ now: deps.now }));
@@ -80,6 +86,7 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/reports', reportRoutes({ now: deps.now }));
   authed.route('/software', softwareRoutes({ now: deps.now }));
   authed.route('/intel', intelRoutes({ now: deps.now, fetch: deps.intel?.fetch }));
+  authed.route('/ops', opsRoutes({ now: deps.now }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

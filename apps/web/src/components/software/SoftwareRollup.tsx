@@ -1,5 +1,6 @@
 import type { SoftwareSummaryResponse } from '@exdomainvault/shared';
 import { Link } from 'react-router';
+import { ProportionBar } from '../ui/ProportionBar.tsx';
 
 type Product = SoftwareSummaryResponse['products'][number];
 
@@ -9,9 +10,11 @@ const MAX_VERSIONS = 4;
 function Bar({ value, max, className }: { value: number; max: number; className: string }) {
   const pct = max > 0 ? Math.max(value > 0 ? 4 : 0, Math.round((value / max) * 100)) : 0;
   return (
-    <div className="h-1.5 w-24 rounded-full bg-slate-100" aria-hidden>
-      <div className={`h-1.5 rounded-full ${className}`} style={{ width: `${pct}%` }} />
-    </div>
+    <ProportionBar
+      percent={pct}
+      className="h-1.5 w-24 rounded-full bg-slate-100"
+      fillClassName={className}
+    />
   );
 }
 
@@ -88,7 +91,7 @@ export function SoftwareRollup({
               <td className="py-2 pr-4 align-top">
                 <div className="flex items-center gap-2">
                   <span className="w-8 text-right tabular-nums text-slate-800">{p.hosts}</span>
-                  <Bar value={p.hosts} max={max} className="bg-slate-500" />
+                  <Bar value={p.hosts} max={max} className="fill-slate-500" />
                 </div>
               </td>
               <td className="py-2 pr-4 align-top">
@@ -97,7 +100,7 @@ export function SoftwareRollup({
               <td className="py-2 pr-4 align-top">
                 <div className="flex items-center gap-2">
                   <span className="w-8 text-right tabular-nums text-slate-800">{p.eol}</span>
-                  <Bar value={p.eol} max={p.hosts} className="bg-amber-500" />
+                  <Bar value={p.eol} max={p.hosts} className="fill-amber-500" />
                 </div>
               </td>
               <td className="py-2 align-top">
@@ -105,7 +108,7 @@ export function SoftwareRollup({
                   <span className="w-8 text-right tabular-nums text-slate-800">
                     {p.knownExploited}
                   </span>
-                  <Bar value={p.knownExploited} max={p.hosts} className="bg-orange-600" />
+                  <Bar value={p.knownExploited} max={p.hosts} className="fill-orange-600" />
                 </div>
               </td>
             </tr>

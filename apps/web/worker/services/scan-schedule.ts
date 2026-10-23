@@ -20,7 +20,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import type { Logger } from '../lib/logger.ts';
+import { errorFields, type Logger } from '../lib/logger.ts';
 import { writeAudit } from './audit.ts';
 import type { Actor } from './domains.ts';
 import { activeNetworkCidrs } from './networks.ts';
@@ -235,7 +235,7 @@ export async function scheduleActiveScans(
         failed += 1;
         logger?.error('scheduled_scan_failed', {
           domainId: id,
-          error: err instanceof Error ? err.message : String(err),
+          ...errorFields(err),
         });
       }
     }

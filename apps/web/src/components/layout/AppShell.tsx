@@ -3,6 +3,7 @@ import { useDataMode } from '../../lib/data-mode.ts';
 import { SessionProvider } from '../../lib/SessionProvider.tsx';
 import { DevDataBanner } from '../ui/DevDataBanner.tsx';
 import { ApiStatus } from './ApiStatus.tsx';
+import { OpsAlertBanner } from './OpsAlertBanner.tsx';
 import { CurrentUser } from './CurrentUser.tsx';
 import { Sidebar } from './Sidebar.tsx';
 
@@ -25,6 +26,7 @@ export function AppShell() {
             <div className="h-6 w-px bg-slate-200" aria-hidden />
             <CurrentUser />
           </header>
+          <OpsAlertBanner />
           {fixtures && <DevDataBanner />}
           <main id="main" className="flex-1 px-6 py-6 lg:px-8">
             <Outlet />

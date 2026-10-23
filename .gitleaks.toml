@@ -1,0 +1,11 @@
+# gitleaks configuration (CI: .github/workflows/security.yml). Extends the default rule set.
+# Allowlist entries must be narrow (exact value + exact paths) and explain why the match is public.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Cloudflare Access AUD tag: a public identifier (also visible in every Access login redirect), committed by decision 2026-10-22"
+condition = "AND"
+paths = ['''^apps/web/(wrangler\.jsonc|worker-configuration\.d\.ts)$''']
+regexes = ['''^e777f0cfe2a4f69ed8221bbbfd3fb02b0bf297b4cfc1d0247df9d5f080683b41$''']

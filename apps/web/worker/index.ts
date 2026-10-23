@@ -1,7 +1,7 @@
 import { connect } from '@exdomainvault/database';
 import { createApp } from './app.ts';
 import { loadConfig } from './config.ts';
-import { createLogger } from './lib/logger.ts';
+import { createLogger, errorFields } from './lib/logger.ts';
 import { userAgentFor } from './services/intel-feeds.ts';
 import { runMaintenance } from './services/maintenance.ts';
 
@@ -31,7 +31,7 @@ export default {
       } catch (err) {
         // Invalid configuration: fail closed (no scheduled active scans), keep the other steps.
         logger.error('maintenance_config_invalid', {
-          error: err instanceof Error ? err.message : String(err),
+          ...errorFields(err),
         });
       }
       const apiKey = typeof vars.NVD_API_KEY === 'string' ? vars.NVD_API_KEY.trim() : '';

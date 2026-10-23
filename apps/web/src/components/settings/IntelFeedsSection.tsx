@@ -91,18 +91,21 @@ export function IntelFeedsSection() {
             deniedTitle="Feed status is visible to administrators"
           />
         )}
-        {state.status === 'success' &&
-          (state.data.feeds.length === 0 ? (
-            <p className="text-slate-500">No feeds configured.</p>
-          ) : (
-            <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
-              {state.data.feeds.map((f) => (
-                <FeedRow key={f.feed} feed={f} />
-              ))}
-            </ul>
-          ))}
+        {state.status === 'success' && <FeedList feeds={state.data.feeds} />}
       </div>
     </Card>
+  );
+}
+
+/** Feed status rows; also used by Settings → System health. */
+export function FeedList({ feeds }: { feeds: IntelFeedStatus[] }) {
+  if (feeds.length === 0) return <p className="text-slate-500">No feeds configured.</p>;
+  return (
+    <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
+      {feeds.map((f) => (
+        <FeedRow key={f.feed} feed={f} />
+      ))}
+    </ul>
   );
 }
 

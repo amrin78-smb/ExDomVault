@@ -4,22 +4,30 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Milestone status
 
-| #   | Milestone                                   | Status      | Notes                                   |
-| --- | ------------------------------------------- | ----------- | --------------------------------------- |
-| 1   | Repository foundation                       | done        |                                         |
-| 2   | Database and authentication                 | done        | Deployed; production migrated           |
-| 3   | Domain inventory                            | done        | Deployed 2026-10-22 (`cf062f76`)        |
-| 4   | Scan job lifecycle                          | done        | Deployed 2026-10-22 (`663d3165`)        |
-| 5   | Python worker                               | done        | Deployed; worker live on this host      |
-| 6   | Scanning and target safety (security gate)  | done        | Gate passed; active scanning ON in prod |
-| 7   | Deterministic rules engine                  | done        | Deployed 2026-10-22 (`7dff53fc`)        |
-| 8   | Finding lifecycle                           | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
-| 9   | Passive subdomain discovery                 | done        | Deployed 2026-10-23 (`d12f8709`)        |
-| 10  | Frontend integration                        | done        | Deployed 2026-10-23 (`43af2122`)        |
-| 11  | Exposed-software / vulnerability monitoring | done        | Deployed 2026-10-23 (`cb709106`)        |
-| 12  | Production hardening                        | not started | Prompt: `docs/prompts/11-*.md`          |
+| #   | Milestone                                   | Status | Notes                                   |
+| --- | ------------------------------------------- | ------ | --------------------------------------- |
+| 1   | Repository foundation                       | done   |                                         |
+| 2   | Database and authentication                 | done   | Deployed; production migrated           |
+| 3   | Domain inventory                            | done   | Deployed 2026-10-22 (`cf062f76`)        |
+| 4   | Scan job lifecycle                          | done   | Deployed 2026-10-22 (`663d3165`)        |
+| 5   | Python worker                               | done   | Deployed; worker live on this host      |
+| 6   | Scanning and target safety (security gate)  | done   | Gate passed; active scanning ON in prod |
+| 7   | Deterministic rules engine                  | done   | Deployed 2026-10-22 (`7dff53fc`)        |
+| 8   | Finding lifecycle                           | done   | Deployed 2026-10-22 (`9e0ed55b`)        |
+| 9   | Passive subdomain discovery                 | done   | Deployed 2026-10-23 (`d12f8709`)        |
+| 10  | Frontend integration                        | done   | Deployed 2026-10-23 (`43af2122`)        |
+| 11  | Exposed-software / vulnerability monitoring | done   | Deployed 2026-10-23 (`cb709106`)        |
+| 12  | Production hardening                        | done   | Built; not yet deployed                 |
 
 ## Decisions log
+
+- 2026-10-24 — **Rate limits via Workers Rate Limiting bindings** (`API_RATE_LIMITER` 300/min, `MUTATION_RATE_LIMITER` 60/min per user, after authentication): cross-isolate, no migration; approximate (per Cloudflare location) and fail-open with a `rate_limiter_unavailable` log. **Scan quotas** are exact DB counts inside `createScan` (per-user lock): 60 user-requested scans/hour/user, 24 active scans/domain/day, 6 discovery/domain/day; scheduled jobs never count.
+- 2026-10-24 — **Strict CSP** for the SPA (`apps/web/public/_headers`): no `'unsafe-inline'`; API responses `default-src 'none'`; plus Permissions-Policy, COOP/CORP, HSTS. Inline-style bars replaced by SVG attributes.
+- 2026-10-24 — **Ops:** `GET /ops/health` (admins) and `GET /ops/alerts` (all users, banner). Worker outage = no worker seen for 30 min while jobs are queued; cron logs `worker_outage_started`/`_ended` once per transition (state in `application_settings.ops_state`); alerting via Cloudflare Monitors on that log line (docs/operations.md), no email channel.
+- 2026-10-24 — **Retention:** observations > 180 days and finished jobs > 365 days, ≤ 5000 rows/table/run, hourly; the latest successful (and latest any-status) observation per key always survives; jobs referenced by finding history, still owning observations, or unevaluated are kept. Audit logs, findings, history and comments are never deleted.
+- 2026-10-24 — **Errors and logs:** DB availability failures → 503 `service_unavailable` + `Retry-After: 30`; other DB errors → 500 (bugs, not outages). DB errors are logged by class/SQLSTATE only (driver errors carry SQL and parameters); the logger redacts sensitive keys and credential-looking text.
+- 2026-10-24 — **CI security:** `security.yml` (npm audit: high+ prod / critical dev; pip-audit; gitleaks CLI with pinned checksum; weekly), actions pinned to SHAs, Dependabot weekly with 14-day cooldown, lockfile drift check. **certifi** PYSEC-2026-4320 exception until 2026-11-03 (fix release too new for the 14-day rule).
+- 2026-10-24 — **Red-team result:** no high/medium defects. One low (asset-owner existence oracle on `GET /domains/:id/software`) fixed via `assertDomainVisible`. The route matrix enumerates every registered route and fails when a new route lacks an access expectation.
 
 - 2026-10-23 — **Scheduled active scans** (design §6 default schedules): off by default; an admin (`scan_policies:manage`, audited) enables Quick or Standard every 1–30 days in Settings → Scan profiles. Only monitored domains currently authorised for active scanning, only while `ACTIVE_SCANNING_ENABLED` is on; staggered by domain-id hash, ≤ 30 jobs per cron run, priority 220 (behind manual 100 and passive 200). Each job re-checks authorisation under a row lock and uses the normal target rules. Any earlier job of the profile (manual too) counts toward the interval.
 - 2026-10-23 — **Implicit apex approval by the scheduler** is recorded with the admin who last saved the schedule as `approved_by` (the schema requires a user); the audit row is a system action with `trigger: schedule` and `onBehalfOf`. Without such a user no apex is approved implicitly and the domain is skipped (`no_targets`).
@@ -146,6 +154,13 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 - [x] ~~NVD API key~~ — set as Worker secret `NVD_API_KEY` 2026-10-23.
 
+- [ ] Enable GitHub Dependabot alerts/security updates, secret scanning and push protection (repo Settings → Code security).
+- [ ] Create the Cloudflare Monitor on `worker_outage_started` and test it once (docs/operations.md).
+- [ ] Delete the `BOOTSTRAP_ADMIN_EMAILS` Worker secret.
+- [ ] Neon backups: move to the Launch plan (7-day PITR + snapshots) or run a weekly `pg_dump` (install `postgresql-client-18`); run the restore drill in docs/backup-restore.md once.
+- [ ] Bump certifi to 2026.10.19 on/after 2026-11-03 (CI fails then otherwise).
+- [ ] Rotate the Access service-token secret shown in a screenshot on 2026-10-23.
+
 ## Future enhancements (owner requests)
 
 - **Exposed software / vulnerability monitoring** (asked 2026-10-22, re CSA alert AL-2026-151 "PHP2Shell", CVE-2026-109618/-109619). Approach agreed in principle, not scheduled: the worker records product/version fingerprints it already sees (HTTP `Server`/`X-Powered-By`, cookies, TLS, limited service identification) with confidence levels (M5–6); deterministic rules for EOL versions, version disclosure and advisory matches reported as "possibly affected — verify" (M7); feed data (CISA KEV + a web-stack CVE/EOL feed, ideally published by nocvault-eol, which already serves Ed25519-signed EOL and firewall-CVE feeds) after M11. Caveats: distro backports keep old version strings, hidden banners mean "unknown" never "not affected", no exploit or vulnerability probing.
@@ -175,6 +190,29 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Milestone 12 — 2026-10-24
+
+**Built (contract first, then four parallel agents: server, tests/red team, CI/docs, UI):** contract `packages/shared/src/api/ops.ts`. Server: rate-limit middleware + bindings, `services/quotas.ts`, `services/ops.ts` + `routes/ops.ts`, `services/retention.ts`, logger redaction/`child()`, DB error mapping, `public/_headers` CSP. Tests: route authz matrix (552), validation hardening (217), object-level tenancy matrix, Access JWT attacks, worker protocol/lease/idempotency, secret scanning of repo and bundle, migration verification, Python scope property tests (124). CI: `security.yml`, pinned actions, Dependabot, lockfile check. UI: Settings → System health, global ops alert banner, 429 messages, CSP-safe bars. Docs: deployment (deploy + rollback), backup-restore (Neon Free plan: 6 h PITR), operations, troubleshooting, README.
+
+**Checks:** `npm run lint` pass; `npm run typecheck` pass; `npm run db:check` pass; `npm run rules:docs:check` pass; `npm test` 86 files, 2623 tests pass; `npm run build` pass; `npm run worker:lint` pass; `npm run worker:test` 1515 pass. Audits: npm prod 0; npm dev 4 moderate (drizzle-kit → esbuild, no safe fix); pip-audit 1 (certifi, time-boxed exception); gitleaks full history clean after allowlisting the public Access AUD.
+
+**Definition of done (design §17):**
+
+1. Domain inventory and verification end to end — **met**: 339 domains imported in production; DNS TXT (mock-tested) and audited admin authorisation in use.
+2. DNS, registration, TLS and HTTP observations persist in Neon — **met**: production passive scans for all monitored domains; TLS/HTTP from Quick scans (scheduled scans available).
+3. Passive discovery produces deduplicated pending assets — **met**: crt.sh discovery live (owner-verified 2026-10-23); dedupe and boundary tests.
+4. Approved TCP scans only within authorised scope — **met**: scope validator + tiered policy, two red-team passes, systemd `IPAddressDeny`, approved networks only for ports.
+5. Findings deterministic, explainable, evidence-backed — **met**: 25 versioned rules, generated `advisory-rules.md`, evidence + risk inputs stored.
+6. Failed scans never cause false resolution — **met**: evaluator only resolves checked components of succeeded jobs; tests in rules, evaluation and hardening suites.
+7. Duplicate jobs/retries create no duplicate active findings — **met**: partial unique index on fingerprint, idempotent results, concurrency tests.
+8. User permissions and worker authentication enforced — **met**: route matrix over every route × role, Ed25519 worker signatures with replay protection, Access JWT verification.
+9. Secrets not committed or exposed to the frontend — **met**: gitleaks history scan, repo + bundle secret tests, secrets only in Worker secrets / `/etc/exdomainvault`.
+10. Automated tests, deployment instructions and recovery procedures — **met**: 2623 + 1515 tests in CI; deployment/rollback, backup-restore (restore drill), operations, troubleshooting docs. Restore drill not yet executed on production by the owner.
+
+**Owner actions:** see Operator actions (enable GitHub security features, create the outage Monitor, delete `BOOTSTRAP_ADMIN_EMAILS`, decide on Neon Launch plan or weekly `pg_dump`, bump certifi after 2026-11-03).
+
+**Next:** deploy (owner approval; no migration; new rate-limit bindings), then CSV exports on list pages (owner request).
 
 ### Milestone 11 — 2026-10-23
 

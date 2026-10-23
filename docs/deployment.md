@@ -1,32 +1,242 @@
 # Deployment
 
-Covers only what is implemented. Nothing in this repository deploys automatically, and Claude does not
-deploy or change Cloudflare/Neon account settings without explicit permission.
+Covers only what is implemented. Nothing in this repository deploys automatically: CI
+(`.github/workflows/`) runs checks only and holds no Cloudflare or Neon credentials. Deploying,
+migrating `production` and changing Cloudflare/Neon account settings are owner actions; Claude does
+them only with the owner's explicit approval.
 
-## Current production state (2026-10-22)
+Related: [operations.md](operations.md) (daily running, alerts, retention),
+[backup-restore.md](backup-restore.md) (Neon restore and the tested-restore drill),
+[troubleshooting.md](troubleshooting.md), [home-worker-setup.md](home-worker-setup.md) (scan host).
 
-| Item               | Value                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| URL                | https://exdomainvault.amrin78.workers.dev (Worker `exdomainvault`, `workers_dev` on, preview URLs off)                               |
-| Cloudflare account | `a2c0616cdf9b25972e26618151f392f7`                                                                                                   |
-| Access             | Worker → **Access** tab, scope _All traffic_, policy `demo-allowlist` (Allow: owner email only)                                      |
-| Access team domain | `fragrant-grass-4d8f.cloudflareaccess.com`                                                                                           |
-| Hyperdrive         | `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) → Neon `production` direct endpoint                                          |
-| Database role      | `exdomainvault_app` (least privilege, see below)                                                                                     |
-| Neon `production`  | migrated through `0002_scan_job_lifecycle` (2026-10-22); `0003_approved_networks` **not applied yet**                                |
-| Worker secrets     | `BOOTSTRAP_ADMIN_EMAILS`                                                                                                             |
-| Deployed version   | `98621b00` (Milestone 5); Cron Trigger `*/5 * * * *` confirmed running via `wrangler tail`. Milestone 6 code is **not** deployed yet |
-| Verified           | unauthenticated `/`, `/api/*` and forged assertion header → 302 to Access login; owner sign-in → admin                               |
-| Home worker        | `home-worker-01` running under systemd on the home host (passive profile only; `EXDV_ACTIVE_SCANNING_ENABLED` not set → `false`)     |
+## Current production state (2026-10-23)
+
+| Item               | Value                                                                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| URL                | https://exdomainvault.amrin78.workers.dev (Worker `exdomainvault`, `workers_dev` on, preview URLs off)                                           |
+| Cloudflare account | `a2c0616cdf9b25972e26618151f392f7`, **Workers Paid (Standard)** since 2026-10-23                                                                 |
+| Access             | Worker → **Access** tab, scope _All traffic_; policy `demo-allowlist` (Allow: owner email) + Service Auth policy (`exdomainvault-home-worker`)   |
+| Access team domain | `fragrant-grass-4d8f.cloudflareaccess.com`                                                                                                       |
+| Hyperdrive         | `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) → Neon `production` direct endpoint, **query caching disabled**                          |
+| Database role      | `exdomainvault_app` (least privilege, see below)                                                                                                 |
+| Neon `production`  | migrated through `0007_software_intel` (8 migrations)                                                                                            |
+| Neon plan          | **Free**: history (point-in-time restore) window 6 hours, 1 manual snapshot, no scheduled snapshots — see [backup-restore.md](backup-restore.md) |
+| Worker secrets     | `BOOTSTRAP_ADMIN_EMAILS`, `NVD_API_KEY`                                                                                                          |
+| Deployed version   | `36d3d0c3-4604-45e1-90e9-b7903b20916c` (scheduled active scans, 2026-10-23); Cron `*/5 * * * *`                                                  |
+| Active scanning    | `ACTIVE_SCANNING_ENABLED = "true"` in `wrangler.jsonc` (owner, 2026-10-22)                                                                       |
+| Home worker        | `home-worker-01` under systemd on the home host ([home-worker-setup.md](home-worker-setup.md))                                                   |
+
+Milestone 12 (production hardening) is **not deployed yet**; see [Milestone 12 deploy notes](#milestone-12-deploy-notes).
 
 `demo-allowlist` is a reusable Access policy shared with another app; anyone added to it can also reach
 ExDomainVault (but gets 403 from the API unless provisioned in `users`). Consider a dedicated policy.
+
+## Deployment checklist
+
+Copy this list into the change record for every production deploy. Every step is an owner action
+or needs the owner's approval.
+
+**Before**
+
+- [ ] `git status` clean, on `main`, pulled; CI (**CI** and **Security** workflows) green for the commit.
+- [ ] Local checks pass: `npm ci && npm run lint && npm run typecheck && npm test && npm run build`
+      (and `npm run worker:lint && npm run worker:test` if `worker/` changed).
+- [ ] Read the commits since the deployed version (`git log <deployed-commit>..HEAD`) and
+      `docs/progress.md` for required migrations, new bindings, new secrets and worker upgrades.
+- [ ] Note the currently deployed version id (`npx wrangler deployments status`) — this is the
+      rollback target.
+- [ ] If a migration is pending: applied and verified on Neon `dev` first; a pre-migration Neon
+      snapshot or restore timestamp recorded ([backup-restore.md](backup-restore.md#before-a-production-migration)).
+- [ ] New secrets set (`wrangler secret put` — note this deploys immediately, see [Secrets](#secrets-inventory-and-rotation)).
+
+**Deploy**
+
+- [ ] Migrate `production` if needed ([Migrating production](#2-migrating-production)).
+- [ ] `cd apps/web && npx wrangler deploy` and record the printed version id.
+- [ ] Upgrade the home worker if `worker/` changed ([home-worker-setup.md §11](home-worker-setup.md#11-upgrade-and-restart)).
+
+**After** ([Smoke checks](#4-smoke-checks))
+
+- [ ] Unauthenticated `/` and `/api/v1/health` → `302` to the Access login.
+- [ ] Service-token `GET /api/v1/health` → `200`, `database: ok`, `auth: ok`, `environment: production`.
+- [ ] Owner sign-in works; **Settings → System health** shows the worker `online` and no outage.
+- [ ] Next Cron run logs `maintenance_step` without `maintenance_step_failed` (Workers Logs).
+- [ ] Record the deploy (version id, migrations, date) in `docs/progress.md` and the table above.
+
+## Deploy procedure
+
+### 1. Pre-checks
+
+```bash
+git switch main && git pull --ff-only && git status            # clean tree
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
+cd apps/web
+npx wrangler whoami                                             # account a2c0616c…
+npx wrangler deployments status                                 # current version = rollback target
+npx wrangler secret list                                        # names only, never values
+```
+
+`npm test` runs Vitest with at most two workers (memory); do not run two full suites at once on the
+scan host.
+
+### 2. Migrating production
+
+Migrations are forward-only SQL files in `packages/database/migrations/` (drizzle-kit `generate`;
+there are **no down migrations**). The runner (`npm run db:migrate`, `packages/database/scripts/migrate.ts`)
+refuses `NEON_BRANCH=production` unless `ALLOW_PRODUCTION_MIGRATION=yes`, refuses pooled
+(`-pooler`) URLs and forces `sslmode=verify-full`.
+
+Only after the same migration is applied and verified on a development branch, and with the owner's
+approval:
+
+```bash
+# 1. Verify on dev first
+neon checkout dev                       # or: neon checkout dev --create   (expires after 7 days)
+npm run db:migrate
+# … run the app against dev (npm run dev), exercise the changed features …
+
+# 2. Recovery point for production (see backup-restore.md)
+date -u +%Y-%m-%dT%H:%M:%SZ            # note the timestamp: PITR target if the migration goes wrong
+neon snapshots create --branch production --name pre-migration-$(date -u +%Y%m%d)   # optional, Free plan keeps 1
+
+# 3. Migrate production
+neon checkout production
+ALLOW_PRODUCTION_MIGRATION=yes npm run db:migrate
+neon checkout dev                       # do not leave production checked out
+```
+
+Then check the application role's privileges. Tables created by the owner role inherit the default
+privileges (`SELECT, INSERT, UPDATE, DELETE` for `exdomainvault_app`); re-check that the append-only
+tables stay append-only:
+
+```sql
+\dp audit_logs
+\dp finding_status_history
+\dp finding_comments
+-- exdomainvault_app must have only "ar" (INSERT, SELECT) on these three tables.
+```
+
+**Order.** Migrate first, then deploy the code that needs the new schema. Most migrations here are
+additive (new tables, nullable columns), so the previous code version keeps working against the
+migrated schema and a code-only rollback is safe. Read each migration before applying it: one that
+drops or renames a column, or adds a `NOT NULL` column without a default (as `0004` did on
+`findings`), can break the previous version — then a rollback also needs a database restore, so take
+a snapshot first.
+
+### 3. Deploy the Worker
+
+```bash
+cd apps/web
+npx wrangler deploy
+```
+
+`wrangler deploy` does not build. `npm run build` (step 1) wrote the Worker and SPA to
+`apps/web/dist/` and a redirect (`apps/web/.wrangler/deploy/config.json` →
+`dist/exdomainvault/wrangler.json`), and `wrangler deploy` uploads that build as a new version at 100%
+of traffic and registers the Cron Trigger. **Always build from the commit being deployed** immediately
+before deploying; a stale `dist/` would deploy old code. Record the version id it prints.
+
+### 4. Smoke checks
+
+```bash
+BASE=https://exdomainvault.amrin78.workers.dev
+
+# Access in front of everything (no token): expect 302 to fragrant-grass-4d8f.cloudflareaccess.com
+curl -sI "$BASE/" | grep -iE '^(HTTP|location)'
+curl -sI "$BASE/api/v1/health" | grep -iE '^(HTTP|location)'
+
+# Through Access with the home worker's service token (on the scan host; secret never in argv)
+sudo bash -c 'set -a; . /etc/exdomainvault/worker.env; printf "header = \"CF-Access-Client-Id: %s\"\nheader = \"CF-Access-Client-Secret: %s\"\n" "$EXDV_ACCESS_CLIENT_ID" "$EXDV_ACCESS_CLIENT_SECRET" | curl -sS -K - "$EXDV_API_BASE_URL/api/v1/health"' | jq .
+# expect: "status":"ok", "environment":"production", components.database "ok", components.auth "ok"
+
+# Live logs during the next Cron run (every 5 minutes)
+cd apps/web && npx wrangler tail --format pretty
+```
+
+Then sign in as the owner: the UI loads, the top bar shows _Administrator_, **Settings → System
+health** shows the worker `online`, the queue moving and no outage alert. A service token on a user
+route (e.g. `/api/v1/me`) must be rejected (`401`): service tokens carry no email.
+
+## Rollback
+
+### Code: `wrangler rollback`
+
+Workers keeps every uploaded version; a rollback redeploys an earlier version at 100% of traffic
+without rebuilding. Checked against the Wrangler documentation (2026-10-23):
+
+```bash
+cd apps/web
+npx wrangler deployments list           # the 10 most recent deployments, with version ids
+npx wrangler versions list              # the 10 most recent versions
+npx wrangler versions view <VERSION_ID> # inspect one (bindings, vars, created on)
+npx wrangler rollback <VERSION_ID> --message "rollback: <reason>"
+npx wrangler deployments status         # confirm the active version
+```
+
+- `wrangler rollback` without a version id rolls back to the version uploaded before the latest.
+  Passing `--message` skips the interactive confirmation.
+- Only the 100 most recent versions can be rolled back to. Dashboard alternative: **Workers & Pages →
+  exdomainvault → Deployments →** ⋯ next to the version → **Rollback**.
+- A rollback restores the version's code, vars (including `ACTIVE_SCANNING_ENABLED`) and binding
+  _references_. It does **not** change connected resources or data: the Neon database, the Hyperdrive
+  configuration, Access policies and Cron runs continue as they are. Cloudflare's docs do not state
+  how secrets behave on rollback; after a rollback, check `npx wrangler secret list` and
+  re-`put` anything that is missing.
+- Rollback is blocked if the target version binds to a resource that no longer exists.
+- Then run the [smoke checks](#4-smoke-checks) and record the rollback in `docs/progress.md`.
+
+**Emergency stop for active scanning** (faster than a rollback when the problem is scanning
+behaviour): set `"ACTIVE_SCANNING_ENABLED": "false"` in `apps/web/wrangler.jsonc` and deploy; new
+active jobs are refused and running ones stop at their next heartbeat. Or stop the worker on the scan
+host (`sudo systemctl stop exdomainvault-worker`), which stops all scanning; queued jobs wait.
+
+### Database: no down migrations
+
+There are no down migrations. Because migrations are additive, the normal response to a bad deploy
+is a **code rollback only**: the previous version ignores the new tables/columns. Restore the database
+only when data itself is wrong (a destructive migration, a bug that corrupted rows, accidental
+deletion). Options, all in [backup-restore.md](backup-restore.md):
+
+1. **Inspect first:** create a branch from a timestamp before the incident
+   (`neon branches create --name restore-check --parent <RFC3339 timestamp>`), compare, copy back only
+   the affected rows if that is enough.
+2. **Restore `production` in place** to a point in time inside the history window
+   (`neon branches restore production ^self@<timestamp> --preserve-under-name production_before_restore`).
+   Connection details stay the same, so Hyperdrive keeps working; everything written after the
+   timestamp is lost (it remains in the preserved branch).
+3. **Restore from a snapshot** (`neon snapshots restore <id> --target-branch production`, then
+   `neon snapshots finalize`).
+
+**Plan limit:** on the Neon Free plan the history window is **6 hours**
+(`history_retention_seconds: 21600`, read from the project 2026-10-23). A problem noticed later than
+that can only be restored from a snapshot or a logical dump. Restoring `production` to before a
+migration also means rolling the code back to the version that matches that schema.
+
+## Secrets inventory and rotation
+
+Nothing secret is committed. `wrangler.jsonc` holds only public values (Access team domain and AUD
+tag are public identifiers; the gitleaks allowlist in `.gitleaks.toml` covers exactly the AUD).
+
+| Secret                          | Lives in                                                        | Used by                    | Rotate                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------- | --------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `exdomainvault_app` DB password | Hyperdrive config `exdomainvault-db` only                       | Worker → Neon              | Yearly or on suspicion. As the owner on `production`: `ALTER ROLE exdomainvault_app PASSWORD '<new>';` then immediately `npx wrangler hyperdrive update c43bce859dcd405c9aaca22897818529 --origin-password '<new>'` (Wrangler 4 flag). Expect a short window of failed DB requests between the two commands; run it outside scan hours. The password appears in shell history: prefix the command with a space (`HISTCONTROL=ignorespace`) or clear it afterwards. |
+| Neon owner credentials          | `.env.local` on the dev machine (git-ignored), Neon console     | migrations, `neon` CLI     | Neon console → Roles → reset password, then `neon env pull`. Never given to the Worker.                                                                                                                                                                                                                                                                                                                                                                            |
+| `BOOTSTRAP_ADMIN_EMAILS`        | Worker secret                                                   | first sign-in → admin      | Not a credential, but grants admin on first sign-in. The first admin exists, so **delete it**: `npx wrangler secret delete BOOTSTRAP_ADMIN_EMAILS`. Re-add only to recover from losing every admin.                                                                                                                                                                                                                                                                |
+| `NVD_API_KEY`                   | Worker secret                                                   | NVD feed sync              | Request a new key at nvd.nist.gov, `npx wrangler secret put NVD_API_KEY`. Without it the sync falls back to the public rate.                                                                                                                                                                                                                                                                                                                                       |
+| Access service token            | Zero Trust → Service Tokens; `worker.env` on the scan host      | home worker → Access       | Before its expiry (note the date at creation): [home-worker-setup.md §12](home-worker-setup.md#12-credential-rotation) — second token, add to the Service Auth policy, switch, delete the old one.                                                                                                                                                                                                                                                                 |
+| Worker Ed25519 private key      | `/etc/exdomainvault/worker.key` (root, `0600`) on the scan host | signs every worker request | Before expiry (365 days by default; shown in **Settings → Scanning workers**): [home-worker-setup.md §12](home-worker-setup.md#12-credential-rotation). Compromise: **Revoke** the key or **Disable** the worker first.                                                                                                                                                                                                                                            |
+| Access IdP / session            | Cloudflare Zero Trust                                           | user sign-in               | Managed in Zero Trust; session duration 24 h.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+`wrangler secret put` (and `secret delete`) creates and deploys a **new Worker version
+immediately**. Change secrets as part of a planned deploy, not in the middle of one, and note the new
+version id (it becomes the newest rollback point).
 
 ## Database: Neon + Cloudflare Hyperdrive
 
 | Item           | Value                                                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Neon project   | `ExDomVault` (`flat-sound-26073660`), org `org-holy-dream-05269506`                                                                                    |
+| Neon project   | `ExDomVault` (`flat-sound-26073660`), org `org-holy-dream-05269506`, region `aws-ap-southeast-1`, PostgreSQL 18                                        |
 | Branches       | `production` (default, live), `dev` (development; created from `neon.ts`, expires 7 days after creation)                                               |
 | Project link   | `.neon` (git-ignored, records the checked-out branch), policy in `neon.ts`                                                                             |
 | Local env      | repo-root `.env.local` (git-ignored), from `neon env pull` / `neon checkout`: `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct), `NEON_BRANCH` |
@@ -48,19 +258,6 @@ npm run db:migrate           # bring the branch schema up to date
 neon checkout production     # back to the live branch (read-mostly; migrations are guarded)
 ```
 
-### Migrating production
-
-Only after the same migration is applied and verified on a development branch, and with the owner's approval:
-
-```bash
-neon checkout production
-ALLOW_PRODUCTION_MIGRATION=yes npm run db:migrate
-neon checkout dev            # do not leave production checked out
-```
-
-Then re-apply the grants below if the migration added tables (default privileges cover tables created by
-the owner, but re-check `audit_logs` / `finding_status_history` stay append-only).
-
 ### Least-privilege application role
 
 **Do not create it with `neon roles create` or the Neon console**: roles created that way are members of
@@ -73,21 +270,17 @@ CREATE ROLE exdomainvault_app LOGIN PASSWORD '<generated>'
 GRANT USAGE ON SCHEMA public TO exdomainvault_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO exdomainvault_app;
 -- Append-only tables: no UPDATE or DELETE for the application.
-REVOKE UPDATE, DELETE ON audit_logs, finding_status_history FROM exdomainvault_app;
--- After migration 0005 (Milestone 8):
-REVOKE UPDATE, DELETE ON finding_comments FROM exdomainvault_app;
+REVOKE UPDATE, DELETE ON audit_logs, finding_status_history, finding_comments FROM exdomainvault_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO exdomainvault_app;
 ```
 
 Verified on 2026-10-22: no role memberships; DML on normal tables works; `UPDATE audit_logs`,
 `DELETE finding_status_history`, `CREATE TABLE`, `DROP TABLE` and `CREATE ROLE` are denied. The password
-exists only inside the Hyperdrive configuration; to rotate, `ALTER ROLE ... PASSWORD` and
-`wrangler hyperdrive update`.
+exists only inside the Hyperdrive configuration (rotation: [Secrets](#secrets-inventory-and-rotation)).
 
-Hyperdrive **query caching is disabled** (`wrangler hyperdrive update <id> --caching-disabled`,
-2026-10-22): cached reads showed stale state for up to a minute after changes, including the
-authorisation and kill-switch re-checks the worker API depends on.
+Retention (Milestone 12) deletes old observations and scan jobs as `exdomainvault_app`, which the
+`DELETE` grant on those tables already allows; it never touches the append-only tables.
 
 ### Hyperdrive configuration
 
@@ -95,24 +288,36 @@ authorisation and kill-switch re-checks the worker API depends on.
 cd apps/web
 npx wrangler hyperdrive create exdomainvault-db \
   --connection-string="postgresql://exdomainvault_app:<password>@<production-direct-host>/neondb"
+npx wrangler hyperdrive update <id> --caching-disabled
 ```
 
 Use the **direct** (non-pooler) host. Put the printed id in the `HYPERDRIVE` binding in
-`apps/web/wrangler.jsonc`, then `npm run cf-typegen`.
+`apps/web/wrangler.jsonc`, then `npm run cf-typegen`. **Query caching stays disabled** (2026-10-22):
+cached reads showed stale state for up to a minute after changes, including the authorisation and
+kill-switch re-checks the worker API depends on.
 
 ## Authentication: Cloudflare Access
 
 The Worker verifies Access tokens itself (signature, issuer, audience, expiry). Access also sits in front
 of the Worker so unauthenticated users never reach it.
 
-1. **Workers & Pages → exdomainvault → Access → Protect this Worker behind Access.**
-   - Scope: **All traffic** (not "Previews only").
-   - Authentication policy: an _Allow_ policy including only the people who should use ExDomainVault.
-     Access decides who may reach the app; ExDomainVault roles decide what they can do.
-   - Session duration: 24 hours.
+### Access policy
+
+| Policy                      | Action       | Include                                   | Purpose                                                    |
+| --------------------------- | ------------ | ----------------------------------------- | ---------------------------------------------------------- |
+| `demo-allowlist` (people)   | Allow        | the owner's email (add other users here)  | Who may reach the app; ExDomainVault roles decide the rest |
+| `exdomainvault-home-worker` | Service Auth | Service Token `exdomainvault-home-worker` | Lets the home worker through; never a user session         |
+
+Scope **All traffic** (not "Previews only"), session duration 24 hours, preview URLs disabled in
+`wrangler.jsonc` so no unprotected hostname exists. Never add a _Bypass_ policy. Adding a user takes
+two steps: include their email in the Allow policy **and** add them in **Settings → Users** (otherwise
+`403`).
+
+### First-time setup
+
+1. **Workers & Pages → exdomainvault → Access → Protect this Worker behind Access** with the policies above.
 2. The Access tab then shows **Application values**: the **AUD tag** and a JWKS URL whose host is the team
-   domain (`<team>.cloudflareaccess.com`). Both are public identifiers. (They can also be read from the
-   `Location` of the 302 an unauthenticated request receives: host = team domain, `kid` = AUD.)
+   domain (`<team>.cloudflareaccess.com`). Both are public identifiers.
 3. Set the Worker vars in `apps/web/wrangler.jsonc`:
 
    ```jsonc
@@ -124,153 +329,71 @@ of the Worker so unauthenticated users never reach it.
 4. Bootstrap admin as a secret (keeps the email out of git):
    `printf '%s' 'you@example.com' | npx wrangler secret put BOOTSTRAP_ADMIN_EMAILS`
 5. On first sign-in, that email becomes an administrator (audited as `user.bootstrap_admin`). Other users
-   must be provisioned in the `users` table (user-management UI arrives later) or they receive 403 even
-   if Access lets them through. You can delete the secret after the first admin exists
-   (`npx wrangler secret delete BOOTSTRAP_ADMIN_EMAILS`).
+   are added in **Settings → Users**. Delete the secret once the first admin exists.
 
 If `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` is empty, every protected API route returns `503` and
 `/api/v1/health` reports `auth: not_configured`. The development sign-in (`AUTH_PROVIDER=dev`) is refused
 when `APP_ENV=production`.
 
-## Scan job lifecycle (Milestone 4)
-
-### Migration before deploy
-
-The Milestone 4 code reads `worker_credentials`, `worker_request_nonces`, `scan_job_results` and the
-seeded `scan_profiles`. **Apply `0002_scan_job_lifecycle` to Neon `production` before deploying this
-code** (after verifying it on `dev`, with the owner's approval; see _Migrating production_). Otherwise
-the scan and worker endpoints and every Cron run fail. The new tables are created by the owner role, so
-the default privileges give `exdomainvault_app` DML on them (the nonce pruning needs `DELETE` on
-`worker_request_nonces`); re-check that `audit_logs` and `finding_status_history` stay append-only.
+## Scanning: Cron, worker and switches
 
 ### Cron Trigger
 
-`apps/web/wrangler.jsonc`:
-
-```jsonc
-"triggers": { "crons": ["*/5 * * * *"] },
-```
-
-`wrangler deploy` registers it with the Worker; the `scheduled()` handler in `apps/web/worker/index.ts`
-runs lease reaping, verification expiry/lapse, nonce pruning, passive-monitoring scheduling, rules
-evaluation and (Milestone 11) the intelligence feed sync ([`architecture.md`](architecture.md#scan-jobs-and-the-worker-protocol)). It connects through the same
-`HYPERDRIVE` binding; without it the run logs `maintenance_skipped` and does nothing. Results appear in
-Workers observability logs as `maintenance_step` / `maintenance_step_failed`.
+`"triggers": { "crons": ["*/5 * * * *"] }` in `apps/web/wrangler.jsonc`; `wrangler deploy` registers it.
+The `scheduled()` handler (`apps/web/worker/index.ts` → `services/maintenance.ts`) runs lease reaping,
+verification expiry/lapse, nonce pruning, the passive/discovery/scheduled-active schedulers, rules
+evaluation, accepted-risk expiry, the intelligence feed sync and (Milestone 12) the worker-outage
+check and retention. Each step is isolated; results appear in Workers Logs as `maintenance_step` /
+`maintenance_step_failed`. Without the `HYPERDRIVE` binding the run logs `maintenance_skipped`.
 
 ### `ACTIVE_SCANNING_ENABLED`
 
-A Worker var in `wrangler.jsonc`, set to `"false"`. Only `"true"` or `"false"` is accepted (anything else
-fails configuration closed); unset means `false`. While `false`, jobs with active profiles are refused at
-creation (`409`) and at claim time, and running active jobs are told to stop at their next heartbeat;
-passive monitoring is unaffected. Turning it on is described in
-[Enabling active scanning](#enabling-active-scanning).
+A Worker var in `wrangler.jsonc` (`"true"` in production since 2026-10-22). Only `"true"` or `"false"`
+is accepted (anything else fails configuration closed); unset means `false`. While `false`, jobs with
+active profiles are refused at creation (`409`) and at claim time, and running active jobs are told to
+stop at their next heartbeat; passive monitoring is unaffected. Active checks also need the worker's
+own switch (`EXDV_ACTIVE_SCANNING_ENABLED=true`, [home-worker-setup.md §15](home-worker-setup.md#15-enabling-active-scanning)).
+Port probes (`standard`/`deep`) only reach networks approved in **Settings → Approved networks**.
 
 ### Registering the home worker
 
-1. On the worker machine, generate a key pair (the commands are also shown in **Settings → Workers**):
+Full procedure: [home-worker-setup.md](home-worker-setup.md) (key generation, **Settings → Scanning
+workers** registration, Access service token, systemd unit). Credentials expire after 365 days by
+default; rotation is in §12 of that guide.
 
-   ```bash
-   openssl genpkey -algorithm ed25519 -out worker.key
-   chmod 600 worker.key
-   openssl pkey -in worker.key -pubout -outform DER | tail -c 32 | base64
-   ```
+### Intelligence feeds
 
-   The last command prints the 44-character base64 public key. The private key never leaves the machine.
+endoflife.date, CISA KEV and NVD need no keys and are synced by the Cron Trigger (`intel_*` steps).
+The optional `NVD_API_KEY` secret raises the NVD batch from 5 to 20 CVEs per run. An admin can force a
+sync with **Settings → Intelligence feeds** (`POST /api/v1/intel/feeds/sync`).
 
-2. In ExDomainVault as an administrator: **Settings → Scanning workers**, enter a name (e.g. `home-1`)
-   and paste the public key, then **Register worker**. Credentials expire after 365 days by default
-   (`expiresInDays` 1–730 via the API).
-3. Note the **key id** shown after registration (also in the worker's credential table). Configure the
-   worker with this key id and the path to `worker.key`; it sends the key id in `X-EDV-Key-Id`.
-4. Rotation: add a second key with `POST /api/v1/workers/:id/credentials` (API only for now), switch the
-   worker over, then revoke the old key in Settings. **Disable** stops all of a worker's requests at once.
+## Milestone 12 deploy notes
 
-### Cloudflare Access service token (configured 2026-10-22)
+Milestone 12 (production hardening) adds the worker-outage check, retention, `GET /ops/health` /
+`GET /ops/alerts`, per-user rate limits and scan quotas. Before deploying it:
 
-Access protects the Worker for **all traffic**, so the home worker's requests to
-`/api/v1/internal/worker/*` are redirected to the Access login before they reach the Worker's signature
-check. Before the worker can connect, the owner needs to:
+- **Migrations:** apply any new migration in `packages/database/migrations/` (check
+  `git diff --stat <deployed-commit> -- packages/database/migrations`) as in
+  [Migrating production](#2-migrating-production).
+- **Rate-limit bindings:** the API's per-user limits use Workers Rate Limiting bindings
+  `API_RATE_LIMITER` (300 requests/min) and `MUTATION_RATE_LIMITER` (60/min), declared under
+  `ratelimits` in `wrangler.jsonc`. If a binding is missing the API **degrades open** (requests pass,
+  `rate_limiter_unavailable` is logged) — confirm after deploy that no such warning appears.
+- **Alert:** create the Workers Logs alert for `worker_outage_started`
+  ([operations.md](operations.md#alerting-on-worker-outage)).
+- **Retention starts deleting** observations older than 180 days and finished scan jobs older than
+  365 days on the first Cron run after the deploy. Production data starts on 2026-10-22, so nothing is
+  eligible before 2027-04; take a snapshot anyway if the deploy is later than that.
 
-1. **Zero Trust → Access → Service credentials → Service Tokens → Create service token** (e.g.
-   `exdomainvault-home-worker`), and record the Client ID and Client Secret once.
-2. On the ExDomainVault Access application, add a policy with action **Service Auth** that includes that
-   service token (keep the existing Allow policy for people).
-3. Give the worker the Client ID/Secret so it sends `CF-Access-Client-Id` and `CF-Access-Client-Secret`
-   headers alongside its signature headers.
+## Migration history
 
-The service token only gets the request through Access; the Worker still requires the Ed25519 signature
-on every internal request, and service tokens are rejected on user routes (no email). Configured by
-the owner on 2026-10-22 (token `exdomainvault-home-worker`); rotation is in
-[`home-worker-setup.md`](home-worker-setup.md#12-credential-rotation).
-
-## Milestone 6: scope validator and active checks
-
-### Migration before deploy
-
-The Milestone 6 code reads `approved_networks` when creating scans, claiming jobs, answering heartbeats
-and ingesting results, and serves `/api/v1/approved-networks`. **Apply `0003_approved_networks` to Neon
-`production` before deploying this code** (verify on `dev` first; owner approval; see _Migrating
-production_). Otherwise scan creation, claim, heartbeat and result ingestion fail. The table is created
-by the owner role, so the default privileges give `exdomainvault_app` DML on it; check with
-`\dp approved_networks` and re-check that `audit_logs` and `finding_status_history` stay append-only.
-
-Order: migrate `production` → deploy the application (`wrangler deploy`, with `ACTIVE_SCANNING_ENABLED`
-still `"false"`) → upgrade the home worker ([`home-worker-setup.md`](home-worker-setup.md#11-upgrade-and-restart)).
-The previous worker version keeps working against the new API for passive jobs (the heartbeat's new
-`approvedNetworks` field is ignored by older workers), and the new worker refuses active jobs until its
-own switch is on.
-
-### Enabling active scanning
-
-Active (target-connecting) checks run only when **both** independent switches are on:
-
-1. **Server:** `"ACTIVE_SCANNING_ENABLED": "true"` in `apps/web/wrangler.jsonc`, then deploy. This is an
-   owner decision (it changes what the home IP may contact) and needs the owner's explicit approval
-   like any deployment. Setting it back to `"false"` and deploying stops new and running active jobs
-   (running ones at their next heartbeat).
-2. **Worker:** `EXDV_ACTIVE_SCANNING_ENABLED=true` in `/etc/exdomainvault/worker.env`, the active
-   profiles to run added to `EXDV_PROFILES` (e.g. `passive,quick,standard`), `EXDV_DENY_NETWORKS` set
-   to the home's public IPv4 `/32` and IPv6 `/64`, Nmap installed (`sudo apt install nmap`), then a
-   restart. Steps: [`home-worker-setup.md`](home-worker-setup.md#15-enabling-active-scanning).
-
-Then, as an administrator:
-
-- Domains to scan actively must be verified (DNS TXT or administrator authorisation, review date not
-  passed).
-- `quick` (TLS certificate, HTTP availability) works with no further setup: web-tier checks may reach
-  any public address an approved hostname resolves to.
-- `standard` and `deep` port probes (`tcp_ports`, `service_identification`) only reach **approved
-  networks**: approve the organisation's own ranges in **Settings → Approved networks** (CIDR ≤ /16
-  IPv4 or ≤ /32 IPv6, public only, reason, review date ≤ 24 months; audited). Without an approval those
-  checks are refused for every address. Jobs snapshot the networks active when they are created, so
-  approve first, then request the scan.
-
-## Milestone 11: exposed software and intelligence feeds
-
-The feeds (endoflife.date, CISA KEV, NVD) are public and need **no keys**; they are synced by the
-existing `*/5` Cron Trigger (`intel_endoflife`, `intel_cisa_kev`, `intel_nvd` steps in the
-`maintenance_step` logs) and appear in the app under the software views (`GET /api/v1/intel/feeds`).
-Migration `0007_software_intel` must be applied (and the app role granted privileges on
-`software_inventory`, `software_eol_cycles`, `vulnerability_advisories` and `intel_feeds`) before deploying.
-
-Optional NVD API key (raises the NVD batch from 5 to 20 CVEs per run, within NVD's 50 requests / 30 s):
-
-```bash
-cd apps/web && npx wrangler secret put NVD_API_KEY
-```
-
-Request a key at https://nvd.nist.gov/developers/request-an-api-key. Without it the Worker stays within
-the public limit (5 requests / 30 s). To force the first endoflife.date + KEV sync after a deploy, an
-admin can use the sync action (`POST /api/v1/intel/feeds/sync`); NVD then fills in over the following
-cron runs (≈ 5 CVEs per 5 minutes without a key).
-
-## Application deployment
-
-```bash
-npm run lint && npm run typecheck && npm test && npm run build
-cd apps/web && npx wrangler deploy
-```
-
-Deploying needs the owner's approval. Check afterwards that an unauthenticated
-`curl -sI https://exdomainvault.amrin78.workers.dev/api/v1/health` returns `302` to the Access login. Roll
-back with `npx wrangler rollback` (lists recent versions). A fuller runbook arrives in Milestone 11.
+| Migration                   | Deployed with | Notes                                                |
+| --------------------------- | ------------- | ---------------------------------------------------- |
+| `0000_initial_schema`       | Milestone 2   | 22 tables                                            |
+| `0001_domain_authorisation` | Milestone 3   | administrator authorisation columns                  |
+| `0002_scan_job_lifecycle`   | Milestone 4   | worker credentials, nonces, results, seeded profiles |
+| `0003_approved_networks`    | Milestone 6   | `approved_networks`                                  |
+| `0004_findings_engine`      | Milestone 7   | findings columns, evaluation marker                  |
+| `0005_finding_lifecycle`    | Milestone 8   | `finding_comments` (append-only for the app role)    |
+| `0006_asset_discovery`      | Milestone 9   | asset decisions, discovery profile                   |
+| `0007_software_intel`       | Milestone 11  | software inventory, EOL cycles, advisories, feeds    |

@@ -6,7 +6,11 @@ import { vi } from 'vitest';
 import { DataModeProvider } from '../lib/DataModeProvider.tsx';
 import { routes } from '../routes.tsx';
 
-export type Handler = (body: unknown) => { status: number; body: unknown };
+export type Handler = (body: unknown) => {
+  status: number;
+  body: unknown;
+  headers?: Record<string, string>;
+};
 export interface Call {
   method: string;
   path: string;
@@ -70,6 +74,8 @@ export function stubApi(role: Role, handlers: Record<string, Handler>): Call[] {
       permissions: PERMISSIONS[role],
       authProvider: 'cloudflare_access',
     }),
+    // The shell's alert banner polls this on every page; no alerts unless a test says otherwise.
+    'GET /api/v1/ops/alerts': ok({ alerts: [] }),
     ...handlers,
   };
   vi.stubGlobal(
@@ -80,8 +86,8 @@ export function stubApi(role: Role, handlers: Record<string, Handler>): Call[] {
       const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
       calls.push({ method, path, body });
       const handler = all[`${method} ${path}`];
-      const r = handler ? handler(body) : { status: 404, body: {} };
-      return new Response(JSON.stringify(r.body), { status: r.status });
+      const r: ReturnType<Handler> = handler ? handler(body) : { status: 404, body: {} };
+      return new Response(JSON.stringify(r.body), { status: r.status, headers: r.headers });
     }),
   );
   return calls;
@@ -141,4 +147,10 @@ export const SOFTWARE_PATHS = {
   domain: (domainId: string, query = '') => `GET /api/v1/domains/${domainId}/software${query}`,
   feeds: 'GET /api/v1/intel/feeds',
   sync: 'POST /api/v1/intel/feeds/sync',
+} as const;
+
+/** Request paths of the operations endpoints (Milestone 12). */
+export const OPS_PATHS = {
+  health: 'GET /api/v1/ops/health',
+  alerts: 'GET /api/v1/ops/alerts',
 } as const;

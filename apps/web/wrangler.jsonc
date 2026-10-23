@@ -35,6 +35,22 @@
       "id": "c43bce859dcd405c9aaca22897818529",
     },
   ],
+  // Per-user API rate limits (RATE_LIMITS in packages/shared/src/api/ops.ts; keyed by user ID in
+  // worker/middleware/rate-limit.ts). Workers Rate Limiting bindings: counted per Cloudflare
+  // location, approximate, shared across isolates. `period` may only be 10 or 60. namespace_id must
+  // be unique within the Cloudflare account. Scan quotas are exact PostgreSQL counts instead.
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "1201",
+      "simple": { "limit": 300, "period": 60 },
+    },
+    {
+      "name": "MUTATION_RATE_LIMITER",
+      "namespace_id": "1202",
+      "simple": { "limit": 60, "period": 60 },
+    },
+  ],
   "vars": {
     // Production default. Local development overrides this in .dev.vars.
     "APP_ENV": "production",

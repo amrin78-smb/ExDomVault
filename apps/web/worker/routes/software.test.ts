@@ -342,7 +342,8 @@ describe('GET /software', () => {
       'GET',
       `/domains/${w.other.domainId}/software`,
     );
-    expect(softwareListResponseSchema.parse(await owner.json()).total).toBe(0);
+    // Another tenant's domain is indistinguishable from an unknown one.
+    expect(owner.status).toBe(404);
     expect(
       (
         await userCall(

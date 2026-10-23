@@ -11,6 +11,8 @@ export interface AppBindings {
     requestId: string;
     config: AppConfig;
     logger: Logger;
+    /** Extra correlation fields for this request's `request` log line (see annotateRequest). */
+    logFields: Record<string, unknown>;
     /** Lazily opens one database connection for this request (closed after the response). */
     db: () => Promise<Database>;
     /** Set by requireAuth. */

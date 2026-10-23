@@ -9,6 +9,7 @@ import { createMiddleware } from 'hono/factory';
 import { sha256HexBytes, verifyEd25519 } from '../lib/ed25519.ts';
 import { ApiError } from '../lib/errors.ts';
 import { isUniqueViolation } from '../services/domains.ts';
+import { annotateRequest } from './request-context.ts';
 import type { AppBindings } from '../types.ts';
 
 const { workerCredentials, workerRegistry, workerRequestNonces } = schema;
@@ -119,6 +120,7 @@ export const requireWorker = (opts: { now?: () => Date } = {}) =>
       .set({ lastSeenAt: now, ...(version ? { version } : {}) })
       .where(eq(workerRegistry.id, credential.workerId));
 
+    annotateRequest(c, { workerId: credential.workerId });
     c.set('worker', {
       id: credential.workerId,
       name: credential.workerName,

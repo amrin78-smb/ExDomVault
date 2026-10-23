@@ -41,3 +41,6 @@ coverage/
 # Local browser automation output
 .playwright-mcp/
 .neon
+
+# Dependency audit tooling (npm run worker:audit)
+worker/.venv-audit/

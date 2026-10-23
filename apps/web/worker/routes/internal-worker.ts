@@ -7,9 +7,10 @@ import {
 } from '@exdomainvault/shared';
 import { connect } from '@exdomainvault/database';
 import { Hono, type Context } from 'hono';
-import type { Logger } from '../lib/logger.ts';
+import { errorFields, type Logger } from '../lib/logger.ts';
 import { parseJsonBody } from '../lib/validation.ts';
 import type { Connector } from '../middleware/database.ts';
+import { annotateRequest } from '../middleware/request-context.ts';
 import { WORKER_MAX_BODY_BYTES, requireWorker } from '../middleware/worker-auth.ts';
 import { evaluateJob } from '../services/evaluation.ts';
 import {
@@ -37,6 +38,7 @@ export function internalWorkerRoutes(deps: { now?: () => Date; connect?: Connect
       const job = await claimJob(db, worker, profiles, now(), {
         activeScanningEnabled: c.get('config').activeScanningEnabled,
       });
+      if (job) annotateRequest(c, { jobId: job.id });
       if (job)
         c.get('logger').info('job_claimed', {
           jobId: job.id,
@@ -48,6 +50,7 @@ export function internalWorkerRoutes(deps: { now?: () => Date; connect?: Connect
     })
     .post('/heartbeat', async (c) => {
       const body = await parseJsonBody(c, heartbeatRequestSchema, WORKER_MAX_BODY_BYTES);
+      annotateRequest(c, { jobId: body.jobId });
       const db = await c.get('db')();
       return c.json(
         await heartbeat(db, c.get('worker'), body, now(), {
@@ -57,6 +60,7 @@ export function internalWorkerRoutes(deps: { now?: () => Date; connect?: Connect
     })
     .post('/results', async (c) => {
       const body = await parseJsonBody(c, resultsRequestSchema, WORKER_MAX_BODY_BYTES);
+      annotateRequest(c, { jobId: body.jobId });
       const db = await c.get('db')();
       const res = await submitResultsDetailed(db, c.get('worker'), body, now(), {
         activeScanningEnabled: c.get('config').activeScanningEnabled,
@@ -74,6 +78,7 @@ export function internalWorkerRoutes(deps: { now?: () => Date; connect?: Connect
     })
     .post('/failures', async (c) => {
       const body = await parseJsonBody(c, failureRequestSchema, WORKER_MAX_BODY_BYTES);
+      annotateRequest(c, { jobId: body.jobId });
       const db = await c.get('db')();
       const res = await reportFailure(db, c.get('worker'), body, now());
       c.get('logger').warn('job_failure_reported', {
@@ -117,7 +122,7 @@ function evaluateAfterResponse(
     })().catch((err: unknown) => {
       logger.warn('rules_evaluation_deferred', {
         jobId,
-        error: err instanceof Error ? err.message : String(err),
+        ...errorFields(err),
       });
     }),
   );

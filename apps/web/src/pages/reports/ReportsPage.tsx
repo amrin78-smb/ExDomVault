@@ -18,6 +18,7 @@ import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { PermissionDenied } from '../../components/ui/PermissionDenied.tsx';
+import { ProportionBar } from '../../components/ui/ProportionBar.tsx';
 import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { StatCard } from '../../components/ui/StatCard.tsx';
@@ -176,12 +177,11 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
                   className="grid grid-cols-[6.5rem_1fr_3rem] items-center gap-3 text-sm"
                 >
                   <SeverityBadge severity={sev} />
-                  <span className="h-2 rounded-sm bg-slate-100" aria-hidden>
-                    <span
-                      className="block h-2 rounded-sm bg-slate-500"
-                      style={{ width: `${(n / sevMax) * 100}%` }}
-                    />
-                  </span>
+                  <ProportionBar
+                    percent={(n / sevMax) * 100}
+                    className="h-2 w-full rounded-sm bg-slate-100"
+                    fillClassName="fill-slate-500"
+                  />
                   <Link
                     to={`/findings?severity=${sev}`}
                     className="text-right font-medium tabular-nums text-sky-800 hover:underline"
