@@ -21,6 +21,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-23 — **Workers Standard (paid) plan** in place (owner): the 10 ms CPU limit no longer applies (default 30 s per request).
 - 2026-10-23 — **Milestone order changed (owner):** exposed-software / vulnerability monitoring (see Future enhancements) becomes Milestone 11, right after frontend integration; production hardening moves to Milestone 12 (its kickoff prompt keeps the file name `docs/prompts/11-production-hardening.md`).
 - 2026-10-23 — **Discovery runs in the Python worker**, not the Cloudflare Worker: crt.sh responses can be tens of MB (far beyond the 10 ms CPU budget) and all outbound collection stays on one host. `discovery` is a passive check (never contacts target hosts) with its own profile and job type (`discovery`), requested via `POST /domains/:id/discovery` or scheduled weekly (priority 250, ≤ 50 per cron run, staggered over 7 days by domain-id hash). It is never offered as a scan profile.
 - 2026-10-23 — **Provider abstraction, first provider crt.sh:** fixed HTTPS URL, verified TLS, no redirects, no env proxies, identifying User-Agent, ≥ 3 s between requests, 32 MB streamed cap (incremental parser keeps complete entries → `partial`), certificates kept only if valid within the last 365 days. Transient failures (timeouts, 429/5xx) → retryable job failure; malformed responses → one `error` observation for the domain (run known incomplete).
@@ -126,7 +127,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~Install the worker on this host~~ — done by the owner 2026-10-22 (`install.sh`, key registered as `home-worker-01`, service token in `worker.env`, systemd unit enabled).
 - [x] ~~Install Nmap on the scan host~~ — done 2026-10-22 (7.94).
 - [ ] **After the Milestone 9 deploy:** on the scan host, `git pull && sudo bash worker/deploy/install.sh`, add `discovery` to `EXDV_PROFILES` in `/etc/exdomainvault/worker.env` (e.g. `EXDV_PROFILES=passive,discovery,quick,standard,deep`), then `sudo systemctl restart exdomainvault-worker`. Outbound HTTPS to `crt.sh` must be allowed.
-- [ ] **Upgrade to Workers Paid** (Cloudflare dashboard → Workers & Pages → Plans) — the free plan's 10 ms CPU limit kills some requests (see Decisions, 2026-10-22).
+- [x] ~~Upgrade to Workers Paid~~ — done by the owner 2026-10-23 (Standard plan; verified: a request using 15 ms CPU completed `ok`).
 - [x] ~~Production migrated to 0005 and `finding_comments` made append-only for `exdomainvault_app`~~ — done 2026-10-22 (verified: INSERT, SELECT only).
 
 ## Future enhancements (owner requests)
@@ -153,7 +154,6 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - Discovery: crt.sh is the only provider and is often slow or erroring for large domains (retried, then failed); its live response format was not tested against the real service. Only the first 300 candidates per run are resolved. Hosting hints see only the CNAME chain (A-record-only third-party hosting is not detected). The asset detail page does not show services/TLS yet.
 - ASSET-001 creates one informational finding per pending candidate; on a large portfolio expect many (bulk-approve/reject on the Assets page resolves them).
 - **Only passive scans are scheduled.** Quick/Standard/Deep run on request (domain page or a finding's Re-check); the design's daily/weekly/monthly active schedules are not built yet (proposed next: opt-in scheduled Quick for monitored, authorised domains).
-- Workers free plan CPU limit (10 ms) causes intermittent 503s under scan load until the plan is upgraded.
 - Finding history timestamps: system entries use the scan's completion time, user entries wall-clock time, so a delayed evaluation can sort before a user change (each entry's "from" status is still correct).
 - Assignment notifications (email etc.) are not implemented; assignment is visible in the UI and filterable (`assignee=me`).
 
