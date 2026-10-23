@@ -218,7 +218,8 @@ export type RuleCatalogueEntry = z.infer<typeof ruleCatalogueEntrySchema>;
 
 /**
  * `reason` codes in status history. System: `detected`, `recurrence`, `condition_absent`,
- * `accepted_risk_expired`. User changes are `manual` with the user's text in `note`.
+ * `accepted_risk_expired`, `asset_decided` (an ASSET-001 candidate was approved, rejected or
+ * suspended in the inventory). User changes are `manual` with the user's text in `note`.
  */
 export const FINDING_HISTORY_REASONS = [
   'detected',
@@ -226,6 +227,7 @@ export const FINDING_HISTORY_REASONS = [
   'condition_absent',
   'accepted_risk_expired',
   'manual',
+  'asset_decided',
 ] as const;
 
 /** Accepted risk must be reviewed within this many days (default offered in the UI: 90). */

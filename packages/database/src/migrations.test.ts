@@ -262,6 +262,7 @@ describe('constraints', () => {
     const rows = await t.db.select().from(scanProfiles).orderBy(scanProfiles.key);
     expect(rows.map((r) => [r.key, (r.config as { active: boolean }).active])).toEqual([
       ['deep', true],
+      ['discovery', false],
       ['passive', false],
       ['quick', true],
       ['standard', true],

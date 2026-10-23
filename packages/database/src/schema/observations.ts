@@ -102,4 +102,6 @@ export const discoveryObservations = observationTable('discovery_observations', 
     .references(() => domains.id, { onDelete: 'cascade' }),
   hostname: text('hostname').notNull(),
   source: text('source').notNull(),
+  /** The name was seen only as a wildcard (`*.name`), stripped to `name`. */
+  wildcard: boolean('wildcard').notNull().default(false),
 });

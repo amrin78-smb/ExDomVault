@@ -97,6 +97,31 @@ export const registrationObservationSchema = z.strictObject({
 });
 export type RegistrationObservation = z.infer<typeof registrationObservationSchema>;
 
+/** Passive discovery sources (provider abstraction; the first is Certificate Transparency). */
+export const DISCOVERY_SOURCES = ['certificate_transparency'] as const;
+export const discoverySourceSchema = z.enum(DISCOVERY_SOURCES);
+export type DiscoverySourceKey = z.infer<typeof discoverySourceSchema>;
+
+/**
+ * One candidate hostname from a passive source, beneath the job's domain on a label boundary
+ * (re-validated by the server). Wildcards are stripped by the worker (`*.a.example.com` →
+ * `a.example.com`, `wildcard: true`). A failed or truncated provider run is reported as ONE
+ * observation with `hostname` = the domain and `resultStatus` `error`/`timeout`/`partial`, so the
+ * run is known to be incomplete (absence then proves nothing). Discovery never adds scan targets:
+ * the server stores candidates as `pending` assets.
+ *
+ * evidence (optional): `certificates` (count), `latestNotAfter`, `issuers` (≤ 5 names),
+ * `truncated` (bool), `provider` (e.g. `crt.sh`), `errorClass`.
+ */
+export const discoveryObservationSchema = z.strictObject({
+  kind: z.literal('discovery'),
+  ...observationBase,
+  hostname: hostnameSchema,
+  source: discoverySourceSchema,
+  wildcard: z.boolean().default(false),
+});
+export type DiscoveryObservation = z.infer<typeof discoveryObservationSchema>;
+
 /** IPv4/IPv6 address in canonical text form (validated as public on the server). */
 const ipAddressSchema = z.union([z.ipv4(), z.ipv6()]);
 
@@ -157,6 +182,7 @@ export const portObservationSchema = z.strictObject({
 export type PortObservation = z.infer<typeof portObservationSchema>;
 
 export const observationSchema = z.discriminatedUnion('kind', [
+  discoveryObservationSchema,
   dnsObservationSchema,
   registrationObservationSchema,
   tlsObservationSchema,

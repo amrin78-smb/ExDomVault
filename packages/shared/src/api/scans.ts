@@ -15,12 +15,16 @@ export const SCAN_CHECKS = [
   'tcp_ports',
   'service_identification',
   'tls_configuration',
+  'discovery',
 ] as const;
 export const scanCheckSchema = z.enum(SCAN_CHECKS);
 export type ScanCheck = z.infer<typeof scanCheckSchema>;
 
-/** Checks that only query public infrastructure (resolvers, RDAP) and never contact the target. */
-export const PASSIVE_CHECKS: readonly ScanCheck[] = ['dns', 'rdap'];
+/**
+ * Checks that only query public infrastructure (resolvers, RDAP, Certificate Transparency logs) and
+ * never contact the target. `discovery` finds candidate hostnames; it never adds scan targets.
+ */
+export const PASSIVE_CHECKS: readonly ScanCheck[] = ['dns', 'rdap', 'discovery'];
 
 /**
  * Browser-like checks (one TLS handshake, one HTTP request per hop, as any visitor makes). Allowed to
@@ -73,6 +77,13 @@ export type ScanProfileConfig = z.infer<typeof scanProfileConfigSchema>;
 export const SCAN_PROFILE_KEYS = ['passive', 'quick', 'standard', 'deep'] as const;
 export const scanProfileKeySchema = z.enum(SCAN_PROFILE_KEYS);
 export type ScanProfileKey = z.infer<typeof scanProfileKeySchema>;
+
+/**
+ * Passive discovery runs as its own profile and job type (`scan_jobs.job_type = 'discovery'`): it is
+ * requested with `POST /domains/:id/discovery` or scheduled weekly, never through
+ * `POST /domains/:id/scans`, and its only check is `discovery`.
+ */
+export const DISCOVERY_PROFILE_KEY = 'discovery';
 
 export const scanProfileSchema = z.object({
   key: z.string(),

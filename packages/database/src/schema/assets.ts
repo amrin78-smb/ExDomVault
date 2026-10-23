@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, inet, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  check,
+  index,
+  inet,
+  jsonb,
+  pgTable,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { createdAt, id, ts, updatedAt } from './common.ts';
 import { domains } from './domains.ts';
 import { assetApprovalStatus, assetType, criticality, discoverySource } from './enums.ts';
@@ -24,6 +34,14 @@ export const assets = pgTable(
     ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
     approvedBy: uuid('approved_by').references(() => users.id, { onDelete: 'set null' }),
     approvedAt: ts('approved_at'),
+    /** Last inventory decision (approve, reject, suspend): who, when and why (audited too). */
+    decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'set null' }),
+    decidedAt: ts('decided_at'),
+    decisionReason: text('decision_reason'),
+    /** Hosting classification from the latest DNS (`classifyHosting`), refreshed on ingestion. */
+    hostingHint: jsonb('hosting_hint').$type<Record<string, unknown>>(),
+    /** True while every sighting of the hostname came from a wildcard certificate name. */
+    wildcardOnly: boolean('wildcard_only').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
