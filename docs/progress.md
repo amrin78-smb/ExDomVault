@@ -14,7 +14,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 6   | Scanning and target safety (security gate) | done        | Gate passed; active scanning ON in prod |
 | 7   | Deterministic rules engine                 | done        | Deployed 2026-10-22 (`7dff53fc`)        |
 | 8   | Finding lifecycle                          | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
-| 9   | Passive subdomain discovery                | done        | Built; not yet deployed                 |
+| 9   | Passive subdomain discovery                | done        | Deployed 2026-10-23 (`d12f8709`)        |
 | 10  | Frontend integration                       | not started |                                         |
 | 11  | Production hardening                       | not started |                                         |
 
@@ -165,7 +165,7 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Checks:** `npm run lint` pass; `npm run typecheck` pass; `npm run db:check` pass; `npm run rules:docs:check` pass; `npm test` 52 files, 1391 tests pass; `npm run build` pass; `npm run worker:lint` pass; `npm run worker:test` 1391 pass (141 new discovery tests, all mocked — nothing contacts crt.sh, resolvers or targets).
 
-**Not yet done:** production migration (0006) and deploy (owner approval), worker upgrade on the scan host (operator action above).
+**Production (owner-approved):** migrated to 0006 (7 migrations; discovery profile seeded, asset columns present, comments grants unchanged), deployed version `d12f8709-153d-4847-8f11-bbe489747191`. Worker upgrade on the scan host pending (operator action above).
 
 **Next:** Milestone 10 — frontend integration (remaining placeholders: Reports, Settings sections), or the proposed scheduled Quick scans.
 
