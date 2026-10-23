@@ -15,7 +15,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 7   | Deterministic rules engine                  | done        | Deployed 2026-10-22 (`7dff53fc`)        |
 | 8   | Finding lifecycle                           | done        | Deployed 2026-10-22 (`9e0ed55b`)        |
 | 9   | Passive subdomain discovery                 | done        | Deployed 2026-10-23 (`d12f8709`)        |
-| 10  | Frontend integration                        | in progress |                                         |
+| 10  | Frontend integration                        | done        | Deployed 2026-10-23 (`43af2122`)        |
 | 11  | Exposed-software / vulnerability monitoring | not started | Owner decision 2026-10-23: after M10    |
 | 12  | Production hardening                        | not started | Prompt: `docs/prompts/11-*.md`          |
 
