@@ -80,6 +80,15 @@ export const dnsObservationSchema = z.strictObject({
   ttl: z.int().min(0).max(2_147_483_647).nullable(),
   /** Presentation-format record data, sorted. Empty when the name/type has no records. */
   values: z.array(z.string().max(4096)).max(100),
+  /**
+   * Milestone 13: country of each A/AAAA value from the worker's offline IP geolocation database
+   * (DB-IP Lite). Omitted for other record types, when the database is unavailable, or for
+   * addresses it does not cover. Display-only: never used for scope or severity decisions.
+   */
+  geo: z
+    .array(z.strictObject({ ip: z.string().max(45), country: z.string().regex(/^[A-Z]{2}$/) }))
+    .max(100)
+    .optional(),
 });
 export type DnsObservation = z.infer<typeof dnsObservationSchema>;
 

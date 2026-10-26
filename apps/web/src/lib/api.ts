@@ -1,4 +1,16 @@
 import {
+  attackSurfaceResponseSchema,
+  type AttackSurfaceResponse,
+  certificatesResponseSchema,
+  type CertificatesResponse,
+  dashboardResponseSchema,
+  type DashboardResponse,
+  portsResponseSchema,
+  type PortsResponse,
+  searchResponseSchema,
+  type SearchResponse,
+  vulnerabilitiesResponseSchema,
+  type VulnerabilitiesResponse,
   assetImportResponseSchema,
   type AssetImportRequest,
   type AssetImportResponse,
@@ -566,6 +578,26 @@ export const api = {
   },
 
   /** Operations (Milestone 12): system health for administrators, alerts for everyone. */
+  /** Milestone 13: overview dashboard aggregates (`range` = 7, 30 or 90 days). */
+  dashboard: (range: number, init?: RequestInit): Promise<DashboardResponse> =>
+    getJson(`/api/v1/dashboard${toQuery({ range })}`, dashboardResponseSchema, init),
+
+  /** Milestone 13: global search across domains, hosts, IPs, ports, software, CVEs and findings. */
+  search: (q: string, init?: RequestInit): Promise<SearchResponse> =>
+    getJson(`/api/v1/search${toQuery({ q })}`, searchResponseSchema, init),
+
+  /** Milestone 13: cross-domain inventory views. */
+  inventory: {
+    ports: (params: QueryParams, init?: RequestInit): Promise<PortsResponse> =>
+      getJson(`/api/v1/ports${toQuery(params)}`, portsResponseSchema, init),
+    certificates: (params: QueryParams, init?: RequestInit): Promise<CertificatesResponse> =>
+      getJson(`/api/v1/certificates${toQuery(params)}`, certificatesResponseSchema, init),
+    vulnerabilities: (params: QueryParams, init?: RequestInit): Promise<VulnerabilitiesResponse> =>
+      getJson(`/api/v1/vulnerabilities${toQuery(params)}`, vulnerabilitiesResponseSchema, init),
+    attackSurface: (init?: RequestInit): Promise<AttackSurfaceResponse> =>
+      getJson('/api/v1/attack-surface', attackSurfaceResponseSchema, init),
+  },
+
   ops: {
     health: (init?: RequestInit): Promise<OpsHealthResponse> =>
       getJson('/api/v1/ops/health', opsHealthResponseSchema, init),

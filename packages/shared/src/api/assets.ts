@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetRoleSchema } from '../domain/asset-roles.ts';
 import { paginatedSchema } from './pagination.ts';
 
 /**
@@ -52,6 +53,8 @@ export const assetSchema = z.object({
   /** Current addresses from the latest successful DNS observations (asset_ips.is_current). */
   currentIps: z.array(z.string()),
   hostingHint: hostingHintSchema.nullable(),
+  /** Milestone 13: primary role from collected evidence (`classifyAssetRole`). */
+  role: assetRoleSchema.optional(),
   /** The candidate came only from wildcard certificate names. */
   wildcardOnly: z.boolean(),
   /** Asset owner: users with the asset_owner role see only assets they own and their findings. */
