@@ -203,6 +203,8 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Checks:** lint, typecheck, db:check, rules:docs:check pass; `npm test` 94 files / 2796 tests pass; build pass; worker:test 1515 pass. The XLSX reader parsed the owner's real file: 175 rows → 115 unique hostnames (44 non-host records, 13 service names skipped).
 
+**Production (owner-approved):** deployed version `7693b910-c0db-4d8d-bea5-609b4d98491f` (no migration).
+
 **Limitations:** imported hosts get IPs/hosting data only after approval (passive DNS covers approved assets); a hosting hint relies on the file's CNAME until then.
 
 ### Milestone 12 — 2026-10-24
