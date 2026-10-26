@@ -21,14 +21,14 @@ import { assetStatusSchema, hostingHintSchema } from './assets.ts';
 
 export const ASSET_IMPORT_MAX_ENTRIES = 5000;
 
-export const assetImportEntrySchema = z.object({
+export const assetImportEntrySchema = z.strictObject({
   hostname: z.string().min(1).max(253),
   /** CNAME target from the file (absolute, trailing dot optional), used only for the hosting hint. */
   cnameTarget: z.string().min(1).max(253).optional(),
 });
 export type AssetImportEntry = z.infer<typeof assetImportEntrySchema>;
 
-export const assetImportRequestSchema = z.object({
+export const assetImportRequestSchema = z.strictObject({
   entries: z.array(assetImportEntrySchema).min(1).max(ASSET_IMPORT_MAX_ENTRIES),
   dryRun: z.boolean().default(false),
   /** Original file name, for the audit record only. */

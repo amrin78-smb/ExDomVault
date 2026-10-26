@@ -6,6 +6,7 @@ import { AssetsPage } from './pages/assets/AssetsPage.tsx';
 import { AdvisoriesPage } from './pages/advisories/AdvisoriesPage.tsx';
 import { FindingDetailPage } from './pages/findings/FindingDetailPage.tsx';
 import { FindingsPage } from './pages/findings/FindingsPage.tsx';
+import { AssetImportPage } from './pages/domains/AssetImportPage.tsx';
 import { DomainDetailPage } from './pages/domains/DomainDetailPage.tsx';
 import { DomainImportPage } from './pages/domains/DomainImportPage.tsx';
 import { DomainsPage } from './pages/domains/DomainsPage.tsx';
@@ -42,6 +43,7 @@ export const routes: RouteObject[] = [
       { path: 'domains', element: <DomainsPage /> },
       { path: 'domains/import', element: <DomainImportPage /> },
       { path: 'domains/:id', element: <DomainDetailPage /> },
+      { path: 'domains/:id/import-hosts', element: <AssetImportPage /> },
       { path: 'assets', element: <AssetsPage /> },
       { path: 'assets/:id', element: <AssetDetailPage /> },
       { path: 'software', element: <SoftwarePage /> },

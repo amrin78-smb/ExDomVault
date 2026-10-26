@@ -1,4 +1,5 @@
 import {
+  assetImportRequestSchema,
   authorisationSchema,
   bulkAuthoriseRequestSchema,
   bulkMonitoringRequestSchema,
@@ -12,6 +13,7 @@ import {
   updateDomainRequestSchema,
   assetListQuerySchema,
   softwareListQuerySchema,
+  type AssetImportResponse,
   type CreateChallengeResponse,
   type SoftwareListResponse,
   type DiscoveryRequestResponse,
@@ -30,6 +32,7 @@ import { createScan, getScan, requestDiscovery } from '../services/scans.ts';
 import { assertDomainVisible, listAssets } from '../services/assets.ts';
 import { listSoftware } from '../services/software.ts';
 import { confirmImport, previewImport } from '../services/domain-import.ts';
+import { ASSET_IMPORT_MAX_BODY_BYTES, importAssets } from '../services/asset-import.ts';
 import { ApiError } from '../lib/errors.ts';
 import {
   checkChallenge,
@@ -224,6 +227,19 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         c.get('logger').info('discovery_requested', { domainId: id, ...res });
         // 201 when a job was queued; 200 when one was already queued or running.
         return c.json(res, res.created ? 201 : 200);
+      })
+      // Host import: hostnames from a zone export / record list become pending assets (never approved).
+      .post('/:id/assets/import', requirePermission('domains:write'), async (c) => {
+        const id = uuidParam(c, 'id');
+        const body = await parseJsonBody(c, assetImportRequestSchema, ASSET_IMPORT_MAX_BODY_BYTES);
+        const db = await c.get('db')();
+        const res: AssetImportResponse = await importAssets(db, id, body, actorOf(c), now());
+        c.get('logger').info('assets_imported', {
+          domainId: id,
+          dryRun: res.dryRun,
+          ...res.summary,
+        });
+        return c.json(res, res.dryRun ? 200 : 201);
       })
       .get('/:id/assets', requirePermission('assets:read'), async (c) => {
         const id = uuidParam(c, 'id');

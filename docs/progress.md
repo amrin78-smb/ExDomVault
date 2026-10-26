@@ -21,6 +21,8 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-26 — **Host import** (owner request; CT discovery misses hosts behind wildcard certificates): `POST /domains/:id/assets/import` (`domains:write` = admin only) adds hostnames from a zone export (XLSX/CSV records, BIND zone file, or plain list) as `pending` assets, source `import`. Files are parsed in the browser (own minimal XLSX reader, no dependency; 10 MB file / 50 MB inflated / 20 000 rows caps); the server re-validates every name (syntax, exact label boundary, no `_`/`*` labels), never approves, changes existing assets, enables monitoring or queues jobs. Only A/AAAA/CNAME rows count; CNAME targets from the file feed `classifyHosting` (refreshed from live DNS once monitored; the worker still refuses out-of-scope CNAME targets). `dryRun` preview; one `asset.imported` audit row with counts. Body cap 4 MB for this route.
+
 - 2026-10-24 — **Rate limits via Workers Rate Limiting bindings** (`API_RATE_LIMITER` 300/min, `MUTATION_RATE_LIMITER` 60/min per user, after authentication): cross-isolate, no migration; approximate (per Cloudflare location) and fail-open with a `rate_limiter_unavailable` log. **Scan quotas** are exact DB counts inside `createScan` (per-user lock): 60 user-requested scans/hour/user, 24 active scans/domain/day, 6 discovery/domain/day; scheduled jobs never count.
 - 2026-10-24 — **Strict CSP** for the SPA (`apps/web/public/_headers`): no `'unsafe-inline'`; API responses `default-src 'none'`; plus Permissions-Policy, COOP/CORP, HSTS. Inline-style bars replaced by SVG attributes.
 - 2026-10-24 — **Ops:** `GET /ops/health` (admins) and `GET /ops/alerts` (all users, banner). Worker outage = no worker seen for 30 min while jobs are queued; cron logs `worker_outage_started`/`_ended` once per transition (state in `application_settings.ops_state`); alerting via Cloudflare Monitors on that log line (docs/operations.md), no email channel.
@@ -192,6 +194,16 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Host import — 2026-10-26
+
+**Why:** the owner's thaiunion.com zone export (22 Jan 2026) lists 115 host names; only 8 were known assets (CT discovery found 9 incl. two newer `claudepoc` hosts).
+
+**Files:** `packages/shared/src/api/asset-import.ts` (+ test), `apps/web/worker/services/asset-import.ts`, `routes/domains.ts`, `routes/asset-import.test.ts`, `testing/route-matrix.ts`, `validation.hardening.test.ts`; UI `src/lib/{xlsx,csv-parse,host-file}.ts` (+ tests), `pages/domains/AssetImportPage.tsx` (+ test), `components/assets/DomainAssetsCard.tsx`, `pages/assets/AssetsPage.tsx`, `routes.tsx`, `lib/api.ts`; `docs/api-specification.md`.
+
+**Checks:** lint, typecheck, db:check, rules:docs:check pass; `npm test` 94 files / 2796 tests pass; build pass; worker:test 1515 pass. The XLSX reader parsed the owner's real file: 175 rows → 115 unique hostnames (44 non-host records, 13 service names skipped).
+
+**Limitations:** imported hosts get IPs/hosting data only after approval (passive DNS covers approved assets); a hosting hint relies on the file's CNAME until then.
 
 ### Milestone 12 — 2026-10-24
 

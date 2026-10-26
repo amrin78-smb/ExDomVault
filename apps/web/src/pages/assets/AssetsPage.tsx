@@ -23,6 +23,7 @@ import {
 } from '../../components/assets/labels.ts';
 import { Pagination } from '../../components/findings/Pagination.tsx';
 import { Button } from '../../components/ui/Button.tsx';
+import { buttonClass } from '../../components/ui/button-styles.ts';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
@@ -58,6 +59,7 @@ export function AssetsPage() {
   } | null>(null);
   const canDecide = usePermission('assets:approve');
   const canReadDomains = usePermission('domains:read');
+  const canImport = usePermission('domains:write');
 
   const status = params.get('status') ?? DEFAULT_STATUS;
   const query = {
@@ -117,7 +119,16 @@ export function AssetsPage() {
       <PageHeader
         title="Assets"
         description="Hostnames beneath your registered domains. Names found by passive discovery wait here for review; only approved hostnames are ever included in scans."
-        actions={<ExportCsvButton resource="assets" filters={query} />}
+        actions={
+          <>
+            {canImport && domainId && (
+              <Link to={`/domains/${domainId}/import-hosts`} className={buttonClass('secondary')}>
+                Import hosts
+              </Link>
+            )}
+            <ExportCsvButton resource="assets" filters={query} />
+          </>
+        }
       />
 
       <Card>

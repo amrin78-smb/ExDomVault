@@ -776,6 +776,50 @@ Returns the standard page envelope `{ items, page, pageSize, total }`.
 As `GET /assets`, scoped to the domain (a `domainId` query parameter cannot widen it). `404` for an
 unknown domain, and for an asset owner who owns no asset in it.
 
+### `POST /api/v1/domains/:id/assets/import` — `domains:write`
+
+Host import. This adds hostnames the browser took from a DNS zone export, a CSV/XLSX record list or a
+plain list as **pending** assets, so hosts that discovery misses (behind wildcard certificates, or
+with no public certificate) can still be reviewed. Only admins hold `domains:write`. Contract:
+`packages/shared/src/api/asset-import.ts`.
+
+Body `assetImportRequestSchema` (strict):
+`{ "entries": [{ "hostname": string ≤ 253, "cnameTarget"?: string ≤ 253 }] (1–5000), "dryRun"?:
+boolean (default false), "fileName"?: string ≤ 255 }`. This route accepts bodies up to 4 MB; the
+default cap is 300 KB. `404 not_found` for an unknown domain or a malformed id. `400
+validation_failed` for schema errors.
+
+The server classifies every entry again and does not trust the client's extraction. Rows come back in
+input order:
+
+| Outcome         | When                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid`       | The hostname is not valid after normalisation. This covers bad syntax, a single label, an IP address, a wildcard or `*` label, a label starting with `_`, or malformed IDN. `hostname` is the input, trimmed and cut to 253 characters. Normalisation runs `normaliseDomain`; rejections that are only about registrability (`not_registrable`, public or private suffix) still count as valid hostnames. |
+| `out_of_domain` | The hostname is valid, but it is neither the domain's FQDN nor beneath it at an exact label boundary. `evil-example.com` and `example.com.evil.net` are not within `example.com`, and a parent domain is never within its subdomain.                                                                                                                                                                      |
+| `duplicate`     | The same normalised hostname appeared earlier in the request.                                                                                                                                                                                                                                                                                                                                             |
+| `existing`      | The hostname is already an asset of this domain, in any status. `existingStatus` gives that status. The asset is left untouched.                                                                                                                                                                                                                                                                          |
+| `new`           | The hostname will be added (dry run) or was added.                                                                                                                                                                                                                                                                                                                                                        |
+
+`hostingHint` comes from `classifyHosting` run over every `cnameTarget` given for the hostname
+anywhere in the request, duplicate rows included. For `existing` rows it is the asset's stored hint.
+It is `null` for `invalid` rows. `summary` = `{ total, new, existing, duplicate, invalid, outOfDomain,
+thirdPartyHosted }`, where `thirdPartyHosted` counts `new` rows that have a hint.
+
+- **`dryRun: true`** → `200`. Nothing is written and no audit record is made (this is the preview).
+- **Otherwise** → `201`, in one transaction:
+  - New rows are inserted with source `import`, status `pending`, monitoring off, type `apex` for the
+    FQDN and `subdomain` otherwise, and first/last seen set to now.
+  - The insert uses `ON CONFLICT (domain_id, hostname) DO NOTHING`, so a host inserted concurrently
+    is reported as `existing` and the import does not fail.
+  - The transaction writes one audit record: `asset.imported` (resource `domain`), with metadata
+    `{ fileName, total, new, existing, duplicate, invalid, outOfDomain, thirdPartyHosted }`. The
+    hostnames themselves are not stored in the audit record.
+
+An import never approves an asset, never changes an existing asset, never enables monitoring and
+never queues a job. Approval is still the only way into scope. The work is set-based: one select of
+existing hostnames and one insert, each chunked at 1000 rows. A re-import of the same file returns
+every in-domain row as `existing`.
+
 ### `GET /api/v1/assets/:id` — `assets:read`
 
 `{ asset, ips, discovery }`: `ips` is the address history (`ipAddress`, `firstSeenAt`, `lastSeenAt`,

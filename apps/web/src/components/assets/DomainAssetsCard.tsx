@@ -12,6 +12,7 @@ import { api } from '../../lib/api.ts';
 import { usePermission } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
 import { Button } from '../ui/Button.tsx';
+import { buttonClass } from '../ui/button-styles.ts';
 import { Card } from '../ui/Card.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 
@@ -36,6 +37,7 @@ async function loadAll(domainId: string, signal: AbortSignal) {
 export function DomainAssetsCard({ domain }: { domain: Domain }) {
   const canRead = usePermission('assets:read');
   const canRequest = usePermission('scans:request');
+  const canImport = usePermission('domains:write');
   const state = useAsync(
     (signal) =>
       canRead ? loadAll(domain.id, signal) : Promise.resolve({ items: [] as Asset[], total: 0 }),
@@ -116,12 +118,26 @@ export function DomainAssetsCard({ domain }: { domain: Domain }) {
         <div className="space-y-2 border-t border-slate-100 pt-3">
           <p className="text-xs text-slate-500">
             Discovery looks up names in public Certificate Transparency logs. It never contacts your
-            hosts, and new names wait as Pending review: nothing is scanned until approved.
+            hosts, and new names wait as Pending review: nothing is scanned until approved. Hosts
+            covered by a wildcard certificate are not found this way: import them from a DNS zone
+            export or a list instead.
           </p>
-          {canRequest && (
-            <Button onClick={runDiscovery} disabled={busy}>
-              Run discovery
-            </Button>
+          {(canRequest || canImport) && (
+            <div className="flex flex-wrap gap-2">
+              {canRequest && (
+                <Button onClick={runDiscovery} disabled={busy}>
+                  Run discovery
+                </Button>
+              )}
+              {canImport && (
+                <Link
+                  to={`/domains/${domain.id}/import-hosts`}
+                  className={buttonClass('secondary')}
+                >
+                  Import hosts
+                </Link>
+              )}
+            </div>
           )}
           <div aria-live="polite">
             {result && (

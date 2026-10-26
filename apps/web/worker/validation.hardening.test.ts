@@ -12,6 +12,7 @@ import { createTestDatabase, type TestDatabase } from '@exdomainvault/database/t
 import { ROLES, errorResponseSchema } from '@exdomainvault/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type AppDeps } from './app.ts';
+import { ASSET_IMPORT_MAX_BODY_BYTES } from './services/asset-import.ts';
 import { ROUTE_ACCESS, concrete, enumerateRoutes, expectNoLeak } from './testing/route-matrix.ts';
 import { ORIGIN, ensureUser, generateWorkerKey, signedHeaders } from './testing/harness.ts';
 
@@ -54,6 +55,11 @@ const BODY_ROUTES: Record<string, () => Record<string, unknown>> = {
   'POST /domains/:id/authorise': () => ({ reason: REASON, reviewBy: REVIEW }),
   'POST /domains/:id/revoke': () => ({ reason: REASON }),
   'POST /domains/:id/scans': () => ({ profile: 'passive' }),
+  'POST /domains/:id/assets/import': () => ({
+    entries: [{ hostname: 'www.example.com', cnameTarget: 'd1.cloudfront.net' }],
+    dryRun: true,
+    fileName: 'zone.txt',
+  }),
   'POST /assets/bulk': () => ({ ids: [uuid()], action: 'reject', reason: REASON }),
   'PATCH /assets/:id': () => ({ ownerUserId: null }),
   'POST /assets/:id/approve': () => ({ reason: REASON }),
@@ -81,6 +87,11 @@ const BODY_ROUTES: Record<string, () => Record<string, unknown>> = {
   }),
   'PATCH /users/:id': () => ({ role: 'viewer' }),
   'PUT /settings/scan-schedule': () => ({ enabled: false, profile: 'quick', intervalDays: 1 }),
+};
+
+/** Routes with a larger body cap than parseJsonBody's 300 KB default (bytes). */
+const LARGE_BODY_ROUTES: Record<string, number> = {
+  'POST /domains/:id/assets/import': ASSET_IMPORT_MAX_BODY_BYTES,
 };
 
 /** Mutating routes that take no request body (the body is ignored). */
@@ -252,8 +263,9 @@ describe.each(Object.keys(BODY_ROUTES).map((k) => [k]))('%s', (key) => {
 
   it('rejects oversized and deeply nested bodies', async () => {
     const path = concrete(pattern);
-    const big = JSON.stringify({ ...valid(), pad: 'x'.repeat(400 * 1024) });
-    await expect400(await raw(method, path, big), `${key} 400 KB body`, ['bad_request']);
+    const cap = LARGE_BODY_ROUTES[key] ?? 300 * 1024;
+    const big = JSON.stringify({ ...valid(), pad: 'x'.repeat(cap + 100 * 1024) });
+    await expect400(await raw(method, path, big), `${key} body over the cap`, ['bad_request']);
     const nested = '['.repeat(20_000) + ']'.repeat(20_000);
     await expect400(await raw(method, path, nested), `${key} nested arrays`);
     const nestedObj = '{"a":'.repeat(5_000) + '1' + '}'.repeat(5_000);
@@ -277,7 +289,7 @@ describe.each(Object.keys(BODY_ROUTES).map((k) => [k]))('%s', (key) => {
     for (const [field, value] of Object.entries(base)) {
       let oversized: unknown;
       if (typeof value === 'string') oversized = 'a'.repeat(270_000);
-      else if (Array.isArray(value)) oversized = Array.from({ length: 5_000 }, () => value[0]);
+      else if (Array.isArray(value)) oversized = Array.from({ length: 5_001 }, () => value[0]);
       else continue;
       await expect400(
         await raw(method, concrete(pattern), JSON.stringify({ ...base, [field]: oversized })),

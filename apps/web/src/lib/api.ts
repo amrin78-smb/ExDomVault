@@ -1,4 +1,7 @@
 import {
+  assetImportResponseSchema,
+  type AssetImportRequest,
+  type AssetImportResponse,
   assetBulkDecisionResponseSchema,
   assetDetailResponseSchema,
   assetListResponseSchema,
@@ -382,6 +385,12 @@ export const api = {
      */
     requestDiscovery: (id: string): Promise<DiscoveryRequestResponse> =>
       sendJson('POST', `${domainPath(id)}/discovery`, discoveryRequestResponseSchema),
+    /**
+     * Adds known hostnames (from a zone export, CSV or list) as `pending` assets. Never approves or
+     * changes an existing asset; `dryRun: true` returns the per-hostname outcome without saving.
+     */
+    importAssets: (id: string, body: AssetImportRequest): Promise<AssetImportResponse> =>
+      sendJson('POST', `${domainPath(id)}/assets/import`, assetImportResponseSchema, body),
   },
 
   /** Hostname inventory. Discovered names stay `pending` until an administrator approves them. */

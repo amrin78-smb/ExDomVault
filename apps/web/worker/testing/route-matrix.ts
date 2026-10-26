@@ -41,6 +41,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   'POST /domains/:id/revoke': user(ADMIN),
   'POST /domains/:id/scans': user(ANALYSTS),
   'POST /domains/:id/discovery': user(ANALYSTS),
+  'POST /domains/:id/assets/import': user(ADMIN),
   'GET /domains/:id/assets': user(ALL, 'asset owners see only their assets (object level)'),
   'GET /domains/:id/software': user(ALL, 'asset owners see only their assets (object level)'),
   'POST /domains/:id/verify': user(ADMIN),
