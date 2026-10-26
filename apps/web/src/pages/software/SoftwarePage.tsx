@@ -2,6 +2,7 @@ import { SOFTWARE_PRODUCTS } from '@exdomainvault/shared';
 import { PackageSearch, Search, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { TableSkeleton } from '../../components/inventory/ListBody.tsx';
 import { ScheduledScansHint } from '../../components/settings/ScheduledScansHint.tsx';
 import { Pagination } from '../../components/findings/Pagination.tsx';
 import { SoftwareExplainer } from '../../components/software/SoftwareExplainer.tsx';
@@ -171,11 +172,7 @@ export function SoftwarePage() {
               retrying={refreshing}
             />
           )}
-          {state.status === 'loading' && (
-            <p className="py-8 text-center text-sm text-fg-subtle" role="status">
-              Loading software…
-            </p>
-          )}
+          {state.status === 'loading' && <TableSkeleton label="Loading software…" columns={8} />}
           {state.status === 'error' && (
             <LoadError error={state.error} title="Could not load software" onRetry={retry} />
           )}

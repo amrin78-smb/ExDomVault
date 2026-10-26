@@ -78,6 +78,8 @@ export const assetListQuerySchema = z.object({
   /** `true` = only assets with a hosting hint; `false` = only without. */
   thirdParty: z.enum(['true', 'false']).optional(),
   q: z.string().trim().max(253).optional(),
+  /** Milestone 13: `subdomain` for the discovery view (excludes each domain's apex asset). */
+  assetType: z.enum(['apex', 'subdomain']).optional(),
   /**
    * Milestone 13: only assets with this primary role. Roles are computed from evidence at read
    * time, so the server evaluates up to `ASSET_ROLE_FILTER_LIMIT` matching assets (in sort order)

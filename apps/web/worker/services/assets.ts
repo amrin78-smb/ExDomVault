@@ -171,6 +171,7 @@ export function assetListWhere(
   if (q.domainId) filters.push(eq(assets.domainId, q.domainId));
   if (q.status) filters.push(eq(assets.verificationStatus, q.status));
   if (q.source) filters.push(eq(assets.discoverySource, q.source));
+  if (q.assetType) filters.push(eq(assets.assetType, q.assetType));
   if (q.thirdParty === 'true') filters.push(isNotNull(assets.hostingHint));
   if (q.thirdParty === 'false') filters.push(isNull(assets.hostingHint));
   if (q.q) filters.push(ilike(assets.hostname, `%${escapeLike(q.q.toLowerCase())}%`));

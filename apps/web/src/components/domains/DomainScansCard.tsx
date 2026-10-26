@@ -1,36 +1,15 @@
-import {
-  SCAN_JOB_STATUS_LABELS,
-  type Domain,
-  type ScanJob,
-  type ScanProfile,
-} from '@exdomainvault/shared';
+import { SCAN_JOB_STATUS_LABELS, type Domain, type ScanJob } from '@exdomainvault/shared';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../../lib/api.ts';
 import { formatDate, formatDateTime } from '../../lib/format.ts';
 import { usePermission } from '../../lib/session.ts';
 import { useAsync, type AsyncState } from '../../lib/use-async.ts';
-import { isScanPickerProfile, JOB_TYPE_LABELS } from '../scans/labels.ts';
+import { isScanPickerProfile, JOB_TYPE_LABELS, unavailableReason } from '../scans/labels.ts';
 import { ScanStatusBadge } from '../scans/ScanStatusBadge.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Card } from '../ui/Card.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
-
-/** Why a profile cannot be used for this domain right now, or null if it can. */
-function unavailableReason(
-  profile: ScanProfile,
-  domain: Domain,
-  activeScanningEnabled: boolean,
-): string | null {
-  if (!profile.enabled) return 'disabled';
-  if (!profile.config.active) return null;
-  if (!activeScanningEnabled) return 'active scanning not enabled yet';
-  if (domain.verificationStatus !== 'verified') return 'needs verification';
-  if (domain.verificationExpiresAt && new Date(domain.verificationExpiresAt) <= new Date()) {
-    return 'authorisation lapsed';
-  }
-  return null;
-}
 
 const jobLabel = (j: ScanJob) =>
   j.jobType === 'discovery'

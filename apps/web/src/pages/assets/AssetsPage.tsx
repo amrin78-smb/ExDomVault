@@ -1,4 +1,6 @@
 import {
+  ASSET_ROLES,
+  ASSET_ROLE_LABELS,
   ASSET_SORTS,
   ASSET_SOURCES,
   ASSET_STATUSES,
@@ -10,6 +12,7 @@ import { Search, Server, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
+  AssetRoleChip,
   AssetStatusBadge,
   HostingHintChip,
   WildcardOnlyMarker,
@@ -69,6 +72,7 @@ export function AssetsPage() {
     domainId: params.get('domainId') ?? undefined,
     source: params.get('source') ?? undefined,
     thirdParty: params.get('thirdParty') ?? undefined,
+    role: params.get('role') ?? undefined,
     q: params.get('q') ?? undefined,
     sort: params.get('sort') ?? undefined,
   };
@@ -84,7 +88,7 @@ export function AssetsPage() {
         : Promise.resolve({ items: [], page: 1, pageSize: 100, total: 0 }),
     [canReadDomains],
   );
-  const filtered = ['domainId', 'source', 'thirdParty', 'q'].some((k) => params.get(k));
+  const filtered = ['domainId', 'source', 'thirdParty', 'role', 'q'].some((k) => params.get(k));
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -217,6 +221,21 @@ export function AssetsPage() {
               <option value="">Any</option>
               <option value="true">Yes (provider detected)</option>
               <option value="false">No provider detected</option>
+            </select>
+          </label>
+          <label className="text-xs text-fg-muted">
+            <span className="mb-1 block">Role</span>
+            <select
+              className={selectClass}
+              value={params.get('role') ?? ''}
+              onChange={(e) => setParam('role', e.target.value)}
+            >
+              <option value="">Any</option>
+              {ASSET_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {ASSET_ROLE_LABELS[r]}
+                </option>
+              ))}
             </select>
           </label>
           <label className="text-xs text-fg-muted">
@@ -353,6 +372,9 @@ export function AssetsPage() {
                       Source
                     </th>
                     <th scope="col" className="py-2 pr-4">
+                      Role
+                    </th>
+                    <th scope="col" className="py-2 pr-4">
                       Hosting
                     </th>
                     <th scope="col" className="py-2 pr-4">
@@ -397,6 +419,13 @@ export function AssetsPage() {
                         <AssetStatusBadge status={a.status} />
                       </td>
                       <td className="py-2.5 pr-4 text-fg-2">{sourceLabel(a.source)}</td>
+                      <td className="py-2.5 pr-4">
+                        {a.role ? (
+                          <AssetRoleChip role={a.role} />
+                        ) : (
+                          <span className="text-fg-faint">—</span>
+                        )}
+                      </td>
                       <td className="py-2.5 pr-4">
                         {a.hostingHint ? (
                           <HostingHintChip hint={a.hostingHint} />

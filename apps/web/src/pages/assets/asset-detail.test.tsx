@@ -29,6 +29,19 @@ const buttons = (panel: HTMLElement) =>
     .map((b) => b.textContent);
 
 describe('Asset detail: display', () => {
+  it('shows the evidence-derived role chip when the API sends one', async () => {
+    await openAsset('viewer', detailOf(asset({ role: 'remote_access' })));
+    expect(screen.getByText('Remote access')).toHaveAttribute(
+      'title',
+      expect.stringMatching(/never from the name/),
+    );
+  });
+
+  it('shows no role chip without a role', async () => {
+    await openAsset('viewer');
+    expect(screen.queryByTitle(/never from the name/)).not.toBeInTheDocument();
+  });
+
   it('shows the header, IP history and discovery sightings', async () => {
     await openAsset(
       'viewer',

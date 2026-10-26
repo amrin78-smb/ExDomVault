@@ -9,6 +9,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import {
+  AssetRoleChip,
   AssetStatusBadge,
   HostingHintChip,
   WildcardOnlyMarker,
@@ -79,6 +80,7 @@ export function AssetDetailPage() {
         </h1>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-fg-muted">
           <AssetStatusBadge status={asset.status} />
+          {asset.role && <AssetRoleChip role={asset.role} />}
           {asset.hostingHint && <HostingHintChip hint={asset.hostingHint} />}
           {asset.wildcardOnly && <WildcardOnlyMarker />}
           <span>

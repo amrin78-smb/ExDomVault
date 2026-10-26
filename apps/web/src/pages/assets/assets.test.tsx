@@ -327,3 +327,28 @@ describe('Assets list: selection and bulk decisions', () => {
     expect(screen.getByLabelText(/Reason/)).toBeInTheDocument();
   });
 });
+
+describe('Assets list: roles (Milestone 13)', () => {
+  it('shows each asset role and filters by role through the URL', async () => {
+    const calls = stubList('viewer', {
+      [ASSET_PATHS.list('?status=pending')]: ok(
+        page([asset({ role: 'web' }), asset({ id: SECOND_ID, hostname: 'cdn.example.com' })]),
+      ),
+      [ASSET_PATHS.list('?status=pending&role=mail')]: ok(
+        page([asset({ hostname: 'mx.example.com', role: 'mail' })]),
+      ),
+    });
+    const router = renderAt('/assets');
+    const t = await table();
+    expect(within(t).getByRole('columnheader', { name: 'Role' })).toBeInTheDocument();
+    const rows = within(t).getAllByRole('row');
+    expect(within(rows[1]!).getByText('Web server')).toBeInTheDocument();
+    expect(within(rows[2]!).getAllByText('—')).toHaveLength(2); // no role, no hosting
+
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'mail');
+    expect(router.state.location.search).toBe('?role=mail');
+    expect(await screen.findByRole('link', { name: 'mx.example.com' })).toBeInTheDocument();
+    expect(calls.at(-1)?.path).toBe('/api/v1/assets?status=pending&role=mail');
+    expect(within(await table()).getByText('Mail server')).toBeInTheDocument();
+  });
+});

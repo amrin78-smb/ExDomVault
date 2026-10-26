@@ -4,6 +4,8 @@ import { NAV_ITEMS } from './components/layout/nav.ts';
 import { AssetDetailPage } from './pages/assets/AssetDetailPage.tsx';
 import { AssetsPage } from './pages/assets/AssetsPage.tsx';
 import { AdvisoriesPage } from './pages/advisories/AdvisoriesPage.tsx';
+import { AttackSurfacePage } from './pages/attack-surface/AttackSurfacePage.tsx';
+import { CertificatesPage } from './pages/certificates/CertificatesPage.tsx';
 import { FindingDetailPage } from './pages/findings/FindingDetailPage.tsx';
 import { FindingsPage } from './pages/findings/FindingsPage.tsx';
 import { AssetImportPage } from './pages/domains/AssetImportPage.tsx';
@@ -11,21 +13,29 @@ import { DomainDetailPage } from './pages/domains/DomainDetailPage.tsx';
 import { DomainImportPage } from './pages/domains/DomainImportPage.tsx';
 import { DomainsPage } from './pages/domains/DomainsPage.tsx';
 import { NotFoundPage } from './pages/NotFoundPage.tsx';
+import { PortsPage } from './pages/ports/PortsPage.tsx';
 import { ScanDetailPage } from './pages/scans/ScanDetailPage.tsx';
 import { ScansPage } from './pages/scans/ScansPage.tsx';
 import { SettingsPage } from './pages/settings/SettingsPage.tsx';
 import { SoftwarePage } from './pages/software/SoftwarePage.tsx';
+import { SubdomainsPage } from './pages/subdomains/SubdomainsPage.tsx';
 import { OverviewPage } from './pages/OverviewPage.tsx';
 import { PlaceholderPage } from './pages/PlaceholderPage.tsx';
 import { ReportsPage } from './pages/reports/ReportsPage.tsx';
 import { RouteErrorPage } from './pages/RouteErrorPage.tsx';
+import { VulnerabilitiesPage } from './pages/vulnerabilities/VulnerabilitiesPage.tsx';
 
 /** Sections with real pages; the rest render a placeholder naming their milestone. */
 const IMPLEMENTED = new Set([
   '/',
   '/domains',
+  '/subdomains',
   '/assets',
+  '/attack-surface',
+  '/ports',
+  '/certificates',
   '/software',
+  '/vulnerabilities',
   '/scans',
   '/findings',
   '/advisories',
@@ -44,9 +54,14 @@ export const routes: RouteObject[] = [
       { path: 'domains/import', element: <DomainImportPage /> },
       { path: 'domains/:id', element: <DomainDetailPage /> },
       { path: 'domains/:id/import-hosts', element: <AssetImportPage /> },
+      { path: 'subdomains', element: <SubdomainsPage /> },
       { path: 'assets', element: <AssetsPage /> },
       { path: 'assets/:id', element: <AssetDetailPage /> },
+      { path: 'attack-surface', element: <AttackSurfacePage /> },
+      { path: 'ports', element: <PortsPage /> },
+      { path: 'certificates', element: <CertificatesPage /> },
       { path: 'software', element: <SoftwarePage /> },
+      { path: 'vulnerabilities', element: <VulnerabilitiesPage /> },
       { path: 'scans', element: <ScansPage /> },
       { path: 'scans/:id', element: <ScanDetailPage /> },
       { path: 'findings', element: <FindingsPage /> },

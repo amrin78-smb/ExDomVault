@@ -4,14 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CATEGORY_LABELS } from '../../components/findings/labels.ts';
 import { SOFTWARE_PATHS, apiError, ok, renderAt, stubApi } from '../../testing/stub-api.tsx';
-import {
-  FINDING_ID,
-  NO_CATEGORIES,
-  detailOf,
-  domain,
-  finding,
-  page,
-} from '../findings/test-data.ts';
+import { attackSurface, dashboard } from '../overview/test-data.ts';
+import { FINDING_ID, detailOf, domain, finding, page } from '../findings/test-data.ts';
 import { DOMAIN_ID, eolPhp, hiddenSsh, softwareItem, softwarePage, summary } from './test-data.ts';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -292,23 +286,17 @@ describe('Software category label', () => {
     expect(screen.getByRole('option', { name: 'Exposed software' })).toBeInTheDocument();
   });
 
-  it('shows EOL and possibly-KEV counts on the Overview tile', async () => {
+  it('shows EOL and possibly-KEV counts on the Overview', async () => {
     stubApi('viewer', {
-      'GET /api/v1/findings/summary': ok({
-        bySeverity: { critical: 0, high: 1, medium: 0, low: 0, informational: 0 },
-        total: 1,
-        byCategory: { ...NO_CATEGORIES, software: 1 },
-      }),
-      [SOFTWARE_PATHS.summary]: ok(summary()),
+      'GET /api/v1/dashboard?range=30': ok(dashboard()),
+      'GET /api/v1/attack-surface': ok(attackSurface()),
     });
     renderAt('/');
-    const tile = within(await screen.findByRole('region', { name: 'Exposed software' }));
-    const eol = await tile.findByText('End-of-life installs');
-    expect(eol.nextElementSibling).toHaveTextContent('3');
-    expect(tile.getByText('Possibly KEV-affected').nextElementSibling).toHaveTextContent('1');
-    expect(tile.getByRole('link', { name: 'Open the software inventory' })).toHaveAttribute(
-      'href',
-      '/software',
-    );
+    const tile = within(await screen.findByTestId('stat-eolSoftware'));
+    expect(tile.getByTestId('stat-value')).toHaveTextContent('4');
+    expect(tile.getByText('1 possibly KEV-affected')).toBeInTheDocument();
+    const card = within(await screen.findByRole('region', { name: 'Exposed software (top 5)' }));
+    expect(card.getByText('3 EOL')).toBeInTheDocument();
+    expect(card.getByRole('link', { name: /View all/ })).toHaveAttribute('href', '/software');
   });
 });
