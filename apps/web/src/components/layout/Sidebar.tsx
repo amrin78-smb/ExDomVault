@@ -5,10 +5,12 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col bg-slate-900 text-slate-300">
       <div className="flex h-14 items-center gap-2.5 border-b border-slate-800 px-5">
-        <img src="/favicon.svg" alt="" className="size-7" />
+        <img src="/logo-icon.svg" alt="" className="size-9" />
         <div className="leading-tight">
-          <div className="text-sm font-semibold text-white">ExDomainVault</div>
-          <div className="text-[11px] text-slate-400">External exposure monitoring</div>
+          <div className="text-sm font-bold tracking-tight text-white">
+            ExDomain<span className="text-sky-400">Vault</span>
+          </div>
+          <div className="text-[11px] text-slate-400">External attack-surface monitoring</div>
         </div>
       </div>
       <nav aria-label="Primary" className="flex-1 overflow-y-auto px-3 py-4">

@@ -1,1 +1,125 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0f172a"/><path d="M16 5l9 3.5v6.8c0 5.6-3.8 9.9-9 11.7-5.2-1.8-9-6.1-9-11.7V8.5L16 5z" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linejoin="round"/><circle cx="16" cy="15" r="3.2" fill="#38bdf8"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 22 286 286" role="img" aria-labelledby="t">
+  <title id="t">ExDomainVault</title>
+  <defs>
+    <!-- Shield -->
+    <linearGradient id="shieldFace" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e5bff"/>
+      <stop offset="0.55" stop-color="#0b2a8f"/>
+      <stop offset="1" stop-color="#06123f"/>
+    </linearGradient>
+    <linearGradient id="shieldEdge" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5fa8ff"/>
+      <stop offset="1" stop-color="#0a2a9e"/>
+    </linearGradient>
+    <!-- Globe -->
+    <radialGradient id="globe" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#4fb4ff"/>
+      <stop offset="0.35" stop-color="#1667e6"/>
+      <stop offset="0.7" stop-color="#082272"/>
+      <stop offset="1" stop-color="#040d33"/>
+    </radialGradient>
+    <radialGradient id="land" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#7fd0ff"/>
+      <stop offset="0.6" stop-color="#2a7be0"/>
+      <stop offset="1" stop-color="#0b2f7a"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.7" stop-color="#2d8cff" stop-opacity="0"/>
+      <stop offset="0.86" stop-color="#2d8cff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#2d8cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9fe6ff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#9fe6ff" stop-opacity="0.55"/>
+    </linearGradient>
+    <radialGradient id="node" cx="0.35" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#d8f3ff"/>
+      <stop offset="0.45" stop-color="#3aa0ff"/>
+      <stop offset="1" stop-color="#0b3fbf"/>
+    </radialGradient>
+    <radialGradient id="alert" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff1e0"/>
+      <stop offset="0.3" stop-color="#ff5a3c"/>
+      <stop offset="1" stop-color="#ff2a1a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="vault" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ff"/>
+      <stop offset="0.5" stop-color="#1a8cff"/>
+      <stop offset="1" stop-color="#1446e8"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <clipPath id="globeClip"><circle cx="150" cy="168" r="100"/></clipPath>
+  </defs>
+
+  <!-- ground glow -->
+  <ellipse cx="160" cy="292" rx="95" ry="10" fill="#2d8cff" opacity="0.35" filter="url(#softShadow)"/>
+
+  <!-- shield (behind the globe, offset right) -->
+  <g>
+    <path d="M150 58 L216 36 L288 66 L288 166 C288 228 254 264 208 286 C178 272 150 244 150 204 Z" fill="url(#shieldEdge)"/>
+    <path d="M150 62 L214 42 L276 68 L276 166 C276 222 246 254 206 274 C178 262 150 238 150 204 Z" fill="url(#shieldFace)"/>
+    <path d="M214 42 L216 36 L288 66 L276 68 Z" fill="#9fd0ff" opacity="0.85"/>
+  </g>
+
+  <!-- globe -->
+  <circle cx="150" cy="168" r="114" fill="url(#halo)"/>
+  <circle cx="150" cy="168" r="100" fill="url(#globe)"/>
+  <g clip-path="url(#globeClip)">
+    <!-- radar rings -->
+    <g fill="none" stroke="#8fd8ff" stroke-opacity="0.22" stroke-width="1">
+      <circle cx="150" cy="168" r="30"/><circle cx="150" cy="168" r="55"/><circle cx="150" cy="168" r="80"/>
+      <path d="M150 68 V268 M50 168 H250"/>
+    </g>
+    <!-- continents (stylised) -->
+    <g fill="url(#land)" opacity="0.95" stroke="#9fe0ff" stroke-opacity="0.35" stroke-width="0.8">
+      <!-- North America -->
+      <path d="M58 104 L66 96 L80 92 L88 86 L100 88 L112 84 L124 88 L128 96 L120 100 L122 108 L114 112 L110 120 L114 126 L106 130 L100 128 L96 136 L90 140 L92 148 L86 152 L80 146 L74 150 L70 142 L64 136 L66 128 L60 120 L54 114 Z"/>
+      <path d="M128 78 L140 74 L146 80 L138 86 L130 86 Z"/>
+      <!-- Central + South America -->
+      <path d="M90 152 L98 154 L100 162 L108 164 L114 170 L124 174 L130 182 L128 192 L122 200 L120 212 L114 222 L110 234 L104 246 L100 244 L100 232 L96 220 L94 206 L90 194 L88 182 L92 172 L88 162 Z"/>
+      <!-- Europe -->
+      <path d="M162 98 L170 92 L178 94 L184 88 L194 90 L200 96 L196 104 L190 104 L188 112 L180 114 L176 120 L168 118 L164 112 L170 106 L162 104 Z"/>
+      <path d="M156 92 L162 88 L164 96 L158 98 Z"/>
+      <!-- Africa -->
+      <path d="M160 128 L172 124 L184 126 L192 124 L200 130 L206 140 L214 146 L212 156 L206 166 L204 178 L198 188 L196 202 L188 214 L182 226 L174 230 L170 220 L170 206 L164 194 L160 182 L156 172 L150 164 L152 150 L156 140 Z"/>
+      <path d="M216 196 L222 192 L224 204 L218 212 L214 206 Z"/>
+      <!-- Middle East / Asia edge -->
+      <path d="M204 100 L216 96 L232 100 L244 108 L250 120 L246 132 L236 136 L228 130 L222 136 L214 132 L210 122 L202 116 Z"/>
+    </g>
+    <!-- sweep wedge -->
+    <path d="M150 168 L250 120 A100 100 0 0 1 250 168 Z" fill="url(#sweep)"/>
+    <path d="M150 168 L55 205" stroke="#bff0ff" stroke-width="2" stroke-opacity="0.8"/>
+    <!-- specular highlight -->
+    <ellipse cx="118" cy="118" rx="58" ry="36" fill="#ffffff" opacity="0.12" transform="rotate(-30 118 118)"/>
+  </g>
+  <circle cx="150" cy="168" r="100" fill="none" stroke="#6cc3ff" stroke-opacity="0.6" stroke-width="1.5"/>
+
+  <!-- alert dots -->
+  <g>
+    <circle cx="90" cy="140" r="9" fill="url(#alert)"/><circle cx="90" cy="140" r="2.6" fill="#ff4d2e"/>
+    <circle cx="112" cy="118" r="9" fill="url(#alert)"/><circle cx="112" cy="118" r="2.6" fill="#ff4d2e"/>
+    <circle cx="190" cy="108" r="9" fill="url(#alert)"/><circle cx="190" cy="108" r="2.6" fill="#ff4d2e"/>
+    <circle cx="160" cy="200" r="9" fill="url(#alert)"/><circle cx="160" cy="200" r="2.6" fill="#ff4d2e"/>
+  </g>
+
+  <!-- orbit ring with nodes -->
+  <g filter="url(#glow)">
+    <ellipse cx="150" cy="168" rx="122" ry="52" fill="none" stroke="#5cc8ff" stroke-width="2.2" stroke-opacity="0.85" transform="rotate(-20 150 168)"/>
+    <path d="M70 95 C110 60 190 52 228 92" fill="none" stroke="#5cc8ff" stroke-width="1.6" stroke-opacity="0.7"/>
+  </g>
+  <g>
+    <circle cx="140" cy="52" r="8" fill="url(#node)"/>
+    <circle cx="70" cy="95" r="7.5" fill="url(#node)"/>
+    <circle cx="56" cy="210" r="7.5" fill="url(#node)"/>
+    <circle cx="122" cy="232" r="8" fill="url(#node)"/>
+    <circle cx="200" cy="152" r="7" fill="url(#node)"/>
+    <circle cx="210" cy="128" r="5.5" fill="url(#node)"/>
+  </g>
+
+</svg>

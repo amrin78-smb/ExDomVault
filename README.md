@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/exdomainvault-logo.png" alt="ExDomainVault — External attack-surface monitoring" width="600"></p>
+
 # ExDomainVault
 
 **External Domain Security & Exposure Monitoring** — evidence-backed, authorised and explainable
