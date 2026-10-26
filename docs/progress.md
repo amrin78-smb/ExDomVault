@@ -174,6 +174,8 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
   - _Explainability:_ every finding/recommendation shows "why": the observations, rule id/version, inputs to the score, and what would resolve it.
     Fits after Milestone 8; parts (change detection, correlation) can start in Milestone 7.
 
+- **Kept in view (owner, 2026-10-26; not scheduled):** suggested next milestones — (13) notifications (email/Teams/Slack webhook, digest, outage alert), remediation SLAs with due dates/overdue and MTTR reporting, scheduled executive reports; (14) per-asset change timeline, lookalike/typosquat domain monitoring (passive), subdomain-takeover fingerprint confirmation for DNS-002, deterministic domain/business-unit score; later: Jira/ServiceNow ticketing, scoped read-only API tokens for SIEM, Access group → role mapping. Email delivery needs an owner decision on a provider (e.g. Resend).
+
 ## Known limitations
 
 - Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
