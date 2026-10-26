@@ -150,7 +150,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 _Things only the owner can do (Cloudflare account, Neon project, Access app, secrets). Add exact steps as they arise._
 
-- [ ] Upgrade the worker on this host for IP geolocation (Milestone 13): `sudo bash worker/deploy/install.sh && sudo systemctl restart exdomainvault-worker`, then `journalctl -u exdomainvault-worker -o cat | grep geoip` should show `geoip_downloaded` / `geoip_loaded`.
+- [x] ~~Upgrade the worker on this host for IP geolocation (Milestone 13)~~ — done by the owner 2026-10-26 (`geoip_loaded`: 362 108 IPv4 + 348 708 IPv6 ranges). Was: `sudo bash worker/deploy/install.sh && sudo systemctl restart exdomainvault-worker`, then `journalctl -u exdomainvault-worker -o cat | grep geoip` should show `geoip_downloaded` / `geoip_loaded`.
 - [x] ~~Install Python venv support on the scan host~~ — done 2026-10-22; `npm run worker:install` / `worker:lint` / `worker:test` verified locally (18 pass).
 - [x] ~~First production deploy~~ — done 2026-10-22: production migrated, `exdomainvault_app` + grants, Hyperdrive, Access, bootstrap admin signed in (details in `docs/deployment.md`).
 - [ ] Optional: replace the shared `demo-allowlist` Access policy with a dedicated ExDomainVault policy.
@@ -158,7 +158,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [x] ~~Cloudflare Access service token + Service Auth policy for the worker~~ — done by the owner 2026-10-22.
 - [x] ~~Install the worker on this host~~ — done by the owner 2026-10-22 (`install.sh`, key registered as `home-worker-01`, service token in `worker.env`, systemd unit enabled).
 - [x] ~~Install Nmap on the scan host~~ — done 2026-10-22 (7.94).
-- [ ] **After the Milestone 9 deploy:** on the scan host, `git pull && sudo bash worker/deploy/install.sh`, add `discovery` to `EXDV_PROFILES` in `/etc/exdomainvault/worker.env` (e.g. `EXDV_PROFILES=passive,discovery,quick,standard,deep`), then `sudo systemctl restart exdomainvault-worker`. Outbound HTTPS to `crt.sh` must be allowed.
+- [x] ~~**After the Milestone 9 deploy:**~~ (done; worker reports the `discovery` profile) on the scan host, `git pull && sudo bash worker/deploy/install.sh`, add `discovery` to `EXDV_PROFILES` in `/etc/exdomainvault/worker.env` (e.g. `EXDV_PROFILES=passive,discovery,quick,standard,deep`), then `sudo systemctl restart exdomainvault-worker`. Outbound HTTPS to `crt.sh` must be allowed.
 - [x] ~~Upgrade to Workers Paid~~ — done by the owner 2026-10-23 (Standard plan; verified: a request using 15 ms CPU completed `ok`).
 - [x] ~~Production migrated to 0005 and `finding_comments` made append-only for `exdomainvault_app`~~ — done 2026-10-22 (verified: INSERT, SELECT only).
 
