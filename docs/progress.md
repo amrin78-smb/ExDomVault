@@ -195,6 +195,14 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
 
+### Collapsible pages — 2026-10-26
+
+**Why:** owner feedback that the domain page is too long. `Card` gained `collapsible` (open/closed remembered per card type in localStorage `exdv.card.<key>`), `defaultOpen` and a one-line `summary` shown while collapsed; `useCollapseAll` adds Expand all / Collapse all; `useShowAll` limits long lists. Applied to domain detail (reordered: Findings, Software, Assets first; others collapsed by default), finding, asset and scan detail, Overview, Reports and Settings → System health. Presentation only, no API changes.
+
+**Checks:** lint, typecheck, db:check, rules:docs:check pass; `npm test` 94 files / 2809 tests pass; build pass; worker:test 1515 pass.
+
+**Production (owner-approved):** deployed version `44fa5d23-4cd5-4827-a481-f969d22ae2a4`.
+
 ### Host import — 2026-10-26
 
 **Why:** the owner's thaiunion.com zone export (22 Jan 2026) lists 115 host names; only 8 were known assets (CT discovery found 9 incl. two newer `claudepoc` hosts).
