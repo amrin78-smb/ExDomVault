@@ -207,6 +207,8 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Built:** CSV exports for Open Ports, Certificates and Vulnerabilities (`/exports/{ports,certificates,vulnerabilities}.csv`, same filters/permissions/scoping as the lists, shared query builders in `services/inventory.ts`; numeric cells are no longer formula-prefixed so negative `days_left` stays a number). Route-level code splitting (react-router `lazy` per page; vendor chunks `react`, `zod`, `charts` for the browser bundle only): first load 348 kB → ~156 kB gzip; charts (116 kB) load with the overview, the map with map pages. A stale-chunk error after a deploy shows "A new version… Reload". Tests render routes through `testing/eager-routes.ts`.
 
+**Production (owner-approved):** deployed `4be4621d-1a5b-4c9a-8454-e80117d53baa` (no migration).
+
 **Checks:** lint, typecheck, db:check, rules:docs:check pass; `npm test` 110 files / 3067 tests pass (the 51 MB zip-bomb test needed a 30 s timeout on this busy host); build pass; worker:test 1581 pass.
 
 ### Milestone 13 — UI redesign and inventory views — 2026-10-26
