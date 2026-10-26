@@ -22,6 +22,8 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-10-26 — **Production database moved to the scan host (owner decision).** Neon Free compute (100 CU-hours/project/month) would run out around day 17 because cron, worker polling and ~520 jobs/day keep the compute awake (projected ~170 CU-hours). PostgreSQL 16 on this machine, reached via Hyperdrive → Workers VPC → Cloudflare Tunnel (no domain, no inbound port). Copy from one repeatable-read Neon snapshot, row counts verified for all 31 tables. Trade-offs accepted: the app depends on this machine being online; queries are slower (~0.3–1.8 s per API call vs Neon). Daily pg_dump backups (14 days). See docs/local-database.md.
+
 - 2026-10-26 — **Milestone 13 UI redesign (owner request, mockup-driven):** dark theme by default with a light toggle (`exdv.theme`, applied in `main.tsx` — CSP forbids inline scripts), semantic colour tokens in `index.css` (neutral classes codemodded; status palettes remapped under `.dark`), self-hosted Inter, Recharts for charts, d3-geo + world-atlas map (lazy chunk). New shell: top bar with Ctrl+K search, notification bell (ops alerts + open critical findings), user menu; organisation label from the `ORG_NAME` Worker secret.
 - 2026-10-26 — **Asset roles** are derived only from evidence (`classifyAssetRole`: MX/NS targets, open role ports, HTTP answered, third-party hosting), never from names; `unclassified` otherwise. Computed at query time (`services/asset-roles.ts`), not stored.
 - 2026-10-26 — **IP geolocation:** the worker downloads DB-IP Lite country CSV monthly (fixed URL, no redirects, size caps, atomic replace; ~13 MB RSS) and adds `geo` to A/AAAA DNS observations; the server stores `asset_ips.country_code` (migration 0008). Display-only, never used for scope or severity. CC BY 4.0 attribution shown wherever the data is displayed.
@@ -167,7 +169,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [ ] Enable GitHub Dependabot alerts/security updates, secret scanning and push protection (repo Settings → Code security).
 - [ ] Create the Cloudflare Monitor on `worker_outage_started` and test it once (docs/operations.md).
 - [ ] Delete the `BOOTSTRAP_ADMIN_EMAILS` Worker secret.
-- [ ] Neon backups: move to the Launch plan (7-day PITR + snapshots) or run a weekly `pg_dump` (install `postgresql-client-18`); run the restore drill in docs/backup-restore.md once.
+- [ ] Backups now local (daily `pg_dump`, docs/local-database.md): run a restore drill once into a scratch database.
 - [ ] Bump certifi to 2026.10.19 on/after 2026-11-03 (CI fails then otherwise).
 - [ ] Rotate the Access service-token secret shown in a screenshot on 2026-10-23.
 
@@ -202,6 +204,12 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Database moved to the scan host — 2026-10-26
+
+**Done:** cloudflared 2026.10.3 + tunnel service; roles/db via `scripts/local-db/setup-host.sh`; migrations 0000–0008 on PostgreSQL 16; data copied (`scripts/local-db/copy-from-neon.sh`, all tables matched) with the worker stopped; Hyperdrive `exdomainvault-local`; deployed `a88f7b82-dfdf-4378-9129-189ebb0d9e0a`; daily backups (`scripts/local-db/backup.sh`, first dump 3.5 MB). Verified: live requests and cron all `ok` against the local DB, worker heartbeats and jobs recorded locally.
+
+**Limitations:** single machine (no HA); TLS certificate not verified on the loopback hop; Neon `production` now a stale fallback.
 
 ### Inventory CSV exports and code splitting — 2026-10-26
 

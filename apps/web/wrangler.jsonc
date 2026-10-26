@@ -28,11 +28,13 @@
   "upload_source_maps": true,
   "hyperdrive": [
     {
-      // Neon PostgreSQL (production branch) via Cloudflare Hyperdrive "exdomainvault-db", connecting as
-      // the least-privilege role exdomainvault_app to Neon's direct endpoint. Local dev ignores this id
-      // and connects straight to the checked-out Neon branch (see vite.config.ts).
+      // Self-hosted PostgreSQL on the scan host (owner decision 2026-10-26, replacing Neon), via
+      // Cloudflare Hyperdrive "exdomainvault-local" → Workers VPC service "exdomainvault-postgres" →
+      // Cloudflare Tunnel "exdomainvault-db" → 127.0.0.1:5432, as the least-privilege role
+      // exdomainvault_app (docs/local-database.md). Rollback: Neon config c43bce859dcd405c9aaca22897818529.
+      // Local dev ignores this id and connects to the database in .env.local (see vite.config.ts).
       "binding": "HYPERDRIVE",
-      "id": "c43bce859dcd405c9aaca22897818529",
+      "id": "bdbcfb364f7e4eb298ed503f0719a325",
     },
   ],
   // Per-user API rate limits (RATE_LIMITS in packages/shared/src/api/ops.ts; keyed by user ID in
