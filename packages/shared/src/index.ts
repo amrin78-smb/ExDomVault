@@ -1,3 +1,4 @@
+export * from './api/asset-import.ts';
 export * from './api/assets.ts';
 export * from './api/audit.ts';
 export * from './api/domains.ts';
