@@ -27,6 +27,7 @@ import { RelativeTime } from '../../components/inventory/RelativeTime.tsx';
 import { StatusTabs } from '../../components/inventory/StatusTabs.tsx';
 import { ipPort } from '../../components/inventory/format.ts';
 import { useListParams } from '../../components/inventory/use-list-params.ts';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { ScheduledScansHint } from '../../components/settings/ScheduledScansHint.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
@@ -80,6 +81,7 @@ export function CertificatesPage() {
       <PageHeader
         title="Certificates"
         description={`TLS certificates presented by your hosts in the last 90 days: who issued them, when they expire, and whether they match the hostname and chain to a trusted root. "Expiring" means within ${CERTIFICATE_EXPIRING_DAYS} days.`}
+        actions={<ExportCsvButton resource="certificates" filters={query} />}
       />
       <Card>
         <StatusTabs

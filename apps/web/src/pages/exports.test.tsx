@@ -105,6 +105,37 @@ const CASES: PageCase[] = [
       qs({ action: 'finding.', from: '2026-10-01T00:00:00.000Z' }),
     ),
   },
+  // Milestone 13 inventory views.
+  {
+    page: 'Open Ports',
+    url: `/ports?state=closed&port=22&domainId=${DOMAIN_ID}&q=ssh&sort=ip&page=2`,
+    button: 'Export ports (CSV)',
+    permission: 'assets:read',
+    role: 'viewer',
+    expected: EXPORT_PATHS.csv(
+      'ports',
+      qs({ state: 'closed', port: '22', domainId: DOMAIN_ID, q: 'ssh', sort: 'ip' }),
+    ),
+  },
+  {
+    page: 'Certificates',
+    url: `/certificates?status=expired&domainId=${DOMAIN_ID}&q=acme&sort=hostname&page=2`,
+    button: 'Export certificates (CSV)',
+    permission: 'assets:read',
+    role: 'asset_owner',
+    expected: EXPORT_PATHS.csv(
+      'certificates',
+      qs({ status: 'expired', domainId: DOMAIN_ID, q: 'acme', sort: 'hostname' }),
+    ),
+  },
+  {
+    page: 'Vulnerabilities',
+    url: '/vulnerabilities?q=php&sort=cvss&page=2',
+    button: 'Export vulnerabilities (CSV)',
+    permission: 'findings:read',
+    role: 'viewer',
+    expected: EXPORT_PATHS.csv('vulnerabilities', '?q=php&sort=cvss'),
+  },
 ];
 
 const CSV = 'a,b\r\n1,2\r\n3,4\r\n';

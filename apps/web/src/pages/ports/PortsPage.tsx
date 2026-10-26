@@ -21,6 +21,7 @@ import {
 import { RelativeTime } from '../../components/inventory/RelativeTime.tsx';
 import { StatusTabs } from '../../components/inventory/StatusTabs.tsx';
 import { useListParams } from '../../components/inventory/use-list-params.ts';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { ScheduledScansHint } from '../../components/settings/ScheduledScansHint.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
@@ -82,6 +83,7 @@ export function PortsPage() {
       <PageHeader
         title="Open Ports"
         description="The latest state of every port probed on your approved networks, with the hostnames resolving to each address and whether the exposure policy allows it."
+        actions={<ExportCsvButton resource="ports" filters={query} />}
       />
       <div className="space-y-6">
         <InfoNote label="Where port data comes from">

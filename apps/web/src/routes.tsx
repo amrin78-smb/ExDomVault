@@ -1,29 +1,10 @@
 import type { RouteObject } from 'react-router';
 import { AppShell } from './components/layout/AppShell.tsx';
 import { NAV_ITEMS } from './components/layout/nav.ts';
-import { AssetDetailPage } from './pages/assets/AssetDetailPage.tsx';
-import { AssetsPage } from './pages/assets/AssetsPage.tsx';
-import { AdvisoriesPage } from './pages/advisories/AdvisoriesPage.tsx';
-import { AttackSurfacePage } from './pages/attack-surface/AttackSurfacePage.tsx';
-import { CertificatesPage } from './pages/certificates/CertificatesPage.tsx';
-import { FindingDetailPage } from './pages/findings/FindingDetailPage.tsx';
-import { FindingsPage } from './pages/findings/FindingsPage.tsx';
-import { AssetImportPage } from './pages/domains/AssetImportPage.tsx';
-import { DomainDetailPage } from './pages/domains/DomainDetailPage.tsx';
-import { DomainImportPage } from './pages/domains/DomainImportPage.tsx';
-import { DomainsPage } from './pages/domains/DomainsPage.tsx';
 import { NotFoundPage } from './pages/NotFoundPage.tsx';
-import { PortsPage } from './pages/ports/PortsPage.tsx';
-import { ScanDetailPage } from './pages/scans/ScanDetailPage.tsx';
-import { ScansPage } from './pages/scans/ScansPage.tsx';
-import { SettingsPage } from './pages/settings/SettingsPage.tsx';
-import { SoftwarePage } from './pages/software/SoftwarePage.tsx';
-import { SubdomainsPage } from './pages/subdomains/SubdomainsPage.tsx';
-import { OverviewPage } from './pages/OverviewPage.tsx';
 import { PlaceholderPage } from './pages/PlaceholderPage.tsx';
-import { ReportsPage } from './pages/reports/ReportsPage.tsx';
 import { RouteErrorPage } from './pages/RouteErrorPage.tsx';
-import { VulnerabilitiesPage } from './pages/vulnerabilities/VulnerabilitiesPage.tsx';
+import { PageLoading } from './components/ui/PageLoading.tsx';
 
 /** Sections with real pages; the rest render a placeholder naming their milestone. */
 const IMPLEMENTED = new Set([
@@ -43,32 +24,135 @@ const IMPLEMENTED = new Set([
   '/settings',
 ]);
 
+/*
+ * Pages are code-split: each route loads its own chunk on first visit (react-router `lazy`), so the
+ * initial download holds only the shell. Charts (Recharts) and the map ship with the pages that use
+ * them. The router keeps the current page on screen while the next chunk loads.
+ */
 export const routes: RouteObject[] = [
   {
     path: '/',
     element: <AppShell />,
     errorElement: <RouteErrorPage />,
+    hydrateFallbackElement: <PageLoading />,
     children: [
-      { index: true, element: <OverviewPage /> },
-      { path: 'domains', element: <DomainsPage /> },
-      { path: 'domains/import', element: <DomainImportPage /> },
-      { path: 'domains/:id', element: <DomainDetailPage /> },
-      { path: 'domains/:id/import-hosts', element: <AssetImportPage /> },
-      { path: 'subdomains', element: <SubdomainsPage /> },
-      { path: 'assets', element: <AssetsPage /> },
-      { path: 'assets/:id', element: <AssetDetailPage /> },
-      { path: 'attack-surface', element: <AttackSurfacePage /> },
-      { path: 'ports', element: <PortsPage /> },
-      { path: 'certificates', element: <CertificatesPage /> },
-      { path: 'software', element: <SoftwarePage /> },
-      { path: 'vulnerabilities', element: <VulnerabilitiesPage /> },
-      { path: 'scans', element: <ScansPage /> },
-      { path: 'scans/:id', element: <ScanDetailPage /> },
-      { path: 'findings', element: <FindingsPage /> },
-      { path: 'findings/:id', element: <FindingDetailPage /> },
-      { path: 'advisories', element: <AdvisoriesPage /> },
-      { path: 'reports', element: <ReportsPage /> },
-      { path: 'settings', element: <SettingsPage /> },
+      {
+        index: true,
+        lazy: () => import('./pages/OverviewPage.tsx').then((m) => ({ Component: m.OverviewPage })),
+      },
+      {
+        path: 'domains',
+        lazy: () =>
+          import('./pages/domains/DomainsPage.tsx').then((m) => ({ Component: m.DomainsPage })),
+      },
+      {
+        path: 'domains/import',
+        lazy: () =>
+          import('./pages/domains/DomainImportPage.tsx').then((m) => ({
+            Component: m.DomainImportPage,
+          })),
+      },
+      {
+        path: 'domains/:id',
+        lazy: () =>
+          import('./pages/domains/DomainDetailPage.tsx').then((m) => ({
+            Component: m.DomainDetailPage,
+          })),
+      },
+      {
+        path: 'domains/:id/import-hosts',
+        lazy: () =>
+          import('./pages/domains/AssetImportPage.tsx').then((m) => ({
+            Component: m.AssetImportPage,
+          })),
+      },
+      {
+        path: 'subdomains',
+        lazy: () =>
+          import('./pages/subdomains/SubdomainsPage.tsx').then((m) => ({
+            Component: m.SubdomainsPage,
+          })),
+      },
+      {
+        path: 'assets',
+        lazy: () =>
+          import('./pages/assets/AssetsPage.tsx').then((m) => ({ Component: m.AssetsPage })),
+      },
+      {
+        path: 'assets/:id',
+        lazy: () =>
+          import('./pages/assets/AssetDetailPage.tsx').then((m) => ({
+            Component: m.AssetDetailPage,
+          })),
+      },
+      {
+        path: 'attack-surface',
+        lazy: () =>
+          import('./pages/attack-surface/AttackSurfacePage.tsx').then((m) => ({
+            Component: m.AttackSurfacePage,
+          })),
+      },
+      {
+        path: 'ports',
+        lazy: () => import('./pages/ports/PortsPage.tsx').then((m) => ({ Component: m.PortsPage })),
+      },
+      {
+        path: 'certificates',
+        lazy: () =>
+          import('./pages/certificates/CertificatesPage.tsx').then((m) => ({
+            Component: m.CertificatesPage,
+          })),
+      },
+      {
+        path: 'software',
+        lazy: () =>
+          import('./pages/software/SoftwarePage.tsx').then((m) => ({ Component: m.SoftwarePage })),
+      },
+      {
+        path: 'vulnerabilities',
+        lazy: () =>
+          import('./pages/vulnerabilities/VulnerabilitiesPage.tsx').then((m) => ({
+            Component: m.VulnerabilitiesPage,
+          })),
+      },
+      {
+        path: 'scans',
+        lazy: () => import('./pages/scans/ScansPage.tsx').then((m) => ({ Component: m.ScansPage })),
+      },
+      {
+        path: 'scans/:id',
+        lazy: () =>
+          import('./pages/scans/ScanDetailPage.tsx').then((m) => ({ Component: m.ScanDetailPage })),
+      },
+      {
+        path: 'findings',
+        lazy: () =>
+          import('./pages/findings/FindingsPage.tsx').then((m) => ({ Component: m.FindingsPage })),
+      },
+      {
+        path: 'findings/:id',
+        lazy: () =>
+          import('./pages/findings/FindingDetailPage.tsx').then((m) => ({
+            Component: m.FindingDetailPage,
+          })),
+      },
+      {
+        path: 'advisories',
+        lazy: () =>
+          import('./pages/advisories/AdvisoriesPage.tsx').then((m) => ({
+            Component: m.AdvisoriesPage,
+          })),
+      },
+      {
+        path: 'reports',
+        lazy: () =>
+          import('./pages/reports/ReportsPage.tsx').then((m) => ({ Component: m.ReportsPage })),
+      },
+      {
+        path: 'settings',
+        lazy: () =>
+          import('./pages/settings/SettingsPage.tsx').then((m) => ({ Component: m.SettingsPage })),
+      },
       ...NAV_ITEMS.filter((item) => !IMPLEMENTED.has(item.path)).map((item) => ({
         path: item.path.slice(1),
         element: <PlaceholderPage item={item} />,

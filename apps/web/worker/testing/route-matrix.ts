@@ -104,6 +104,12 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   'GET /exports/scans.csv': user(READERS),
   'GET /exports/users.csv': user(ADMIN),
   'GET /exports/audit-logs.csv': user(ADMIN),
+  'GET /exports/ports.csv': user(ALL, 'asset owners see only their assets (object level)'),
+  'GET /exports/certificates.csv': user(ALL, 'asset owners see only their assets (object level)'),
+  'GET /exports/vulnerabilities.csv': user(
+    ALL,
+    'asset owners see only their assets (object level)',
+  ),
 
   'GET /software': user(ALL),
   'GET /software/summary': user(ALL),

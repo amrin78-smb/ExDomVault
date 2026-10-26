@@ -259,11 +259,16 @@ describe('permissions', () => {
     }
     // Every role allowed by the list may export (an empty export is still a CSV with a header).
     for (const r of EXPORT_RESOURCES) await exportCsv('admin', r);
-    for (const r of ['assets', 'advisories', 'software'] as const)
-      await exportCsv('asset_owner', r);
-    for (const r of ['domains', 'assets', 'advisories', 'software', 'scans'] as const) {
-      await exportCsv('viewer', r);
-    }
+    const ownerReadable = [
+      'assets',
+      'advisories',
+      'software',
+      'ports',
+      'certificates',
+      'vulnerabilities',
+    ] as const;
+    for (const r of ownerReadable) await exportCsv('asset_owner', r);
+    for (const r of [...ownerReadable, 'domains', 'scans'] as const) await exportCsv('viewer', r);
   });
 
   it('validates filters like the list and ignores paging', async () => {

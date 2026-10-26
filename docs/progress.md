@@ -203,6 +203,12 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
 
+### Inventory CSV exports and code splitting — 2026-10-26
+
+**Built:** CSV exports for Open Ports, Certificates and Vulnerabilities (`/exports/{ports,certificates,vulnerabilities}.csv`, same filters/permissions/scoping as the lists, shared query builders in `services/inventory.ts`; numeric cells are no longer formula-prefixed so negative `days_left` stays a number). Route-level code splitting (react-router `lazy` per page; vendor chunks `react`, `zod`, `charts` for the browser bundle only): first load 348 kB → ~156 kB gzip; charts (116 kB) load with the overview, the map with map pages. A stale-chunk error after a deploy shows "A new version… Reload". Tests render routes through `testing/eager-routes.ts`.
+
+**Checks:** lint, typecheck, db:check, rules:docs:check pass; `npm test` 110 files / 3067 tests pass (the 51 MB zip-bomb test needed a 30 s timeout on this busy host); build pass; worker:test 1581 pass.
+
 ### Milestone 13 — UI redesign and inventory views — 2026-10-26
 
 **Built (fanned out to 7 agents after committed contracts):** design system + shell; overview rebuilt from the owner's mockup (6 stat cards with deltas/sparklines, severity donut, findings trend, asset types, top remediation, latest scans, certificate expiry, region map, recently discovered assets, top software, Run scan dialog, 7/30/90-day range); new pages Subdomains, Open Ports, Certificates, Vulnerabilities, Attack Surface (world map, hosting providers, exposed services, countries); asset role column/filter/chip; endpoints `/dashboard`, `/search`, `/ports`, `/certificates`, `/vulnerabilities`, `/attack-surface`, `assetType` + `role` filters on `/assets`; migration 0008; worker DB-IP geolocation.
@@ -211,7 +217,7 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Production (owner-approved):** migrated to 0008 (recovery point 2026-10-26T05:51:00Z), `ORG_NAME` secret set, deployed `b922bd30-b684-48ca-b528-0b784012285a`. 5 min of live logs: cron and worker API all 200; one discovery job retried after a transient crt.sh failure and succeeded.
 
-**Limitations:** country data appears only after the worker is upgraded on the host and has re-scanned (daily); no CSV export for ports/certificates/vulnerabilities; `kevDueDate` not stored; the main JS bundle should be split (route-level lazy loading) later; dashboard open-finding history is approximate for reopened findings.
+**Limitations:** country data appears only after the worker is upgraded on the host and has re-scanned (daily); `kevDueDate` not stored; dashboard open-finding history is approximate for reopened findings.
 
 ### Collapsible pages — 2026-10-26
 

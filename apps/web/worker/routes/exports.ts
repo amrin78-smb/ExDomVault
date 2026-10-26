@@ -2,10 +2,13 @@ import {
   EXPORT_MAX_ROWS,
   assetListQuerySchema,
   auditListQuerySchema,
+  certificatesQuerySchema,
   domainListQuerySchema,
+  portsQuerySchema,
   scanJobListQuerySchema,
   softwareListQuerySchema,
   userListQuerySchema,
+  vulnerabilitiesQuerySchema,
   type ExportResource,
 } from '@exdomainvault/shared';
 import { Hono, type Context } from 'hono';
@@ -17,10 +20,13 @@ import {
   loadAdvisories,
   loadAssets,
   loadAuditLogs,
+  loadCertificates,
   loadDomains,
+  loadPorts,
   loadScans,
   loadSoftware,
   loadUsers,
+  loadVulnerabilities,
   runExport,
   type Loader,
 } from '../services/exports.ts';
@@ -80,40 +86,59 @@ export function exportRoutes(deps: ExportRouteDeps = {}) {
       );
     };
 
-  return new Hono<AppBindings>()
-    .get(
-      '/domains.csv',
-      requirePermission('domains:read'),
-      handler('domains', domainListQuerySchema.omit(NO_PAGING), loadDomains),
-    )
-    .get(
-      '/assets.csv',
-      requirePermission('assets:read'),
-      handler('assets', assetListQuerySchema.omit(NO_PAGING), loadAssets),
-    )
-    .get(
-      '/advisories.csv',
-      requirePermission('findings:read'),
-      handler('advisories', advisoryListQuerySchema.omit(NO_PAGING), loadAdvisories),
-    )
-    .get(
-      '/software.csv',
-      requirePermission('findings:read'),
-      handler('software', softwareListQuerySchema.omit(NO_PAGING), loadSoftware),
-    )
-    .get(
-      '/scans.csv',
-      requirePermission('scans:read'),
-      handler('scans', scanJobListQuerySchema.omit(NO_PAGING), loadScans),
-    )
-    .get(
-      '/users.csv',
-      requirePermission('users:manage'),
-      handler('users', userListQuerySchema.omit(NO_PAGING), loadUsers),
-    )
-    .get(
-      '/audit-logs.csv',
-      requirePermission('audit:read'),
-      handler('audit-logs', auditListQuerySchema.omit(NO_PAGING), loadAuditLogs),
-    );
+  return (
+    new Hono<AppBindings>()
+      .get(
+        '/domains.csv',
+        requirePermission('domains:read'),
+        handler('domains', domainListQuerySchema.omit(NO_PAGING), loadDomains),
+      )
+      .get(
+        '/assets.csv',
+        requirePermission('assets:read'),
+        handler('assets', assetListQuerySchema.omit(NO_PAGING), loadAssets),
+      )
+      .get(
+        '/advisories.csv',
+        requirePermission('findings:read'),
+        handler('advisories', advisoryListQuerySchema.omit(NO_PAGING), loadAdvisories),
+      )
+      .get(
+        '/software.csv',
+        requirePermission('findings:read'),
+        handler('software', softwareListQuerySchema.omit(NO_PAGING), loadSoftware),
+      )
+      .get(
+        '/scans.csv',
+        requirePermission('scans:read'),
+        handler('scans', scanJobListQuerySchema.omit(NO_PAGING), loadScans),
+      )
+      .get(
+        '/users.csv',
+        requirePermission('users:manage'),
+        handler('users', userListQuerySchema.omit(NO_PAGING), loadUsers),
+      )
+      .get(
+        '/audit-logs.csv',
+        requirePermission('audit:read'),
+        handler('audit-logs', auditListQuerySchema.omit(NO_PAGING), loadAuditLogs),
+      )
+      // Milestone 13 inventory views: the list's permission (GET /ports, /certificates: assets:read;
+      // GET /vulnerabilities: findings:read, like /software).
+      .get(
+        '/ports.csv',
+        requirePermission('assets:read'),
+        handler('ports', portsQuerySchema.omit(NO_PAGING), loadPorts),
+      )
+      .get(
+        '/certificates.csv',
+        requirePermission('assets:read'),
+        handler('certificates', certificatesQuerySchema.omit(NO_PAGING), loadCertificates),
+      )
+      .get(
+        '/vulnerabilities.csv',
+        requirePermission('findings:read'),
+        handler('vulnerabilities', vulnerabilitiesQuerySchema.omit(NO_PAGING), loadVulnerabilities),
+      )
+  );
 }

@@ -992,8 +992,9 @@ hostname, component, title, first_seen_at, last_seen_at, resolved_at, assignee` 
 business_owner`. At most `REPORT_CSV_MAX_ROWS` (5000) rows in the requested sort order; when more
 matched, the header `X-Truncated: true` is set.
 
-Cell encoding: any cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'` (CSV/formula
-injection), then RFC 4180 quoting applies (cells containing `"`, `,`, CR or LF are quoted, `"` doubled).
+Cell encoding: any text cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`
+(CSV/formula injection; numeric values such as a negative number are written as numbers), then RFC 4180
+quoting applies (cells containing `"`, `,`, CR or LF are quoted, `"` doubled).
 Each export is audited `report.exported` (`resourceType: report`, `resourceId: findings.csv`, metadata
 `report`, `format`, `filters`, `rows`, `truncated`) in the same transaction as the read.
 
@@ -1006,15 +1007,18 @@ schema; `page` and `pageSize` are accepted and ignored), uses the list's own WHE
 (so filters, sort order and object-level visibility are identical to the list), and requires the
 list's permission:
 
-| Resource     | Same filters and sort as | Permission      | Visibility                                  |
-| ------------ | ------------------------ | --------------- | ------------------------------------------- |
-| `domains`    | `GET /domains`           | `domains:read`  | all domains                                 |
-| `assets`     | `GET /assets`            | `assets:read`   | asset owners: only assets they own          |
-| `advisories` | `GET /advisories`        | `findings:read` | asset owners: only findings on their assets |
-| `software`   | `GET /software`          | `findings:read` | asset owners: only software on their assets |
-| `scans`      | `GET /scans`             | `scans:read`    | all jobs                                    |
-| `users`      | `GET /users`             | `users:manage`  | all users                                   |
-| `audit-logs` | `GET /audit-logs`        | `audit:read`    | all entries                                 |
+| Resource          | Same filters and sort as | Permission      | Visibility                                             |
+| ----------------- | ------------------------ | --------------- | ------------------------------------------------------ |
+| `domains`         | `GET /domains`           | `domains:read`  | all domains                                            |
+| `assets`          | `GET /assets`            | `assets:read`   | asset owners: only assets they own                     |
+| `advisories`      | `GET /advisories`        | `findings:read` | asset owners: only findings on their assets            |
+| `software`        | `GET /software`          | `findings:read` | asset owners: only software on their assets            |
+| `scans`           | `GET /scans`             | `scans:read`    | all jobs                                               |
+| `users`           | `GET /users`             | `users:manage`  | all users                                              |
+| `audit-logs`      | `GET /audit-logs`        | `audit:read`    | all entries                                            |
+| `ports`           | `GET /ports`             | `assets:read`   | asset owners: only addresses their assets resolve to   |
+| `certificates`    | `GET /certificates`      | `assets:read`   | asset owners: only certificates of their assets        |
+| `vulnerabilities` | `GET /vulnerabilities`   | `findings:read` | asset owners: only software / findings on their assets |
 
 Findings keep their existing endpoint, `GET /reports/findings.csv` (above). An invalid filter value is
 `400 validation_failed`, as on the list.
@@ -1026,7 +1030,8 @@ Findings keep their existing endpoint, `GET /reports/findings.csv` (above). An i
 - Body: UTF-8 BOM, a header row with the fixed columns (`EXPORT_COLUMNS[resource]`), one record per
   row; CRLF line endings; RFC 4180 quoting (cells containing `"`, `,`, CR or LF are quoted, `"`
   doubled).
-- Formula-injection protection: a cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`.
+- Formula-injection protection: a text cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed
+  with `'`. Numeric values (e.g. a negative `days_left`) are written as plain numbers.
 - Lists inside a cell (IP addresses, CVE IDs, recommended actions, references) are joined with `; `;
   timestamps are ISO 8601 UTC (`2026-10-23T10:00:00.000Z`); booleans are `true` / `false`; missing
   values are empty cells.
@@ -1035,15 +1040,18 @@ Findings keep their existing endpoint, `GET /reports/findings.csv` (above). An i
 
 **Columns:**
 
-| Resource     | Columns                                                                                                                                                                                                                                                                              |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `domains`    | `domain` (A-label), `unicode_name`, `verification_status`, `verification_method`, `verification_expires_at` (attestation review date), `criticality`, `business_owner`, `monitoring`, `registrar`, `registration_expires_at`, `open_findings` (non-resolved), `created_at`           |
-| `assets`     | `hostname`, `domain`, `asset_type`, `status`, `source`, `current_ips`, `hosting_provider` (hosting hint), `wildcard_only`, `owner` (email), `decided_by` (email), `decided_at`, `decision_reason`, `first_seen_at`, `last_seen_at`, `active_findings`                                |
-| `advisories` | `finding_id`, `rule_id`, `severity`, `risk_score`, `finding_status`, `domain`, `hostname`, `advisory_title`, `summary`, `business_impact`, `recommended_actions`, `references`                                                                                                       |
-| `software`   | `domain`, `hostname`, `ip_address`, `port`, `source`, `product`, `version`, `eol_cycle`, `eol_date`, `is_eol` (empty when the version has no end-of-life data), `known_exploited_cves`, `backport_distribution`, `banner`, `first_seen_at`, `last_seen_at`                           |
-| `scans`      | `scan_id`, `job_type`, `domain`, `profile`, `trigger` (`manual` / `schedule`), `status`, `requested_by` (email), `created_at`, `started_at`, `completed_at`, `duration_seconds` (completed − started, rounded), `targets`, `targets_failed`, `attempt` (attempts used), `error_code` |
-| `users`      | `email`, `display_name`, `role`, `active`, `signed_in` (identity bound by a first sign-in), `last_login_at`, `created_at`                                                                                                                                                            |
-| `audit-logs` | `created_at`, `actor_type`, `actor` (email; empty for worker/system), `action`, `resource_type`, `resource_id`, `request_id`, `metadata` (JSON)                                                                                                                                      |
+| Resource          | Columns                                                                                                                                                                                                                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `domains`         | `domain` (A-label), `unicode_name`, `verification_status`, `verification_method`, `verification_expires_at` (attestation review date), `criticality`, `business_owner`, `monitoring`, `registrar`, `registration_expires_at`, `open_findings` (non-resolved), `created_at`                               |
+| `assets`          | `hostname`, `domain`, `asset_type`, `status`, `source`, `current_ips`, `hosting_provider` (hosting hint), `wildcard_only`, `owner` (email), `decided_by` (email), `decided_at`, `decision_reason`, `first_seen_at`, `last_seen_at`, `active_findings`                                                    |
+| `advisories`      | `finding_id`, `rule_id`, `severity`, `risk_score`, `finding_status`, `domain`, `hostname`, `advisory_title`, `summary`, `business_impact`, `recommended_actions`, `references`                                                                                                                           |
+| `software`        | `domain`, `hostname`, `ip_address`, `port`, `source`, `product`, `version`, `eol_cycle`, `eol_date`, `is_eol` (empty when the version has no end-of-life data), `known_exploited_cves`, `backport_distribution`, `banner`, `first_seen_at`, `last_seen_at`                                               |
+| `scans`           | `scan_id`, `job_type`, `domain`, `profile`, `trigger` (`manual` / `schedule`), `status`, `requested_by` (email), `created_at`, `started_at`, `completed_at`, `duration_seconds` (completed − started, rounded), `targets`, `targets_failed`, `attempt` (attempts used), `error_code`                     |
+| `users`           | `email`, `display_name`, `role`, `active`, `signed_in` (identity bound by a first sign-in), `last_login_at`, `created_at`                                                                                                                                                                                |
+| `audit-logs`      | `created_at`, `actor_type`, `actor` (email; empty for worker/system), `action`, `resource_type`, `resource_id`, `request_id`, `metadata` (JSON)                                                                                                                                                          |
+| `ports`           | `ip_address`, `port`, `protocol`, `state`, `service`, `hostnames` (visible assets currently resolving to the address), `domain`, `country`, `policy_violation` (active EXP-002), `first_observed_at`, `last_observed_at`                                                                                 |
+| `certificates`    | `hostname`, `domain`, `ip_address`, `port`, `status` (primary status), `issuer`, `subject`, `subject_alt_names`, `not_before`, `not_after`, `days_left` (relative to the export time; negative when expired), `hostname_matches`, `trusted` (empty when not recorded), `protocol_version`, `observed_at` |
+| `vulnerabilities` | `cve`, `title`, `cvss` (highest, one decimal), `kev`, `known_ransomware_use`, `products` (catalogue product ids), `affected_hosts`, `affected_domains`, `open_findings` (active SOFT-002), `kev_date_added`                                                                                              |
 
 **Software:** end-of-life and known-exploited status are computed at export time exactly as
 `GET /software` computes them: the stored intelligence is loaded once for every product the export can
@@ -1051,6 +1059,13 @@ contain, then each row is matched in memory. With `status=eol` or `status=kev` t
 (version disclosed, product with intelligence) are scanned in batches of 2,500 and only matching rows
 are kept; at most 50,000 candidates are scanned (`SOFTWARE_EXPORT_SCAN_LIMIT`) — beyond that the
 export is flagged `X-Truncated: true` and `X-Total-Rows` counts the matches found in the scanned rows.
+
+**Inventory views (Milestone 13):** the export reads the list's rows through the same service
+functions (`portItems` / `certificateItems` / `vulnerabilityItems` in `services/inventory.ts`) with a
+row limit instead of a page, so rows, order and visibility match the list; `X-Total-Rows` is the
+list's `total` for the same filters (the state/status filter included). Vulnerabilities are computed
+in memory over the bounded CVE set exactly as `GET /vulnerabilities` does (`kev=false` exports an
+empty file). Possible matches only: banners can hide backported fixes.
 
 **Audit:** every export writes `report.exported` (`resourceType: report`, `resourceId:
 <resource>.csv`, metadata `{ resource, filters, rows, truncated }`, where `filters` is the parsed query

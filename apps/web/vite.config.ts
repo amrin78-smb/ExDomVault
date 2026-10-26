@@ -19,5 +19,31 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     plugins: [react(), tailwindcss(), cloudflare()],
+    environments: {
+      // Browser bundle only; the Worker bundle keeps its default output.
+      client: {
+        build: {
+          rolldownOptions: {
+            output: {
+              // Long-lived vendor chunks: they change only on dependency upgrades, so browsers keep them
+              // cached across app deploys. Pages are split per route in src/routes.tsx.
+              advancedChunks: {
+                groups: [
+                  {
+                    name: 'react',
+                    test: /node_modules[\\/](react|react-dom|react-router|scheduler)[\\/]/,
+                  },
+                  { name: 'zod', test: /node_modules[\\/]zod[\\/]/ },
+                  {
+                    name: 'charts',
+                    test: /node_modules[\\/](recharts|d3-[a-z-]+|victory-vendor|@reduxjs|immer|reselect|redux)[\\/]/,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
   };
 });

@@ -16,6 +16,9 @@ describe('csvCell', () => {
     expect(csvCell(true)).toBe('true');
     expect(csvCell(false)).toBe('false');
     expect(csvCell(0)).toBe('0');
+    // Numbers cannot carry a formula: negatives stay numeric (strings are still neutralised).
+    expect(csvCell(-2)).toBe('-2');
+    expect(csvCell(-0.5)).toBe('-0.5');
     expect(csvCell(new Date('2026-10-23T10:00:00Z'))).toBe('2026-10-23T10:00:00.000Z');
     expect(csvCell([])).toBe('');
     expect(csvCell(['192.0.2.1', '2001:db8::1'])).toBe('192.0.2.1; 2001:db8::1');

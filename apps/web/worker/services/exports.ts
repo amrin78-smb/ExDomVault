@@ -17,6 +17,16 @@ import { AUDIT_ORDER, auditListWhere } from './audit-log.ts';
 import { writeAudit } from './audit.ts';
 import { domainListOrder, domainListWhere, toDomainDto, type Actor } from './domains.ts';
 import { ADVISORY_ORDER, advisoryListWhere } from './findings.ts';
+import {
+  certificateItems,
+  countCertificates,
+  countPorts,
+  portItems,
+  vulnerabilityItems,
+  type CertificatesFilter,
+  type PortsFilter,
+  type VulnerabilitiesFilter,
+} from './inventory.ts';
 import { baseJobQuery, SCAN_ORDER, scanListWhere, targetCounts } from './scans.ts';
 import {
   matchesStatus,
@@ -450,5 +460,84 @@ export const loadAuditLogs: Loader<Omit<AuditListQuery, Paging>> = async (
       JSON.stringify(a.metadata),
     ]),
     total: () => countOf(tx.select({ n: count() }).from(auditLogs).where(where)),
+  };
+};
+
+// --- Inventory views (Milestone 13) -------------------------------------------------------------
+
+/** Ports: the rows GET /ports would page through (same CTEs, visibility and order). */
+export const loadPorts: Loader<PortsFilter> = async (tx, user, q, _now, limit) => {
+  const items = await portItems(tx, user, q, { limit, offset: 0 });
+  return {
+    rows: items.map((p) => [
+      p.ipAddress,
+      p.port,
+      p.protocol,
+      p.state,
+      p.service,
+      p.hostnames.map((h) => h.hostname),
+      p.domain?.fqdn ?? null,
+      p.country,
+      p.policyViolation,
+      p.firstObservedAt,
+      p.lastObservedAt,
+    ]),
+    total: () => countPorts(tx, user, q),
+  };
+};
+
+/** Certificates: the rows GET /certificates would page through; `days_left` relative to `now`. */
+export const loadCertificates: Loader<CertificatesFilter> = async (tx, user, q, now, limit) => {
+  const items = await certificateItems(tx, user, q, now, { limit, offset: 0 });
+  return {
+    rows: items.map((c) => [
+      c.hostname,
+      c.domain.fqdn,
+      c.ipAddress,
+      c.port,
+      c.status,
+      c.issuer,
+      c.subject,
+      c.subjectAltNames,
+      c.notBefore,
+      c.notAfter,
+      c.daysLeft,
+      c.hostnameMatches,
+      c.trusted,
+      c.protocolVersion,
+      c.observedAt,
+    ]),
+    total: () => countCertificates(tx, user, q, now),
+  };
+};
+
+/**
+ * Vulnerabilities: GET /vulnerabilities computes the whole (bounded) CVE set in memory, so the
+ * export takes its first `limit` rows and the total is known.
+ */
+export const loadVulnerabilities: Loader<VulnerabilitiesFilter> = async (
+  tx,
+  user,
+  q,
+  _now,
+  limit,
+) => {
+  const items = await vulnerabilityItems(tx, user, q);
+  return {
+    rows: items
+      .slice(0, limit)
+      .map((v) => [
+        v.cve,
+        v.title,
+        v.cvss === null ? null : Math.round(v.cvss * 10) / 10,
+        v.kev,
+        v.knownRansomwareUse,
+        v.products.map((p) => p.product),
+        v.affectedHosts,
+        v.affectedDomains,
+        v.openFindings,
+        v.kevDateAdded,
+      ]),
+    total: items.length,
   };
 };

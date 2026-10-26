@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DataModeProvider } from './lib/DataModeProvider.tsx';
-import { routes } from './routes.tsx';
+import { routes } from './testing/eager-routes.ts';
 
 const meBody = {
   user: {

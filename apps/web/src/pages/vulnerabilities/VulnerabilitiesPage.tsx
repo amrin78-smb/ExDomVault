@@ -13,6 +13,7 @@ import {
   theadRowClass,
 } from '../../components/inventory/ListBody.tsx';
 import { useListParams } from '../../components/inventory/use-list-params.ts';
+import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
 import { api } from '../../lib/api.ts';
@@ -45,6 +46,7 @@ export function VulnerabilitiesPage() {
       <PageHeader
         title="Vulnerabilities"
         description="CVEs in CISA's Known Exploited Vulnerabilities catalogue whose affected version ranges include a software version your hosts report."
+        actions={<ExportCsvButton resource="vulnerabilities" filters={query} />}
       />
       <div className="space-y-6">
         <InfoNote label="How to read these matches" tone="caution">

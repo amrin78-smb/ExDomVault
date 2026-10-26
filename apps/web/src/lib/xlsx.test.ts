@@ -246,7 +246,8 @@ describe('readXlsxRows', () => {
     ]);
     expect(zip.byteLength).toBeLessThan(1024 * 1024);
     await expect(readXlsxRows(zip)).rejects.toThrow(/more than 50 MB/);
-  });
+    // Compressing and inflating 51 MB through jsdom's streams takes several seconds on a busy host.
+  }, 30_000);
 
   it(`refuses worksheets with more than ${XLSX_MAX_ROWS} rows`, async () => {
     const zip = await buildZip([

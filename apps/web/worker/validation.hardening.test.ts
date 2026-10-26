@@ -156,6 +156,9 @@ const QUERY_ROUTES: Record<string, string[]> = {
   'GET /exports/scans.csv': ['status=bogus', 'domainId=1', `profile=${'p'.repeat(41)}`],
   'GET /exports/users.csv': ['role=root', 'active=yes', `q=${'a'.repeat(300)}`],
   'GET /exports/audit-logs.csv': ['action=DROP TABLE', `resourceId=${'a'.repeat(201)}`],
+  'GET /exports/ports.csv': ['state=bogus', 'port=0', 'port=65536', 'domainId=x', 'sort=evil'],
+  'GET /exports/certificates.csv': ['status=bogus', 'domainId=x', `q=${'a'.repeat(101)}`],
+  'GET /exports/vulnerabilities.csv': ['kev=yes', 'sort=evil', `q=${'a'.repeat(101)}`],
 };
 
 const ROUTES = enumerateRoutes();

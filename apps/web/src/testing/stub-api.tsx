@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router';
 import { vi } from 'vitest';
 import { DataModeProvider } from '../lib/DataModeProvider.tsx';
-import { routes } from '../routes.tsx';
+import { routes } from './eager-routes.ts';
 
 export type Handler = (body: unknown) => {
   status: number;

@@ -23,10 +23,15 @@ function cellText(value: CsvValue): string {
   return String(value);
 }
 
-/** One CSV cell: formula-like values are prefixed with `'`, then RFC 4180 quoting applies. */
+/**
+ * One CSV cell: formula-like values are prefixed with `'`, then RFC 4180 quoting applies. Finite
+ * numbers are written as-is (a negative number such as `days_left = -2` is data, not a formula,
+ * and stays numeric in a spreadsheet); strings, including numeric-looking ones, are always checked.
+ */
 export function csvCell(value: CsvValue): string {
   let s = cellText(value);
-  if (FORMULA_START.test(s)) s = `'${s}`;
+  const numeric = typeof value === 'number' && Number.isFinite(value);
+  if (!numeric && FORMULA_START.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

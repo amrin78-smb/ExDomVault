@@ -5,7 +5,7 @@ import { RouterProvider, createMemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDomainCards } from '../../testing/domain-cards.ts';
 import { DataModeProvider } from '../../lib/DataModeProvider.tsx';
-import { routes } from '../../routes.tsx';
+import { routes } from '../../testing/eager-routes.ts';
 
 const DOMAIN_ID = '0b8e3f9a-4c1d-4e5f-8a7b-1c2d3e4f5a6b';
 

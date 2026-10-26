@@ -19,6 +19,9 @@ const EXPORT_PERMISSION: Record<CsvExportTarget, Permission> = {
   scans: 'scans:read',
   users: 'users:manage',
   'audit-logs': 'audit:read',
+  ports: 'assets:read',
+  certificates: 'assets:read',
+  vulnerabilities: 'findings:read',
 };
 
 const EXPORT_NOUN: Record<CsvExportTarget, string> = {
@@ -30,6 +33,9 @@ const EXPORT_NOUN: Record<CsvExportTarget, string> = {
   scans: 'scans',
   users: 'users',
   'audit-logs': 'audit log',
+  ports: 'ports',
+  certificates: 'certificates',
+  vulnerabilities: 'vulnerabilities',
 };
 
 /** Paging never applies to an export: the server ignores it, and the client never sends it. */

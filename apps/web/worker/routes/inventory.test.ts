@@ -6,24 +6,33 @@ import { createTestDatabase, type TestDatabase } from '@exdomainvault/database/t
 import {
   ASSET_ROLES,
   DBIP_ATTRIBUTION,
+  EXPORT_COLUMNS,
   assetDetailResponseSchema,
   assetListResponseSchema,
   attackSurfaceResponseSchema,
   certificatesResponseSchema,
   portsResponseSchema,
   vulnerabilitiesResponseSchema,
+  type ExportResource,
   type Role,
 } from '@exdomainvault/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseCsv } from '../lib/csv.ts';
 import { firstRow } from '../lib/db.ts';
 import { seedDomain, seedJob, type Seed } from '../testing/findings-fixtures.ts';
-import { ensureUser, harness, userCall } from '../testing/harness.ts';
+import { ensureUser, harness, userCall, type Harness } from '../testing/harness.ts';
 
 let t: TestDatabase;
 const clock = new Date('2026-10-23T10:00:00.000Z');
 const h = harness(
   () => t,
   () => clock,
+);
+/** Same app with a CSV export row cap of 2, to exercise truncation cheaply. */
+const small = harness(
+  () => t,
+  () => clock,
+  { exports: { maxRows: 2 } },
 );
 
 beforeAll(async () => {
@@ -42,6 +51,7 @@ beforeEach(async () => {
   await t.db.delete(schema.domains);
   await t.db.delete(schema.intelFeeds);
   await t.db.delete(schema.vulnerabilityAdvisories);
+  await t.db.delete(schema.auditLogs);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -55,6 +65,28 @@ const get = async (role: Role, path: string) => {
   expect(res.status, path).toBe(200);
   return res.json();
 };
+
+/**
+ * GET /exports/<resource>.csv for the inventory views (the encoding invariants — BOM, CRLF,
+ * filename — are covered for every resource in exports.test.ts); returns the decoded rows.
+ */
+async function exportCsv(role: Role, resource: ExportResource, query = '', app: Harness = h) {
+  const res = await userCall(app, t, role, 'GET', `/exports/${resource}.csv${query}`);
+  expect(res.status, `${resource}${query}`).toBe(200);
+  expect(res.headers.get('Content-Disposition')).toBe(
+    `attachment; filename="exdomainvault-${resource}-20261023.csv"`,
+  );
+  const records = parseCsv(await res.text(), 100_000).map((r) => r.fields);
+  const header = records[0]!;
+  expect(header).toEqual([...EXPORT_COLUMNS[resource]]);
+  return {
+    res,
+    rows: records.slice(1).map((r) => Object.fromEntries(header.map((c, i) => [c, r[i]!]))),
+  };
+}
+
+const exportAudits = async () =>
+  (await t.db.select().from(schema.auditLogs)).filter((a) => a.action === 'report.exported');
 
 async function addAsset(
   s: Seed,
@@ -263,6 +295,82 @@ describe('GET /ports', () => {
       mine.items.every((i) => i.hostnames.every((x) => x.hostname === 'www.example.com')),
     ).toBe(true);
   });
+  it('exports the same rows as CSV, with the list filters, visibility and an audit record', async () => {
+    const w = await world();
+    const { res, rows } = await exportCsv('viewer', 'ports', '?page=2&pageSize=1');
+    expect(res.headers.get('X-Truncated')).toBeNull();
+    expect(res.headers.get('X-Total-Rows')).toBe('3');
+    expect(rows.map((r) => `${r.ip_address}:${r.port}`)).toEqual([
+      '198.51.100.20:22',
+      '203.0.113.10:22',
+      '198.51.100.20:80',
+    ]);
+    expect(rows[1]).toEqual({
+      ip_address: '203.0.113.10',
+      port: '22',
+      protocol: 'tcp',
+      state: 'open',
+      service: 'ssh',
+      hostnames: 'www.example.com',
+      domain: 'example.com',
+      country: 'NL',
+      policy_violation: 'true',
+      first_observed_at: at(1).toISOString(),
+      last_observed_at: at(2).toISOString(),
+    });
+    expect(rows[0]).toMatchObject({ country: 'US', policy_violation: 'false' });
+    const viewerId = await ensureUser(t, 'viewer');
+    const [audit] = await exportAudits();
+    expect(audit).toMatchObject({
+      actorUserId: viewerId,
+      resourceType: 'report',
+      resourceId: 'ports.csv',
+      metadata: {
+        resource: 'ports',
+        filters: { state: 'open', sort: 'port' },
+        rows: 3,
+        truncated: false,
+      },
+    });
+
+    const all = await exportCsv('analyst', 'ports', '?state=all&sort=ip');
+    expect(all.rows).toHaveLength(5);
+    expect(all.rows[3]).toMatchObject({ port: '443', state: 'filtered', service: '' });
+    expect((await exportCsv('analyst', 'ports', '?state=closed')).rows).toHaveLength(1);
+    expect((await exportCsv('analyst', 'ports', '?port=22')).rows).toHaveLength(2);
+    const org = await exportCsv('analyst', 'ports', `?domainId=${w.other.domainId}`);
+    expect(org.rows.map((r) => r.hostnames)).toEqual(['www.example.org', 'www.example.org']);
+
+    const mine = await exportCsv('asset_owner', 'ports', '?state=all');
+    expect(mine.rows.map((r) => `${r.ip_address}:${r.port}`)).toEqual([
+      '203.0.113.10:22',
+      '203.0.113.10:443',
+      '203.0.113.10:3306',
+    ]);
+    // A filter naming another tenant's domain cannot widen visibility.
+    const foreign = await exportCsv('asset_owner', 'ports', `?domainId=${w.other.domainId}`);
+    expect(foreign.rows).toEqual([]);
+    expect((await userCall(h, t, 'viewer', 'GET', '/exports/ports.csv?state=bogus')).status).toBe(
+      400,
+    );
+  });
+
+  it('neutralises formula-like service names and truncates at the cap', async () => {
+    const w = await world();
+    const job = await seedJob(t, w.owned.domainId, at(3), []);
+    await addPorts(job, at(3), [
+      { ip: '203.0.113.10', port: 8080, state: 'open', service: '=HYPERLINK("x")' },
+    ]);
+    const { rows } = await exportCsv('viewer', 'ports', '?port=8080');
+    expect(rows[0]!.service).toBe(`'=HYPERLINK("x")`);
+
+    const capped = await exportCsv('admin', 'ports', '?state=all', small);
+    expect(capped.res.headers.get('X-Truncated')).toBe('true');
+    expect(capped.res.headers.get('X-Total-Rows')).toBe('6');
+    expect(capped.rows.map((r) => r.port)).toEqual(['22', '22']);
+    const audits = await exportAudits();
+    expect(audits.at(-1)!.metadata).toMatchObject({ resource: 'ports', rows: 2, truncated: true });
+  });
 });
 
 // --- GET /certificates --------------------------------------------------------------------------
@@ -400,6 +508,78 @@ describe('GET /certificates', () => {
     const mine = await certs('asset_owner');
     expect(mine.items.map((i) => i.hostname)).toEqual(['www.example.com']);
     expect(mine.counts).toEqual({ expired: 0, expiring: 1, valid: 0, mismatch: 0, untrusted: 0 });
+  });
+  it('exports the same rows as CSV, with the list filters, visibility and an audit record', async () => {
+    const w = await certWorld();
+    const { res, rows } = await exportCsv('viewer', 'certificates', '?pageSize=1');
+    expect(res.headers.get('X-Total-Rows')).toBe('6');
+    expect(rows.map((r) => [`${r.hostname}:${r.port}`, r.status, r.days_left])).toEqual([
+      ['www.example.org:443', 'expired', '-2'],
+      ['api.example.com:443', 'expired', '-1'],
+      ['www.example.com:443', 'expiring', '10'],
+      ['www.example.org:8443', 'mismatch', '60'],
+      ['mail.example.org:443', 'untrusted', '90'],
+      ['ok.example.org:443', 'valid', '200'],
+    ]);
+    expect(rows[2]).toEqual({
+      hostname: 'www.example.com',
+      domain: 'example.com',
+      ip_address: '203.0.113.10',
+      port: '443',
+      status: 'expiring',
+      issuer: 'Special Issuer',
+      subject: 'CN=www.example.com',
+      subject_alt_names: 'www.example.com',
+      not_before: days(-300).toISOString(),
+      not_after: days(10).toISOString(),
+      days_left: '10',
+      hostname_matches: 'true',
+      trusted: 'true',
+      protocol_version: 'TLSv1.3',
+      observed_at: at(2).toISOString(),
+    });
+    expect(rows[1]).toMatchObject({ trusted: '' });
+    expect(rows[5]).toMatchObject({ hostname_matches: '' });
+    const [audit] = await exportAudits();
+    expect(audit).toMatchObject({
+      resourceId: 'certificates.csv',
+      metadata: {
+        resource: 'certificates',
+        filters: { sort: 'expiry' },
+        rows: 6,
+        truncated: false,
+      },
+    });
+
+    expect((await exportCsv('analyst', 'certificates', '?status=expired')).rows).toHaveLength(2);
+    const owned = await exportCsv('analyst', 'certificates', `?domainId=${w.owned.domainId}`);
+    expect(owned.rows.map((r) => r.hostname)).toEqual(['api.example.com', 'www.example.com']);
+    const byName = await exportCsv('analyst', 'certificates', '?sort=hostname&q=example.org');
+    expect(byName.rows.map((r) => `${r.hostname}:${r.port}`)).toEqual([
+      'mail.example.org:443',
+      'ok.example.org:443',
+      'www.example.org:443',
+      'www.example.org:8443',
+    ]);
+    const mine = await exportCsv('asset_owner', 'certificates');
+    expect(mine.rows.map((r) => r.hostname)).toEqual(['www.example.com']);
+  });
+
+  it('neutralises formula-like issuers and truncates at the cap', async () => {
+    const w = await certWorld();
+    const job = await seedJob(t, w.other.domainId, at(1), []);
+    await addTls(job, [{ hostname: 'x.example.org', notAfter: days(300), issuer: '+SUM(1,2)' }]);
+    const { rows } = await exportCsv('viewer', 'certificates', '?q=x.example.org');
+    expect(rows.map((r) => r.issuer)).toEqual(["'+SUM(1,2)"]);
+
+    const capped = await exportCsv('admin', 'certificates', '', small);
+    expect(capped.res.headers.get('X-Truncated')).toBe('true');
+    expect(capped.res.headers.get('X-Total-Rows')).toBe('7');
+    expect(capped.rows.map((r) => r.hostname)).toEqual(['www.example.org', 'api.example.com']);
+    // Exactly at the cap: not truncated.
+    const exact = await exportCsv('admin', 'certificates', '?status=expired', small);
+    expect(exact.res.headers.get('X-Truncated')).toBeNull();
+    expect(exact.res.headers.get('X-Total-Rows')).toBe('2');
   });
 });
 
@@ -547,6 +727,90 @@ describe('GET /vulnerabilities', () => {
   it('is empty without intelligence', async () => {
     await world();
     expect(await vulns('viewer')).toEqual({ items: [], page: 1, pageSize: 25, total: 0 });
+  });
+  it('exports the same rows as CSV, with the list filters, visibility and an audit record', async () => {
+    await vulnWorld();
+    const { res, rows } = await exportCsv('viewer', 'vulnerabilities', '?pageSize=1&page=2');
+    expect(res.headers.get('X-Total-Rows')).toBe('2');
+    expect(rows).toEqual([
+      {
+        cve: 'CVE-2019-11043',
+        title: 'PHP FPM buffer underflow',
+        cvss: '9.8',
+        kev: 'true',
+        known_ransomware_use: 'true',
+        products: 'php',
+        affected_hosts: '2',
+        affected_domains: '2',
+        open_findings: '2',
+        kev_date_added: '2022-03-25',
+      },
+      {
+        cve: 'CVE-2021-23017',
+        title: 'nginx resolver off-by-one',
+        cvss: '7.7',
+        kev: 'true',
+        known_ransomware_use: 'false',
+        products: 'nginx',
+        affected_hosts: '1',
+        affected_domains: '1',
+        open_findings: '0',
+        kev_date_added: '',
+      },
+    ]);
+    const [audit] = await exportAudits();
+    expect(audit).toMatchObject({
+      resourceId: 'vulnerabilities.csv',
+      metadata: {
+        resource: 'vulnerabilities',
+        filters: { sort: 'hosts' },
+        rows: 2,
+        truncated: false,
+      },
+    });
+
+    const nginx = await exportCsv('analyst', 'vulnerabilities', '?q=nginx');
+    expect(nginx.rows.map((r) => r.cve)).toEqual(['CVE-2021-23017']);
+    const byCve = await exportCsv('analyst', 'vulnerabilities', '?sort=cve&kev=true');
+    expect(byCve.rows.map((r) => r.cve)).toEqual(['CVE-2019-11043', 'CVE-2021-23017']);
+    expect((await exportCsv('analyst', 'vulnerabilities', '?kev=false')).rows).toEqual([]);
+
+    const mine = await exportCsv('asset_owner', 'vulnerabilities');
+    expect(mine.rows.map((r) => [r.cve, r.affected_hosts, r.open_findings])).toEqual([
+      ['CVE-2019-11043', '1', '1'],
+    ]);
+  });
+
+  it('neutralises formula-like titles and truncates at the cap', async () => {
+    await vulnWorld();
+    await t.db.insert(schema.vulnerabilityAdvisories).values({
+      cveId: 'CVE-2024-4577',
+      product: 'php',
+      kev: true,
+      cvss: 9.8,
+      title: '=cmd|calc',
+      ranges: [{ startIncluding: '8.3.0', endExcluding: '8.3.8' }],
+      nvdStatus: 'ok',
+      nvdFetchedAt: at(-1),
+    });
+    const { rows } = await exportCsv('viewer', 'vulnerabilities', '?sort=cve');
+    expect(rows.map((r) => [r.cve, r.title])).toEqual([
+      ['CVE-2019-11043', 'PHP FPM buffer underflow'],
+      ['CVE-2021-23017', 'nginx resolver off-by-one'],
+      ['CVE-2024-4577', "'=cmd|calc"],
+    ]);
+
+    const capped = await exportCsv('admin', 'vulnerabilities', '?sort=cve', small);
+    expect(capped.res.headers.get('X-Truncated')).toBe('true');
+    expect(capped.res.headers.get('X-Total-Rows')).toBe('3');
+    expect(capped.rows.map((r) => r.cve)).toEqual(['CVE-2019-11043', 'CVE-2021-23017']);
+    const audits = await exportAudits();
+    expect(audits.at(-1)!.metadata).toMatchObject({
+      resource: 'vulnerabilities',
+      filters: { sort: 'cve' },
+      rows: 2,
+      truncated: true,
+    });
   });
 });
 

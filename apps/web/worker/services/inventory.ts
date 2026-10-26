@@ -32,6 +32,16 @@ type User = Pick<CurrentUser, 'id' | 'role'>;
 type PortsQuery = z.output<typeof portsQuerySchema>;
 type CertificatesQuery = z.output<typeof certificatesQuerySchema>;
 type VulnerabilitiesQuery = z.output<typeof vulnerabilitiesQuerySchema>;
+type Paging = 'page' | 'pageSize';
+/** A list query without paging: what the CSV exports accept (same filters and sort). */
+export type PortsFilter = Omit<PortsQuery, Paging>;
+export type CertificatesFilter = Omit<CertificatesQuery, Paging>;
+export type VulnerabilitiesFilter = Omit<VulnerabilitiesQuery, Paging>;
+/** Rows to read: `limit` from `offset` in the list's order. */
+export interface RowWindow {
+  limit: number;
+  offset: number;
+}
 
 const DAY_MS = 86_400_000;
 /** TLS observations older than this are ignored (same window as the reports' certificate list). */
@@ -69,19 +79,14 @@ interface PortRow {
   violation: boolean;
 }
 
-const PORT_ORDER: Record<PortsQuery['sort'], SQL> = {
+const PORT_ORDER: Record<PortsFilter['sort'], SQL> = {
   port: sql`r.port, r.ip_address, r.protocol`,
   ip: sql`r.ip_address, r.port, r.protocol`,
   last_observed: sql`r.last_observed desc, r.ip_address, r.port, r.protocol`,
 };
 
-/**
- * Latest successful port observation per (address, port, protocol). Hostnames are the visible
- * assets currently resolving to the address; asset owners see only addresses one of their assets
- * currently resolves to. `counts` cover every filter except `state` (so a UI can show all tabs);
- * `total` is the count for the requested state.
- */
-export async function listPorts(db: Database, user: User, q: PortsQuery): Promise<PortsResponse> {
+/** The filtered row set `r` (every filter except `state`) as CTEs. */
+function portsBase(user: User, q: PortsFilter): SQL {
   const ownerOnly = owner(user) ? sql`and a.owner_user_id = ${user.id}` : sql``;
   const filters: SQL[] = [];
   if (owner(user)) filters.push(sql`h.ip_address is not null`);
@@ -98,7 +103,7 @@ export async function listPorts(db: Database, user: User, q: PortsQuery): Promis
     );
   }
   const where = filters.length > 0 ? sql.join(filters, sql` and `) : sql`true`;
-  const base = sql`
+  return sql`
     latest as (
       select distinct on (p.ip_address, p.port, p.protocol)
              p.ip_address, p.port, p.protocol, p.state, p.service, p.observed_at as last_observed,
@@ -126,6 +131,9 @@ export async function listPorts(db: Database, user: User, q: PortsQuery): Promis
       from latest l left join hosts h on h.ip_address = l.ip_address
       where ${where}
     )`;
+}
+
+async function portCounts(db: Database, base: SQL): Promise<PortsResponse['counts']> {
   const counts = { open: 0, closed: 0, filtered: 0 };
   for (const c of await rowsOf<{ state: string; n: number }>(
     db,
@@ -133,8 +141,25 @@ export async function listPorts(db: Database, user: User, q: PortsQuery): Promis
   )) {
     if (c.state in counts) counts[c.state as keyof typeof counts] = c.n;
   }
-  const total =
-    q.state === 'all' ? counts.open + counts.closed + counts.filtered : (counts[q.state] ?? 0);
+  return counts;
+}
+
+const portTotal = (state: PortsFilter['state'], counts: PortsResponse['counts']) =>
+  state === 'all' ? counts.open + counts.closed + counts.filtered : (counts[state] ?? 0);
+
+/** Rows matching every filter, `state` included (the list's `total`). */
+export async function countPorts(db: Database, user: User, q: PortsFilter): Promise<number> {
+  return portTotal(q.state, await portCounts(db, portsBase(user, q)));
+}
+
+/** One window of port rows in the list's order (GET /ports pages, the CSV export reads more). */
+export async function portItems(
+  db: Database,
+  user: User,
+  q: PortsFilter,
+  window: RowWindow,
+  base: SQL = portsBase(user, q),
+): Promise<PortItem[]> {
   const stateFilter = q.state === 'all' ? sql`true` : sql`r.state = ${q.state}`;
   const rows = await rowsOf<PortRow>(
     db,
@@ -142,7 +167,7 @@ export async function listPorts(db: Database, user: User, q: PortsQuery): Promis
       page as (
         select r.* from r where ${stateFilter}
         order by ${PORT_ORDER[q.sort]}
-        limit ${q.pageSize} offset ${(q.page - 1) * q.pageSize}
+        limit ${window.limit} offset ${window.offset}
       )
       select host(pg.ip_address) as ip, pg.port, pg.protocol, pg.state, pg.service,
              pg.last_observed, pg.hostnames, pg.job_domain_id, jd.fqdn as job_fqdn,
@@ -164,37 +189,50 @@ export async function listPorts(db: Database, user: User, q: PortsQuery): Promis
       left join domains jd on jd.id = pg.job_domain_id
       order by ${sql.raw(orderOnPage(q.sort))}`,
   );
-  return {
-    items: rows.map((r) => {
-      const hostnames = r.hostnames ?? [];
-      const first = hostnames[0];
-      return {
-        ipAddress: displayIp(r.ip),
-        port: Number(r.port),
-        protocol: r.protocol,
-        state: r.state,
-        service: r.service,
-        hostnames: hostnames.map((h) => ({ assetId: h.assetId, hostname: h.hostname })),
-        domain: first
-          ? { id: first.domainId, fqdn: first.fqdn }
-          : r.job_domain_id && r.job_fqdn
-            ? { id: r.job_domain_id, fqdn: r.job_fqdn }
-            : null,
-        country: r.country,
-        policyViolation: r.violation,
-        firstObservedAt: isoOf(r.first_observed),
-        lastObservedAt: isoOf(r.last_observed),
-      };
-    }),
-    page: q.page,
-    pageSize: q.pageSize,
-    total,
-    counts,
-  };
+  return rows.map((r) => {
+    const hostnames = r.hostnames ?? [];
+    const first = hostnames[0];
+    return {
+      ipAddress: displayIp(r.ip),
+      port: Number(r.port),
+      protocol: r.protocol,
+      state: r.state,
+      service: r.service,
+      hostnames: hostnames.map((h) => ({ assetId: h.assetId, hostname: h.hostname })),
+      domain: first
+        ? { id: first.domainId, fqdn: first.fqdn }
+        : r.job_domain_id && r.job_fqdn
+          ? { id: r.job_domain_id, fqdn: r.job_fqdn }
+          : null,
+      country: r.country,
+      policyViolation: r.violation,
+      firstObservedAt: isoOf(r.first_observed),
+      lastObservedAt: isoOf(r.last_observed),
+    };
+  });
+}
+
+/**
+ * Latest successful port observation per (address, port, protocol). Hostnames are the visible
+ * assets currently resolving to the address; asset owners see only addresses one of their assets
+ * currently resolves to. `counts` cover every filter except `state` (so a UI can show all tabs);
+ * `total` is the count for the requested state.
+ */
+export async function listPorts(db: Database, user: User, q: PortsQuery): Promise<PortsResponse> {
+  const base = portsBase(user, q);
+  const counts = await portCounts(db, base);
+  const items = await portItems(
+    db,
+    user,
+    q,
+    { limit: q.pageSize, offset: (q.page - 1) * q.pageSize },
+    base,
+  );
+  return { items, page: q.page, pageSize: q.pageSize, total: portTotal(q.state, counts), counts };
 }
 
 /** The page's ORDER BY again on the outer select (column aliases of `page`). */
-function orderOnPage(sort: PortsQuery['sort']): string {
+function orderOnPage(sort: PortsFilter['sort']): string {
   switch (sort) {
     case 'ip':
       return 'pg.ip_address, pg.port, pg.protocol';
@@ -226,23 +264,13 @@ interface CertRow {
   observed_at: Date | string;
 }
 
-const CERT_ORDER: Record<CertificatesQuery['sort'], SQL> = {
+const CERT_ORDER: Record<CertificatesFilter['sort'], SQL> = {
   expiry: sql`c.not_after asc nulls last, c.hostname, c.port`,
   hostname: sql`c.hostname, c.port`,
 };
 
-/**
- * Latest successful certificate observation (`tls_certificate`) per (hostname, port) within the
- * last 90 days. Status precedence: expired > mismatch > untrusted > expiring (≤ 30 days) > valid;
- * `trusted` comes from the worker's chain validation (`evidence.trusted`), null when not recorded.
- * Asset owners see only hostnames of assets they own. `counts` cover every filter except `status`.
- */
-export async function listCertificates(
-  db: Database,
-  user: User,
-  q: CertificatesQuery,
-  now: Date,
-): Promise<CertificatesResponse> {
+/** The filtered row set `c` (every filter except `status`) as CTEs, with the computed status. */
+function certificatesBase(user: User, q: CertificatesFilter, now: Date): SQL {
   const since = new Date(now.getTime() - CERT_LOOKBACK_DAYS * DAY_MS);
   const expiringBy = new Date(now.getTime() + CERTIFICATE_EXPIRING_DAYS * DAY_MS);
   const filters: SQL[] = [];
@@ -254,7 +282,7 @@ export async function listCertificates(
     );
   }
   const where = filters.length > 0 ? sql.join(filters, sql` and `) : sql`true`;
-  const base = sql`
+  return sql`
     latest as (
       select distinct on (t.hostname, t.port)
              t.hostname, t.port, host(t.ip_address) as ip, t.issuer, t.subject,
@@ -284,6 +312,12 @@ export async function listCertificates(
       from latest join domains d on d.id = latest.domain_id
       where ${where}
     )`;
+}
+
+async function certificateCounts(
+  db: Database,
+  base: SQL,
+): Promise<Record<CertificateStatus, number>> {
   const counts = Object.fromEntries(CERTIFICATE_STATUSES.map((s) => [s, 0])) as Record<
     CertificateStatus,
     number
@@ -294,40 +328,91 @@ export async function listCertificates(
   )) {
     counts[r.status] = r.n;
   }
-  const total = q.status ? counts[q.status] : Object.values(counts).reduce((sum, n) => sum + n, 0);
+  return counts;
+}
+
+const certificateTotal = (
+  status: CertificatesFilter['status'],
+  counts: Record<CertificateStatus, number>,
+) => (status ? counts[status] : Object.values(counts).reduce((sum, n) => sum + n, 0));
+
+/** Rows matching every filter, `status` included (the list's `total`). */
+export async function countCertificates(
+  db: Database,
+  user: User,
+  q: CertificatesFilter,
+  now: Date,
+): Promise<number> {
+  return certificateTotal(q.status, await certificateCounts(db, certificatesBase(user, q, now)));
+}
+
+/** One window of certificate rows in the list's order (GET /certificates, the CSV export). */
+export async function certificateItems(
+  db: Database,
+  user: User,
+  q: CertificatesFilter,
+  now: Date,
+  window: RowWindow,
+  base: SQL = certificatesBase(user, q, now),
+): Promise<CertificateItem[]> {
   const rows = await rowsOf<CertRow>(
     db,
     sql`with ${base}
       select c.* from c
       where ${q.status ? sql`c.status = ${q.status}` : sql`true`}
       order by ${CERT_ORDER[q.sort]}
-      limit ${q.pageSize} offset ${(q.page - 1) * q.pageSize}`,
+      limit ${window.limit} offset ${window.offset}`,
+  );
+  return rows.map((r): CertificateItem => {
+    const notAfter = r.not_after === null ? null : toDate(r.not_after);
+    return {
+      hostname: r.hostname,
+      domain: { id: r.domain_id, fqdn: r.fqdn },
+      assetId: r.asset_id,
+      ipAddress: displayIp(r.ip),
+      port: Number(r.port),
+      issuer: r.issuer,
+      subject: r.subject,
+      subjectAltNames: r.sans ?? [],
+      notBefore: r.not_before === null ? null : isoOf(r.not_before),
+      notAfter: notAfter ? notAfter.toISOString() : null,
+      daysLeft: notAfter ? Math.floor((notAfter.getTime() - now.getTime()) / DAY_MS) : null,
+      hostnameMatches: r.hostname_matches,
+      trusted: r.trusted,
+      protocolVersion: r.protocol_version,
+      status: r.status,
+      observedAt: isoOf(r.observed_at),
+    };
+  });
+}
+
+/**
+ * Latest successful certificate observation (`tls_certificate`) per (hostname, port) within the
+ * last 90 days. Status precedence: expired > mismatch > untrusted > expiring (≤ 30 days) > valid;
+ * `trusted` comes from the worker's chain validation (`evidence.trusted`), null when not recorded.
+ * Asset owners see only hostnames of assets they own. `counts` cover every filter except `status`.
+ */
+export async function listCertificates(
+  db: Database,
+  user: User,
+  q: CertificatesQuery,
+  now: Date,
+): Promise<CertificatesResponse> {
+  const base = certificatesBase(user, q, now);
+  const counts = await certificateCounts(db, base);
+  const items = await certificateItems(
+    db,
+    user,
+    q,
+    now,
+    { limit: q.pageSize, offset: (q.page - 1) * q.pageSize },
+    base,
   );
   return {
-    items: rows.map((r): CertificateItem => {
-      const notAfter = r.not_after === null ? null : toDate(r.not_after);
-      return {
-        hostname: r.hostname,
-        domain: { id: r.domain_id, fqdn: r.fqdn },
-        assetId: r.asset_id,
-        ipAddress: displayIp(r.ip),
-        port: Number(r.port),
-        issuer: r.issuer,
-        subject: r.subject,
-        subjectAltNames: r.sans ?? [],
-        notBefore: r.not_before === null ? null : isoOf(r.not_before),
-        notAfter: notAfter ? notAfter.toISOString() : null,
-        daysLeft: notAfter ? Math.floor((notAfter.getTime() - now.getTime()) / DAY_MS) : null,
-        hostnameMatches: r.hostname_matches,
-        trusted: r.trusted,
-        protocolVersion: r.protocol_version,
-        status: r.status,
-        observedAt: isoOf(r.observed_at),
-      };
-    }),
+    items,
     page: q.page,
     pageSize: q.pageSize,
-    total,
+    total: certificateTotal(q.status, counts),
     counts,
   };
 }
@@ -358,12 +443,12 @@ function compareCve(a: string, b: string): number {
  * (`evidence.cveId`). Asset owners see only inventory rows and findings on assets they own.
  * Every advisory the matcher considers is a KEV entry, so `kev=false` yields an empty list.
  */
-export async function listVulnerabilities(
+export async function vulnerabilityItems(
   db: Database,
   user: User,
-  q: VulnerabilitiesQuery,
-): Promise<VulnerabilitiesResponse> {
-  const empty = { items: [], page: q.page, pageSize: q.pageSize, total: 0 };
+  q: VulnerabilitiesFilter,
+): Promise<VulnerabilityItem[]> {
+  const empty: VulnerabilityItem[] = [];
   const ownerOnly = owner(user)
     ? sql`and si.asset_id in (select id from assets where owner_user_id = ${user.id})`
     : sql``;
@@ -468,7 +553,7 @@ export async function listVulnerabilities(
     );
   }
   const bySort: Record<
-    VulnerabilitiesQuery['sort'],
+    VulnerabilitiesFilter['sort'],
     (a: VulnerabilityItem, b: VulnerabilityItem) => number
   > = {
     cvss: (a, b) => (b.cvss ?? -1) - (a.cvss ?? -1) || compareCve(a.cve, b.cve),
@@ -479,6 +564,16 @@ export async function listVulnerabilities(
     cve: (a, b) => compareCve(a.cve, b.cve),
   };
   items.sort(bySort[q.sort]);
+  return items;
+}
+
+/** GET /vulnerabilities: one page of `vulnerabilityItems` (the whole set is computed in memory). */
+export async function listVulnerabilities(
+  db: Database,
+  user: User,
+  q: VulnerabilitiesQuery,
+): Promise<VulnerabilitiesResponse> {
+  const items = await vulnerabilityItems(db, user, q);
   const offset = (q.page - 1) * q.pageSize;
   return {
     items: items.slice(offset, offset + q.pageSize),
