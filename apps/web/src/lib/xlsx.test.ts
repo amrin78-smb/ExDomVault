@@ -258,7 +258,7 @@ describe('readXlsxRows', () => {
       },
     ]);
     await expect(readXlsxRows(zip)).rejects.toThrow(/more than 20000 rows/);
-  });
+  }, 30_000); // inflates ~50 MB: slow when the whole suite runs in parallel
 
   it('reports a damaged archive', async () => {
     const zip = await buildZip([{ name: 'xl/worksheets/sheet1.xml', data: OWNER_SHEET }]);
