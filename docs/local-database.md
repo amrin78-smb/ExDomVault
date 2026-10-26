@@ -34,7 +34,17 @@ Worker (Cloudflare) → Hyperdrive "exdomainvault-local" (bdbcfb364f7e4eb298ed50
 | Backup now                              | `bash scripts/local-db/backup.sh` (daily 02:30 via the user crontab, 14 days kept in `~/backups/exdomainvault/`)                                                                             |
 | Restore                                 | `pg_restore -h 127.0.0.1 -U exdomainvault_owner -d exdomainvault --clean --if-exists <file>.dump`                                                                                            |
 | Tunnel status                           | `systemctl status cloudflared`, `journalctl -u cloudflared`                                                                                                                                  |
+| Restore drill                           | `bash scripts/local-db/restore-drill.sh` (newest backup → `exdomainvault_restore_test`, row counts vs live, then emptied). First drill 2026-10-26: passed, restore 1 s.                      |
+| Extra databases (once, sudo)            | `sudo bash scripts/local-db/create-extra-dbs.sh` (`exdomainvault_dev`, `exdomainvault_restore_test`)                                                                                         |
 | Re-copy from Neon (only before cutover) | `bash scripts/local-db/copy-from-neon.sh` — replaces local data                                                                                                                              |
+
+## Local development
+
+`.env.local` (git-ignored) points at `exdomainvault_dev` on this machine as `exdomainvault_owner`
+(`NEON_BRANCH=local-dev`), loaded from a production backup. `npm run dev` and `npm run db:migrate`
+use it. Refresh it from the newest backup with
+`pg_restore -h 127.0.0.1 -U exdomainvault_owner -d exdomainvault_dev --no-owner --no-acl --clean --if-exists <file>.dump`.
+The old Neon settings are saved in `~/.config/exdomainvault/neon-env.local.bak`.
 
 ## Rollback to Neon
 

@@ -169,7 +169,8 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [ ] Enable GitHub Dependabot alerts/security updates, secret scanning and push protection (repo Settings → Code security).
 - [ ] Create the Cloudflare Monitor on `worker_outage_started` and test it once (docs/operations.md).
 - [ ] Delete the `BOOTSTRAP_ADMIN_EMAILS` Worker secret.
-- [ ] Backups now local (daily `pg_dump`, docs/local-database.md): run a restore drill once into a scratch database.
+- [x] ~~Restore drill~~ — passed 2026-10-26 (`scripts/local-db/restore-drill.sh`; all tables match live, 1 s).
+- [ ] **2 Nov 2026:** decide on deleting the Neon project `ExDomVault` (frozen at the 26 Oct cutover) and the old Hyperdrive config `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) after a week on the local database; check `~/backups/exdomainvault/backup.log` first.
 - [ ] Bump certifi to 2026.10.19 on/after 2026-11-03 (CI fails then otherwise).
 - [ ] Rotate the Access service-token secret shown in a screenshot on 2026-10-23.
 
@@ -190,7 +191,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 ## Known limitations
 
-- Neon `dev` branch expires 2026-10-29; recreate with `neon checkout dev --create && npm run db:migrate`.
+- Local development uses `exdomainvault_dev` on this machine (docs/local-database.md); the Neon `dev` branch expires 2026-10-29 and is no longer used.
 - A positive DNS TXT verification has only been tested with a mocked resolver (needs a domain whose DNS you control); administrator authorisation was exercised end to end on the Neon `dev` branch with all 339 portfolio domains.
 - Local dev connects as the Neon owner role (`neondb_owner`); production uses `exdomainvault_app`.
 - No deploy workflow; deploys are manual `wrangler deploy` with owner approval.
