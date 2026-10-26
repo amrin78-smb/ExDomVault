@@ -105,7 +105,8 @@ describe('Overview', () => {
     await screen.findByText('Not yet resolved');
     const count = (path: string) => calls.filter((c) => c.path === path).length;
     expect(count('/api/v1/reports/summary')).toBe(1);
-    expect(count('/api/v1/findings/summary')).toBe(1);
+    // Once for the page's cards and once for the top bar's notification bell (critical count).
+    expect(count('/api/v1/findings/summary')).toBe(2);
     expect(calls.some((c) => c.path.startsWith('/api/v1/domains?'))).toBe(false);
     expect(calls.some((c) => c.path.startsWith('/api/v1/assets?'))).toBe(false);
   });

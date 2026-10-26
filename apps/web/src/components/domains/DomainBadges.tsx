@@ -8,10 +8,19 @@ import {
 import { CircleDashed, Clock, ShieldCheck, ShieldOff, UserCheck } from 'lucide-react';
 
 const VERIFICATION_STYLES: Record<DomainVerificationStatus, { cls: string; Icon: typeof Clock }> = {
-  verified: { cls: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20', Icon: ShieldCheck },
-  pending: { cls: 'bg-amber-50 text-amber-800 ring-amber-600/20', Icon: Clock },
-  unverified: { cls: 'bg-slate-100 text-slate-700 ring-slate-500/20', Icon: CircleDashed },
-  revoked: { cls: 'bg-red-50 text-red-800 ring-red-600/20', Icon: ShieldOff },
+  verified: {
+    cls: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20 dark:ring-emerald-400/45',
+    Icon: ShieldCheck,
+  },
+  pending: {
+    cls: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:ring-amber-400/45',
+    Icon: Clock,
+  },
+  unverified: {
+    cls: 'bg-surface-3 text-fg-2 ring-slate-500/20 dark:ring-slate-500/40',
+    Icon: CircleDashed,
+  },
+  revoked: { cls: 'bg-red-50 text-red-800 ring-red-600/20 dark:ring-red-400/45', Icon: ShieldOff },
 };
 
 /**
@@ -27,7 +36,7 @@ export function VerificationBadge({
 }) {
   const attested = status === 'verified' && method === 'admin_attestation';
   const { cls, Icon } = attested
-    ? { cls: 'bg-sky-50 text-sky-800 ring-sky-600/20', Icon: UserCheck }
+    ? { cls: 'bg-sky-50 text-sky-800 ring-sky-600/20 dark:ring-sky-400/45', Icon: UserCheck }
     : VERIFICATION_STYLES[status];
   const label = attested
     ? 'Authorised (admin)'
@@ -47,7 +56,7 @@ export function VerificationBadge({
 /** Business criticality of a domain. Deliberately neutral styling: this is not finding severity. */
 export function CriticalityLabel({ criticality }: { criticality: Criticality }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm text-slate-700">
+    <span className="inline-flex items-center gap-1.5 text-sm text-fg-2">
       <span
         className={`inline-block h-2 w-2 rounded-full ${
           {

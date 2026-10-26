@@ -53,8 +53,7 @@ function daysLeftText(days: number, kind: 'expiry' | 'review' = 'expiry'): strin
 /** Days left in words with a tone — never colour alone. */
 function DaysLeft({ days, kind = 'expiry' }: { days: number; kind?: 'expiry' | 'review' }) {
   const text = daysLeftText(days, kind);
-  const tone =
-    days <= 0 ? 'font-medium text-red-800' : days <= 14 ? 'text-amber-800' : 'text-slate-700';
+  const tone = days <= 0 ? 'font-medium text-red-800' : days <= 14 ? 'text-amber-800' : 'text-fg-2';
   return <span className={`tabular-nums ${tone}`}>{text}</span>;
 }
 
@@ -140,7 +139,7 @@ function Reports({ canDomains }: { canDomains: boolean }) {
 
 function Loading() {
   return (
-    <p className="py-8 text-center text-sm text-slate-500" role="status">
+    <p className="py-8 text-center text-sm text-fg-subtle" role="status">
       Loading report…
     </p>
   );
@@ -151,7 +150,7 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
   const sevMax = Math.max(1, ...SEVERITY_ORDER.map((s) => findings.bySeverity[s] ?? 0));
   return (
     <div className="space-y-6">
-      <p className="text-xs text-slate-500">Generated {formatDateTime(data.generatedAt)}</p>
+      <p className="text-xs text-fg-subtle">Generated {formatDateTime(data.generatedAt)}</p>
 
       {canDomains && (
         <section
@@ -192,7 +191,7 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
                   <SeverityBadge severity={sev} />
                   <ProportionBar
                     percent={(n / sevMax) * 100}
-                    className="h-2 w-full rounded-sm bg-slate-100"
+                    className="h-2 w-full rounded-sm bg-surface-3"
                     fillClassName="fill-slate-500"
                   />
                   <Link
@@ -206,7 +205,7 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
               );
             })}
           </ul>
-          <p className="mt-3 text-xs text-slate-500">{findings.open} open findings in total.</p>
+          <p className="mt-3 text-xs text-fg-subtle">{findings.open} open findings in total.</p>
         </Card>
 
         <Card title="Findings by status">
@@ -217,7 +216,7 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
                 <th scope="col">Findings</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line-soft">
               {FINDING_STATUSES.map((s) => (
                 <tr key={s}>
                   <td className="py-1.5 pr-4">
@@ -351,7 +350,7 @@ function Table({ headers, children }: { headers: string[]; children: ReactNode }
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
             {headers.map((h, i) => (
               <th
                 key={h}
@@ -363,7 +362,7 @@ function Table({ headers, children }: { headers: string[]; children: ReactNode }
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">{children}</tbody>
+        <tbody className="divide-y divide-line-soft">{children}</tbody>
       </table>
     </div>
   );
@@ -417,7 +416,7 @@ function ByOwner({ rows }: { rows: Summary['byBusinessOwner'] }) {
       {rows.map((r) => (
         <tr key={r.businessOwner ?? '\u0000none'}>
           <td className={cell}>
-            {r.businessOwner ?? <span className="italic text-slate-500">No business owner</span>}
+            {r.businessOwner ?? <span className="italic text-fg-subtle">No business owner</span>}
           </td>
           <td className={num}>{r.domains}</td>
           <td className={num}>{r.openFindings}</td>
@@ -469,7 +468,7 @@ function ExpiringCertificates({ rows }: { rows: Summary['expiringCertificates'] 
               {r.hostname}
             </Link>
           </td>
-          <td className={`${cell} text-slate-600`}>{r.issuer ?? '—'}</td>
+          <td className={`${cell} text-fg-muted`}>{r.issuer ?? '—'}</td>
           <td className={`${cell} whitespace-nowrap`}>{formatDate(r.notAfter)}</td>
           <td className="py-2 text-right">
             <DaysLeft days={r.daysLeft} />

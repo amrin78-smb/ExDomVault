@@ -51,7 +51,7 @@ export function DomainSoftwareCard({ domain }: { domain: Domain }) {
       {canRead ? (
         <DomainSoftware domainId={domain.id} state={state} />
       ) : (
-        <p className="text-sm text-slate-500">Your role cannot view the software inventory.</p>
+        <p className="text-sm text-fg-subtle">Your role cannot view the software inventory.</p>
       )}
     </Card>
   );
@@ -66,7 +66,7 @@ function DomainSoftware({
 }) {
   if (state.status === 'loading') {
     return (
-      <p className="text-sm text-slate-500" role="status">
+      <p className="text-sm text-fg-subtle" role="status">
         Loading software…
       </p>
     );
@@ -76,7 +76,7 @@ function DomainSoftware({
   }
   if (!state.data || state.data.items.length === 0) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-fg-subtle">
         No software recorded. A Quick scan reads HTTP server headers; Standard and Deep scans also
         identify service versions on open ports.
       </p>
@@ -85,7 +85,7 @@ function DomainSoftware({
   return (
     <div className="space-y-3">
       <SoftwareTable items={state.data.items} compact />
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-fg-subtle">
         Versions are self-reported and distributions may backport fixes: matches mean possibly
         affected — verify. A hidden version means unknown, not safe.
       </p>

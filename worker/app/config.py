@@ -62,6 +62,10 @@ class WorkerConfig:
     # EXDV_DENY_NETWORKS: canonical CIDRs never contacted, on top of the built-in prohibited ranges.
     deny_networks: tuple[str, ...] = ()
     nmap_path: str = DEFAULT_NMAP_PATH
+    # EXDV_GEOIP_ENABLED (default true): offline DB-IP country lookup for DNS observations.
+    geoip_enabled: bool = True
+    # EXDV_GEOIP_DIR: cache directory; default "geoip" next to the health file (state directory).
+    geoip_dir: str = os.path.join(os.path.dirname(DEFAULT_HEALTH_FILE), "geoip")
 
     @property
     def api_host(self) -> str:
@@ -214,6 +218,16 @@ def load_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         raise ConfigError("EXDV_NMAP_PATH must be an absolute path without whitespace")
     nmap_path = os.path.normpath(nmap_path)
 
+    raw_geoip = source.get("EXDV_GEOIP_ENABLED", "").strip() or "true"
+    if raw_geoip not in ("true", "false"):
+        raise ConfigError("EXDV_GEOIP_ENABLED must be 'true' or 'false'")
+    geoip_dir = source.get("EXDV_GEOIP_DIR", "").strip() or os.path.join(
+        os.path.dirname(health_file), "geoip"
+    )
+    if not os.path.isabs(geoip_dir) or "\x00" in geoip_dir:
+        raise ConfigError("EXDV_GEOIP_DIR must be an absolute path")
+    geoip_dir = os.path.normpath(geoip_dir)
+
     log_level = source.get("EXDV_LOG_LEVEL", "INFO").strip().upper()
     if log_level not in _LOG_LEVELS:
         raise ConfigError(f"EXDV_LOG_LEVEL must be one of {', '.join(_LOG_LEVELS)}")
@@ -234,4 +248,6 @@ def load_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         active_scanning_enabled=raw_active == "true",
         deny_networks=tuple(deny),
         nmap_path=nmap_path,
+        geoip_enabled=raw_geoip == "true",
+        geoip_dir=geoip_dir,
     )

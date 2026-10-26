@@ -46,7 +46,7 @@ export function PortsCard({ state }: { state: AsyncState<{ ports: PortSnapshot[]
       summary={portsSummary(state)}
     >
       {state.status === 'loading' && (
-        <p className="text-sm text-slate-500" role="status">
+        <p className="text-sm text-fg-subtle" role="status">
           Loading ports…
         </p>
       )}
@@ -60,19 +60,19 @@ export function PortsCard({ state }: { state: AsyncState<{ ports: PortSnapshot[]
           </EmptyState>
         ) : (
           <div className="space-y-4 text-sm">
-            <p className="text-xs text-slate-500">{EXPLANATION}</p>
+            <p className="text-xs text-fg-subtle">{EXPLANATION}</p>
             {groupByIp(state.data.ports).map((g) => {
               const headingId = `ports-${g.ip}`;
               return (
                 <section key={g.ip} aria-labelledby={headingId}>
                   <h3
                     id={headingId}
-                    className="mb-1 break-all font-mono text-sm font-semibold text-slate-800"
+                    className="mb-1 break-all font-mono text-sm font-semibold text-fg"
                   >
                     {g.ip}
                   </h3>
                   <table className="w-full text-left text-xs" aria-labelledby={headingId}>
-                    <thead className="border-b border-slate-200 uppercase tracking-wide text-slate-500">
+                    <thead className="border-b border-line uppercase tracking-wide text-fg-subtle">
                       <tr>
                         <th scope="col" className="w-20 py-1.5 pr-3 font-medium">
                           Port
@@ -88,7 +88,7 @@ export function PortsCard({ state }: { state: AsyncState<{ ports: PortSnapshot[]
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-line-soft">
                       {g.ports.map((p) => (
                         <PortRow key={p.port} port={p} />
                       ))}
@@ -107,16 +107,16 @@ function PortRow({ port: p }: { port: PortSnapshot }) {
   const product = [str(p.evidence.product), str(p.evidence.version)].filter(Boolean).join(' ');
   return (
     <tr className="align-top">
-      <th scope="row" className="py-1.5 pr-3 font-mono font-medium text-slate-800">
+      <th scope="row" className="py-1.5 pr-3 font-mono font-medium text-fg">
         {p.port}/{p.protocol}
       </th>
-      <td className="py-1.5 pr-3 text-slate-700">{p.state}</td>
-      <td className="py-1.5 pr-3 text-slate-700">
+      <td className="py-1.5 pr-3 text-fg-2">{p.state}</td>
+      <td className="py-1.5 pr-3 text-fg-2">
         {p.service ?? '—'}
-        {product && <span className="block text-slate-500">{product} (not verified)</span>}
+        {product && <span className="block text-fg-subtle">{product} (not verified)</span>}
         <ResultNote status={p.resultStatus} />
       </td>
-      <td className="py-1.5 text-slate-600">
+      <td className="py-1.5 text-fg-muted">
         <ObservedLink at={p.observedAt} scanJobId={p.scanJobId} />
       </td>
     </tr>

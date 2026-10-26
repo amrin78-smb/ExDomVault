@@ -12,3 +12,7 @@ BOOTSTRAP_ADMIN_EMAILS=dev@example.com
 # AUTH_PROVIDER=cloudflare_access
 # ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
 # ACCESS_AUD=<application audience tag>
+
+# Optional organisation label shown in the UI (max 100 characters). In production this is a
+# Worker secret (`wrangler secret put ORG_NAME`), so it is not committed.
+# ORG_NAME=<organisation name>

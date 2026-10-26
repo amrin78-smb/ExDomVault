@@ -22,7 +22,7 @@ export function SoftwareTable({
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
             {!compact && (
               <th scope="col" className={th}>
                 Domain
@@ -55,7 +55,7 @@ export function SoftwareTable({
             )}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-line-soft">
           {items.map((s) => (
             <tr key={s.id}>
               {!compact && (
@@ -68,21 +68,19 @@ export function SoftwareTable({
                   </Link>
                 </td>
               )}
-              <td className={`${td} break-all font-mono text-xs text-slate-800`}>
-                {softwareLocation(s)}
-              </td>
-              <td className={`${td} whitespace-nowrap text-slate-800`}>{s.productLabel}</td>
+              <td className={`${td} break-all font-mono text-xs text-fg`}>{softwareLocation(s)}</td>
+              <td className={`${td} whitespace-nowrap text-fg`}>{s.productLabel}</td>
               <td className={td}>
                 <VersionText version={s.version} />
                 <BackportHint hint={s.backportHint} />
               </td>
               {!compact && (
                 <td className={td}>
-                  <div className="whitespace-nowrap text-xs text-slate-700">
+                  <div className="whitespace-nowrap text-xs text-fg-2">
                     {SOFTWARE_SOURCE_LABELS[s.source]}
                   </div>
                   <div
-                    className="max-w-56 truncate font-mono text-[11px] text-slate-500"
+                    className="max-w-56 truncate font-mono text-[11px] text-fg-subtle"
                     title={s.banner}
                   >
                     {s.banner}
@@ -97,7 +95,7 @@ export function SoftwareTable({
                 <KevChips items={s.knownExploited} />
               </td>
               {!compact && (
-                <td className="whitespace-nowrap py-2.5 align-top text-xs text-slate-600">
+                <td className="whitespace-nowrap py-2.5 align-top text-xs text-fg-muted">
                   {formatDateTime(s.lastSeenAt)}
                 </td>
               )}

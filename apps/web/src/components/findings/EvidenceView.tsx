@@ -12,7 +12,7 @@ import { isCveId, isVersionRange, nvdUrl, rangeText } from '../software/software
 export function EvidenceView({ evidence }: { evidence: Record<string, unknown> }) {
   const entries = Object.entries(evidence);
   if (entries.length === 0) {
-    return <p className="text-sm text-slate-500">The rule recorded no evidence fields.</p>;
+    return <p className="text-sm text-fg-subtle">The rule recorded no evidence fields.</p>;
   }
   const distribution = backportDistribution(evidence);
   return (
@@ -20,7 +20,7 @@ export function EvidenceView({ evidence }: { evidence: Record<string, unknown> }
       {distribution && (
         <p
           role="note"
-          className="mb-2 flex gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+          className="mb-2 flex gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-fg-2"
         >
           <Layers className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
@@ -43,11 +43,11 @@ function EvidenceList({
   nested?: boolean;
 }) {
   return (
-    <dl className="divide-y divide-slate-100 text-sm" data-testid={nested ? undefined : 'evidence'}>
+    <dl className="divide-y divide-line-soft text-sm" data-testid={nested ? undefined : 'evidence'}>
       {entries.map(([key, value]) => (
         <div key={key} className="grid gap-1 py-2 sm:grid-cols-[12rem_1fr] sm:gap-3">
-          <dt className="font-medium text-slate-600">{humanise(key)}</dt>
-          <dd className="min-w-0 text-slate-800">
+          <dt className="font-medium text-fg-muted">{humanise(key)}</dt>
+          <dd className="min-w-0 text-fg">
             <EvidenceValue value={value} />
           </dd>
         </div>
@@ -57,7 +57,7 @@ function EvidenceList({
 }
 
 function EvidenceValue({ value }: { value: unknown }) {
-  if (value === null || value === undefined) return <span className="text-slate-400">None</span>;
+  if (value === null || value === undefined) return <span className="text-fg-faint">None</span>;
   if (isCveId(value)) return <CveLink cveId={value} />;
   if (isVersionRange(value)) return <span className="text-xs">{rangeText(value)}</span>;
   if (Array.isArray(value) && value.length > 0 && value.every(isVersionRange)) {
@@ -85,7 +85,7 @@ function EvidenceValue({ value }: { value: unknown }) {
     return <span className="break-all font-mono text-xs">{String(value)}</span>;
   }
   if (Array.isArray(value) && value.every((v) => typeof v === 'string' || typeof v === 'number')) {
-    if (value.length === 0) return <span className="text-slate-400">None</span>;
+    if (value.length === 0) return <span className="text-fg-faint">None</span>;
     return (
       <ul className="space-y-0.5">
         {value.map((v, i) => (
@@ -97,7 +97,7 @@ function EvidenceValue({ value }: { value: unknown }) {
     );
   }
   return (
-    <pre className="overflow-x-auto rounded bg-slate-50 p-2 font-mono text-xs text-slate-800">
+    <pre className="overflow-x-auto rounded bg-surface-2 p-2 font-mono text-xs text-fg">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -143,7 +143,7 @@ function Advisory({ advisory }: { advisory: AdvisoryEvidence }) {
   const { title, cvss, kevDateAdded, ransomware } = advisory;
   const rest = Object.entries(advisory).filter(([k]) => !ADVISORY_KEYS.has(k));
   return (
-    <div className="rounded-md border border-slate-200 p-2">
+    <div className="rounded-md border border-line p-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <CveLink cveId={advisory.cveId} />
         {typeof cvss === 'number' && <span className="text-xs">CVSS {cvss.toFixed(1)}</span>}
@@ -160,7 +160,7 @@ function Advisory({ advisory }: { advisory: AdvisoryEvidence }) {
           </span>
         )}
       </div>
-      {typeof title === 'string' && <p className="mt-1 text-xs text-slate-700">{title}</p>}
+      {typeof title === 'string' && <p className="mt-1 text-xs text-fg-2">{title}</p>}
       {rest.length > 0 && (
         <div className="mt-1">
           <EvidenceList entries={rest} nested />

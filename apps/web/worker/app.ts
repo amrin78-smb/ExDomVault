@@ -13,15 +13,23 @@ import type { Rule } from '@exdomainvault/rules';
 import { advisoryRoutes } from './routes/advisories.ts';
 import { assetRoutes } from './routes/assets.ts';
 import { auditLogRoutes } from './routes/audit-logs.ts';
+import { dashboardRoutes } from './routes/dashboard.ts';
 import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
 import { exportRoutes, type ExportRouteDeps } from './routes/exports.ts';
 import { findingRoutes } from './routes/findings.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
 import { internalWorkerRoutes } from './routes/internal-worker.ts';
+import {
+  attackSurfaceRoutes,
+  certificateRoutes,
+  portRoutes,
+  vulnerabilityRoutes,
+} from './routes/inventory.ts';
 import { meRoutes } from './routes/me.ts';
 import { opsRoutes } from './routes/ops.ts';
 import { approvedNetworkRoutes } from './routes/networks.ts';
 import { reportRoutes } from './routes/reports.ts';
+import { searchRoutes } from './routes/search.ts';
 import { ruleRoutes } from './routes/rules.ts';
 import { scanProfileRoutes, scanRoutes } from './routes/scans.ts';
 import { settingsRoutes } from './routes/settings.ts';
@@ -91,6 +99,14 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/software', softwareRoutes({ now: deps.now }));
   authed.route('/intel', intelRoutes({ now: deps.now, fetch: deps.intel?.fetch }));
   authed.route('/ops', opsRoutes({ now: deps.now }));
+  // Milestone 13: overview dashboard and global search.
+  authed.route('/dashboard', dashboardRoutes({ now: deps.now }));
+  authed.route('/search', searchRoutes());
+  // Milestone 13: cross-domain inventory views.
+  authed.route('/ports', portRoutes());
+  authed.route('/certificates', certificateRoutes({ now: deps.now }));
+  authed.route('/vulnerabilities', vulnerabilityRoutes());
+  authed.route('/attack-surface', attackSurfaceRoutes({ now: deps.now }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

@@ -237,8 +237,11 @@ export const soft001: Rule = {
 
 // --- SOFT-002 Possibly affected by a known-exploited vulnerability ----------------------------
 
-/** Versions that are too coarse to range-match (`2` from `Apache/2`) are treated as hidden. */
-function preciseEnough(version: string): boolean {
+/**
+ * Versions that are too coarse to range-match (`2` from `Apache/2`) are treated as hidden. Exported
+ * so read models (GET /vulnerabilities) match exactly like SOFT-002.
+ */
+export function preciseEnough(version: string): boolean {
   const p = parseVersion(version);
   return p !== null && (p.numbers.length >= 2 || p.suffix !== '');
 }

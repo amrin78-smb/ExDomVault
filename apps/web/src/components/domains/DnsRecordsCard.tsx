@@ -61,7 +61,7 @@ export function DnsRecordsCard({
       summary={dnsSummary(state)}
     >
       {state.status === 'loading' && (
-        <p className="text-sm text-slate-500" role="status">
+        <p className="text-sm text-fg-subtle" role="status">
           Loading DNS records…
         </p>
       )}
@@ -98,7 +98,7 @@ function DnsRecords({ apex, records }: { apex: string; records: DnsRecordSet[] }
   return (
     <div className="space-y-5">
       {newest && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-fg-subtle">
           Most recent observation{' '}
           <Link to={`/scans/${newest.scanJobId}`} className="text-sky-800 hover:underline">
             {formatDateTime(newest.observedAt)}
@@ -109,15 +109,12 @@ function DnsRecords({ apex, records }: { apex: string; records: DnsRecordSet[] }
         const headingId = `dns-${g.hostname}`;
         return (
           <section key={g.hostname} aria-labelledby={headingId}>
-            <h3
-              id={headingId}
-              className="mb-2 break-all font-mono text-sm font-semibold text-slate-800"
-            >
+            <h3 id={headingId} className="mb-2 break-all font-mono text-sm font-semibold text-fg">
               {g.hostname}
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm" aria-labelledby={headingId}>
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                <thead className="border-b border-line text-xs uppercase tracking-wide text-fg-subtle">
                   <tr>
                     <th scope="col" className="w-20 py-2 pr-3 font-medium">
                       Type
@@ -133,7 +130,7 @@ function DnsRecords({ apex, records }: { apex: string; records: DnsRecordSet[] }
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line-soft">
                   {g.records.map((r) => (
                     <DnsRow key={r.recordType} record={r} />
                   ))}
@@ -152,12 +149,12 @@ function DnsRow({ record: r }: { record: DnsRecordSet }) {
   const note = r.resultStatus === 'success' ? null : RESULT_NOTES[r.resultStatus];
   return (
     <tr className="align-top">
-      <th scope="row" className="py-2 pr-3 font-mono font-medium text-slate-800">
+      <th scope="row" className="py-2 pr-3 font-mono font-medium text-fg">
         {r.recordType}
       </th>
       <td className="py-2 pr-3">
         {r.values.length > 0 && (
-          <ul className="space-y-0.5 font-mono text-xs text-slate-800">
+          <ul className="space-y-0.5 font-mono text-xs text-fg">
             {r.values.map((v, i) => (
               <li key={`${i}:${v}`} className="break-all whitespace-pre-wrap">
                 {v}
@@ -165,11 +162,11 @@ function DnsRow({ record: r }: { record: DnsRecordSet }) {
             ))}
           </ul>
         )}
-        {r.values.length === 0 && !note && <span className="text-slate-500">No records</span>}
-        {note && <p className="text-xs italic text-slate-500">{note}</p>}
+        {r.values.length === 0 && !note && <span className="text-fg-subtle">No records</span>}
+        {note && <p className="text-xs italic text-fg-subtle">{note}</p>}
       </td>
-      <td className="py-2 pr-3 tabular-nums text-slate-700">{r.ttl ?? '—'}</td>
-      <td className="py-2 text-xs text-slate-600">
+      <td className="py-2 pr-3 tabular-nums text-fg-2">{r.ttl ?? '—'}</td>
+      <td className="py-2 text-xs text-fg-muted">
         <Link to={`/scans/${r.scanJobId}`} className="hover:underline">
           {formatDateTime(r.observedAt)}
         </Link>

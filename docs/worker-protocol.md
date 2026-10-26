@@ -127,9 +127,45 @@ Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `re
   case), TXT/CAA/DS/DNSKEY keep their case. NODATA is `success`, `values: []`,
   `evidence: { rcode: "NOERROR", noData: true }`. Queried per target: A, AAAA, CNAME; at the apex also
   MX, NS, TXT, CAA, SOA, DS, DNSKEY and `_dmarc.<apex>` TXT.
+  Optional `geo` (Milestone 13, see [IP geolocation](#ip-geolocation-milestone-13)): A/AAAA only,
+  `[{ ip, country }]` for each value the worker's offline database places in a country (`country` =
+  ISO 3166-1 alpha-2, uppercase; `ip` exactly as in `values`, same order; ≤ 100 entries). The field is
+  omitted for other record types, when geolocation is disabled or unavailable, and when no value is
+  covered; addresses not covered are simply absent from the list.
 - `registration` (RDAP, apex target only): `registrar`, `registeredAt`, `expiresAt` (ISO or null),
   `nameservers` (lowercase, no trailing dot), `dataStatus` (`available` | `redacted` when the registry
   withholds data | `unavailable` when no RDAP data could be obtained).
+
+## IP geolocation (Milestone 13)
+
+Implementation: `worker/app/geoip.py`; wired into `worker/app/dns_checks.py` (`geo_entries`).
+**Display-only** (map and region views): the country is never used for scope, policy, approval or
+severity decisions, and the scope validator never consults it.
+
+- **Data:** DB-IP "IP to Country Lite" (CC BY 4.0; attribution "IP geolocation by DB-IP" must be
+  shown wherever the data is displayed). Monthly file
+  `https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.csv.gz`: gzip CSV, no header, rows
+  `start_ip,end_ip,country_code`, IPv4 then IPv6, ascending.
+- **Download** (between jobs, never inside a check): fixed URL built in code for the current UTC month;
+  only on `404` (not published yet, early in the month) the previous month. HTTPS with certificate
+  verification, **redirects never followed** (a 3xx counts as a failed attempt; the URL is fixed, so
+  following one would only widen what the worker fetches), no proxy settings from the environment,
+  `User-Agent: ExDomainVault-worker/<version> (geoip download)`, 10 s connect / 30 s read timeouts and
+  a 300 s overall deadline, gzip magic checked, body capped at 64 MB compressed. The file is written to
+  a temp file in the cache directory, `fsync`ed, then **fully parsed** (decompressed size capped at
+  512 MB, ≥ 100 000 valid ranges, ≤ 5 000 000) before `os.replace` swaps it in; a metadata file records
+  the month.
+- **Refresh policy:** download when the cache is missing, older than 35 days, or holds a previous
+  month and is more than a day old (at most one check a day until the new month appears). A failed
+  attempt keeps the existing file and backs off 6 hours. With no usable file, `geo` is omitted and
+  `geoip_unavailable` is logged once.
+- **Lookup:** rows that are malformed, `ZZ` (unknown), lowercase, inverted (`start > end`) or that
+  overlap the previous range are skipped. Prohibited addresses (private, loopback, CGNAT, link-local,
+  documentation, IPv4-mapped IPv6... — the `policy.address_prohibited_reason` table) are never looked
+  up. Lookups are in-memory binary searches and never raise; any error omits `geo` without affecting
+  the DNS observation.
+- **Logs:** `geoip_downloaded` (month), `geoip_loaded` (range counts, skipped rows),
+  `geoip_download_failed` (error class, `keptExisting`), `geoip_load_failed`, `geoip_unavailable`.
 
 ## Passive discovery (Milestone 9)
 
@@ -305,6 +341,8 @@ name again itself, so this is a pre-check, not pinning; the systemd `IPAddressDe
 | `EXDV_NMAP_PATH`               | no       | absolute path without whitespace, default `/usr/bin/nmap`; network checks fail (`nmap_unavailable`) if it is not an executable file                                                                                                                                                                                   |
 | `EXDV_DNS_RESOLVERS`           | no       | comma-separated resolver IPs; default `1.1.1.1,9.9.9.9` (+ IPv6); `system` = host resolver                                                                                                                                                                                                                            |
 | `EXDV_HEALTH_FILE`             | no       | health JSON path, default `/var/lib/exdomainvault-worker/health.json`                                                                                                                                                                                                                                                 |
+| `EXDV_GEOIP_ENABLED`           | no       | `true` (default) or `false`: offline DB-IP country lookup for A/AAAA observations (`geo`); see [IP geolocation](#ip-geolocation-milestone-13)                                                                                                                                                                         |
+| `EXDV_GEOIP_DIR`               | no       | absolute cache directory for the DB-IP file, default `geoip` next to `EXDV_HEALTH_FILE` (`/var/lib/exdomainvault-worker/geoip`)                                                                                                                                                                                       |
 | `EXDV_LOG_LEVEL`               | no       | `DEBUG INFO WARNING ERROR`, default `INFO`                                                                                                                                                                                                                                                                            |
 
 **Self-protection** (`worker/app/self_protection.py`, only while `EXDV_ACTIVE_SCANNING_ENABLED=true`):

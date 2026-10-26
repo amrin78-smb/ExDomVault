@@ -78,9 +78,16 @@ export const assetIps = pgTable(
     lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
     isCurrent: boolean('is_current').notNull().default(true),
     source: text('source').notNull(),
+    /**
+     * Milestone 13: ISO 3166-1 alpha-2 country from the worker's offline IP geolocation (DB-IP
+     * Lite), set from DNS observations that carry `geo`. Display-only (never scope or severity);
+     * null = not geolocated yet / not covered.
+     */
+    countryCode: text('country_code'),
   },
   (t) => [
     uniqueIndex('asset_ips_asset_ip_key').on(t.assetId, t.ipAddress),
     index('asset_ips_ip_idx').on(t.ipAddress),
+    check('asset_ips_country_code_format', sql`${t.countryCode} ~ '^[A-Z]{2}$'`),
   ],
 );

@@ -3,10 +3,10 @@ import { Cloud } from 'lucide-react';
 import { HOSTING_KIND_LABELS } from './labels.ts';
 
 const STATUS_STYLES: Record<AssetStatus, string> = {
-  pending: 'bg-amber-50 text-amber-800 ring-amber-600/20',
-  approved: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20',
-  rejected: 'bg-slate-100 text-slate-600 ring-slate-500/20',
-  suspended: 'bg-slate-100 text-slate-800 ring-slate-500/25',
+  pending: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:ring-amber-400/45',
+  approved: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20 dark:ring-emerald-400/45',
+  rejected: 'bg-surface-3 text-fg-muted ring-slate-500/20 dark:ring-slate-500/40',
+  suspended: 'bg-surface-3 text-fg ring-slate-500/25 dark:ring-slate-500/40',
 };
 
 /** Review state of a hostname. Deliberately not severity colours. */
@@ -24,7 +24,7 @@ export function AssetStatusBadge({ status }: { status: AssetStatus }) {
 export function HostingHintChip({ hint }: { hint: HostingHint }) {
   return (
     <span
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-800 ring-1 ring-inset ring-violet-600/20"
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-800 ring-1 ring-inset ring-violet-600/20 dark:ring-violet-400/45"
       title={`Matched ${hint.matchedName}`}
     >
       <Cloud className="size-3" aria-hidden />
@@ -38,7 +38,7 @@ export function HostingHintChip({ hint }: { hint: HostingHint }) {
 export function WildcardOnlyMarker() {
   return (
     <span
-      className="inline-flex items-center whitespace-nowrap rounded-full bg-slate-50 px-2 py-0.5 text-xs text-slate-600 ring-1 ring-inset ring-slate-400/30"
+      className="inline-flex items-center whitespace-nowrap rounded-full bg-surface-2 px-2 py-0.5 text-xs text-fg-muted ring-1 ring-inset ring-slate-400/30 dark:ring-slate-500/40"
       title="Seen only in wildcard certificate names"
     >
       Wildcard only

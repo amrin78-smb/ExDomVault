@@ -24,8 +24,8 @@ const formatMs = (ms: number) => (ms >= 1000 ? `${ms / 1000} s` : `${ms} ms`);
 function Item({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-0.5 text-slate-800">{children}</dd>
+      <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{label}</dt>
+      <dd className="mt-0.5 text-fg">{children}</dd>
     </div>
   );
 }
@@ -40,12 +40,12 @@ export function ScanProfilesSection() {
   return (
     <Card title="Scan profiles">
       <div className="space-y-4 text-sm">
-        <p className="text-slate-600">
+        <p className="text-fg-muted">
           Scans run only these server-defined profiles. Nobody can pass scanner options from the
           app. Passive discovery runs as its own job type and is not listed here.
         </p>
         {state.status === 'loading' && (
-          <p role="status" className="text-slate-500">
+          <p role="status" className="text-fg-subtle">
             Loading scan profiles…
           </p>
         )}
@@ -86,10 +86,10 @@ function ProfileItem({ profile: p }: { profile: ScanProfile }) {
   const ports = c.tcpPorts.length;
   return (
     <li>
-      <article aria-label={p.name} className="rounded-md border border-slate-200 p-3">
+      <article aria-label={p.name} className="rounded-md border border-line p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-semibold text-slate-900">{p.name}</h3>
-          <span className="font-mono text-xs text-slate-500">
+          <h3 className="font-semibold text-fg">{p.name}</h3>
+          <span className="font-mono text-xs text-fg-subtle">
             {p.key} · v{p.version}
           </span>
           <span
@@ -100,27 +100,24 @@ function ProfileItem({ profile: p }: { profile: ScanProfile }) {
             {c.active ? 'Connects to hosts' : 'Never contacts hosts'}
           </span>
           {!p.enabled && (
-            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+            <span className="rounded bg-line px-1.5 py-0.5 text-xs font-medium text-fg-2">
               Disabled
             </span>
           )}
         </div>
-        <p className="mt-1 text-slate-600">{p.description}</p>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-fg-muted">{p.description}</p>
+        <p className="mt-1 text-xs text-fg-subtle">
           {c.active
             ? 'Connects to target hosts. Needs a verified domain and approved assets.'
             : 'Queries public infrastructure only; never contacts the target hosts.'}
         </p>
         <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="sm:col-span-2 lg:col-span-4">
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Checks</dt>
+            <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Checks</dt>
             <dd className="mt-1">
               <ul aria-label={`Checks in ${p.name}`} className="flex flex-wrap gap-1.5">
                 {c.checks.map((check) => (
-                  <li
-                    key={check}
-                    className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700"
-                  >
+                  <li key={check} className="rounded bg-surface-3 px-1.5 py-0.5 text-xs text-fg-2">
                     {CHECK_LABELS[check]}
                   </li>
                 ))}

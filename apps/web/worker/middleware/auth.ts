@@ -78,3 +78,21 @@ export const requirePermission = (permission: Permission) =>
     }
     await next();
   });
+
+/**
+ * Passes when the role holds at least one of `permissions` (for read views that combine several
+ * resources and return only the sections the caller may read). Must run after requireAuth.
+ */
+export const requireAnyPermission = (...permissions: readonly Permission[]) =>
+  createMiddleware<AppBindings>(async (c, next) => {
+    const user = c.get('user');
+    if (!permissions.some((p) => hasPermission(user.role, p))) {
+      c.get('logger').warn('permission_denied', {
+        userId: user.id,
+        role: user.role,
+        permission: permissions.join('|'),
+      });
+      throw new ApiError(403, 'forbidden', 'You do not have permission to perform this action.');
+    }
+    await next();
+  });

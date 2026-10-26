@@ -1,8 +1,11 @@
 import os
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+import app.geoip
 
 KEY_ID = "0b7c6a52-3f1e-4c55-9d1a-2f6f2b7e9a10"
 
@@ -35,3 +38,13 @@ def valid_env(key_file, tmp_path) -> dict[str, str]:
         "EXDV_PRIVATE_KEY_FILE": key_file,
         "EXDV_HEALTH_FILE": str(tmp_path / "health.json"),
     }
+
+
+@pytest.fixture(autouse=True)
+def _no_live_geoip_download(monkeypatch):
+    """Tests never reach db-ip.com: GeoIp without an injected transport gets one that fails."""
+
+    def refuse(request):
+        raise httpx.ConnectError("network disabled in tests", request=request)
+
+    monkeypatch.setattr(app.geoip, "_default_transport", lambda: httpx.MockTransport(refuse))

@@ -16,7 +16,7 @@ import { paginatedSchema } from './pagination.ts';
 const isoDateTime = z.iso.datetime();
 const ref = z.object({ id: z.uuid(), fqdn: z.string() });
 const pageParams = {
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 };
 const search = z.string().trim().min(1).max(100).optional();

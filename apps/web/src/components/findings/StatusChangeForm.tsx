@@ -8,7 +8,7 @@ import { Button } from '../ui/Button.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 import { reviewDateBounds } from './lifecycle.ts';
 
-const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
+const inputClass = 'w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
 
 export interface StatusChangeValues {
   reason?: string;
@@ -81,16 +81,16 @@ export function StatusChangeForm({
       onSubmit={submit}
       noValidate
       aria-labelledby={`${id}-title`}
-      className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm"
+      className="space-y-3 rounded-md border border-line bg-surface-2 p-3 text-sm"
     >
-      <h3 id={`${id}-title`} className="font-semibold text-slate-800">
+      <h3 id={`${id}-title`} className="font-semibold text-fg">
         {title}
       </h3>
-      {description && <div className="text-slate-600">{description}</div>}
+      {description && <div className="text-fg-muted">{description}</div>}
       <div>
-        <label htmlFor={`${id}-reason`} className="block font-medium text-slate-700">
+        <label htmlFor={`${id}-reason`} className="block font-medium text-fg-2">
           Reason{' '}
-          <span className="font-normal text-slate-500">
+          <span className="font-normal text-fg-subtle">
             {required ? `(required, at least ${requirements.reasonMin} characters)` : '(optional)'}
           </span>
         </label>
@@ -113,9 +113,9 @@ export function StatusChangeForm({
       </div>
       {requirements.reviewDate && (
         <div>
-          <label htmlFor={`${id}-review`} className="block font-medium text-slate-700">
+          <label htmlFor={`${id}-review`} className="block font-medium text-fg-2">
             Review date{' '}
-            <span className="font-normal text-slate-500">
+            <span className="font-normal text-fg-subtle">
               (the finding reopens on this date unless accepted again)
             </span>
           </label>

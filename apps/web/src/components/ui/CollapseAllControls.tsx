@@ -13,7 +13,7 @@ export function useCollapseAll(): {
   const [command, setCommand] = useState<{ open: boolean; seq: number } | null>(null);
   const send = (open: boolean) => setCommand((c) => ({ open, seq: (c?.seq ?? 0) + 1 }));
   const button =
-    'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900';
+    'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-3 hover:text-fg';
   return {
     controls: (
       <div className="flex items-center gap-1">

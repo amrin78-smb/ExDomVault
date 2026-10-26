@@ -137,7 +137,8 @@ describe('asset owner never sees another tenant’s data', () => {
       // Including filters that name the other tenant explicitly.
       for (const query of ['', `?domainId=${foreignIds[0]}`, `?q=${OTHER}`, '?status=all']) {
         const res = await call('asset_owner', 'GET', `${path}${query}`);
-        const text = await res.text();
+        // GET /search echoes the query string as `q`; that echo is the caller's own input.
+        const text = (await res.text()).replace(`"q":"${OTHER}"`, '"q":""');
         const isForeignPath = foreignIds.some((id) => path.includes(id));
         // Echoing the requested id back in a 404/400 is not a leak; anything with a 200 is.
         const found = leaks(text).filter(

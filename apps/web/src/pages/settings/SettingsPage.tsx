@@ -19,7 +19,7 @@ import { formatDate, formatDateTime } from '../../lib/format.ts';
 import { usePermission, usePermissions, useSession } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
 
-const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
+const inputClass = 'w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
 
 const KEYGEN = `openssl genpkey -algorithm ed25519 -out worker.key
 chmod 600 worker.key
@@ -52,7 +52,7 @@ export function SettingsPage() {
         title="Settings"
         description="Users, scan profiles, the audit log, intelligence feeds, system health, scanning workers and approved networks."
       />
-      <nav aria-label="Settings sections" className="mb-6 border-b border-slate-200">
+      <nav aria-label="Settings sections" className="mb-6 border-b border-line">
         <ul className="-mb-px flex flex-wrap gap-1">
           {visible.map((t) => {
             const current = t.key === tab.key;
@@ -64,7 +64,7 @@ export function SettingsPage() {
                   className={`inline-block border-b-2 px-3 py-2 text-sm font-medium ${
                     current
                       ? 'border-sky-700 text-sky-800'
-                      : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                      : 'border-transparent text-fg-muted hover:border-line-strong hover:text-fg'
                   }`}
                 >
                   {t.label}
@@ -75,7 +75,7 @@ export function SettingsPage() {
         </ul>
       </nav>
       {session.status === 'loading' && tab.permission !== null ? (
-        <p role="status" className="py-8 text-center text-sm text-slate-500">
+        <p role="status" className="py-8 text-center text-sm text-fg-subtle">
           Loading…
         </p>
       ) : allowed ? (
@@ -141,12 +141,12 @@ function WorkersSection() {
   return (
     <Card title="Scanning workers">
       <div className="space-y-5 text-sm">
-        <p className="text-slate-600">
+        <p className="text-fg-muted">
           The home worker signs every request with its own Ed25519 private key. Only the public key
           is registered here, so nothing stored in ExDomainVault can be used to impersonate the
           worker. Generate the key on the worker machine:
         </p>
-        <pre className="overflow-x-auto rounded bg-slate-100 p-2 font-mono text-xs text-slate-700">
+        <pre className="overflow-x-auto rounded bg-surface-3 p-2 font-mono text-xs text-fg-2">
           {KEYGEN}
         </pre>
 
@@ -164,13 +164,13 @@ function WorkersSection() {
           }}
         />
 
-        {state.status === 'loading' && <p className="text-slate-500">Loading workers…</p>}
+        {state.status === 'loading' && <p className="text-fg-subtle">Loading workers…</p>}
         {state.status === 'error' && <ErrorAlert error={state.error} />}
         {state.status === 'success' &&
           (state.data.items.length === 0 ? (
             <EmptyState title="No workers registered" icon={Server} />
           ) : (
-            <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
+            <ul className="divide-y divide-line-soft rounded-md border border-line">
               {state.data.items.map((w) => (
                 <WorkerRow key={w.id} worker={w} onChanged={refresh} />
               ))}
@@ -209,7 +209,7 @@ function RegisterWorkerForm({
   return (
     <form onSubmit={submit} aria-label="Register a worker" className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3">
-        <label className="block font-medium text-slate-700">
+        <label className="block font-medium text-fg-2">
           Worker name
           <input
             className={`${inputClass} mt-1 font-mono`}
@@ -219,7 +219,7 @@ function RegisterWorkerForm({
             required
           />
         </label>
-        <label className="block font-medium text-slate-700 sm:col-span-2">
+        <label className="block font-medium text-fg-2 sm:col-span-2">
           Public key (base64)
           <input
             className={`${inputClass} mt-1 font-mono`}
@@ -260,13 +260,13 @@ function WorkerRow({ worker, onChanged }: { worker: Worker; onChanged: () => voi
     <li className="space-y-2 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <span className="font-mono font-medium text-slate-900">{worker.name}</span>
+          <span className="font-mono font-medium text-fg">{worker.name}</span>
           <span
             className={`ml-2 text-xs ${worker.status === 'active' ? 'text-emerald-700' : 'text-red-700'}`}
           >
             {worker.status}
           </span>
-          <span className="ml-2 text-xs text-slate-500">
+          <span className="ml-2 text-xs text-fg-subtle">
             {worker.lastSeenAt
               ? `last seen ${formatDateTime(worker.lastSeenAt)}`
               : 'never connected'}
@@ -287,7 +287,7 @@ function WorkerRow({ worker, onChanged }: { worker: Worker; onChanged: () => voi
       </div>
       <table className="min-w-full text-xs">
         <thead>
-          <tr className="text-left text-slate-500">
+          <tr className="text-left text-fg-subtle">
             <th scope="col" className="py-1 pr-3 font-medium">
               Key id
             </th>
@@ -305,7 +305,7 @@ function WorkerRow({ worker, onChanged }: { worker: Worker; onChanged: () => voi
         </thead>
         <tbody>
           {worker.credentials.map((c) => (
-            <tr key={c.id} className={c.revokedAt ? 'text-slate-400 line-through' : ''}>
+            <tr key={c.id} className={c.revokedAt ? 'text-fg-faint line-through' : ''}>
               <td className="py-1 pr-3 font-mono">{c.id}</td>
               <td className="py-1 pr-3 font-mono">{c.fingerprint}</td>
               <td className="py-1 pr-3">{formatDate(c.expiresAt)}</td>

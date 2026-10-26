@@ -49,7 +49,7 @@ export function DomainFindingsCard({ domain }: { domain: Domain }) {
       {canRead ? (
         <DomainFindings domainId={domain.id} summary={summary} />
       ) : (
-        <p className="text-sm text-slate-500">Your role cannot view findings.</p>
+        <p className="text-sm text-fg-subtle">Your role cannot view findings.</p>
       )}
     </Card>
   );
@@ -73,7 +73,7 @@ function DomainFindings({
 
   if (summary.status === 'loading' || top.status === 'loading') {
     return (
-      <p className="text-sm text-slate-500" role="status">
+      <p className="text-sm text-fg-subtle" role="status">
         Loading findings…
       </p>
     );
@@ -83,7 +83,7 @@ function DomainFindings({
   }
   if (!summary.data || summary.data.total === 0) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-fg-subtle">
         No active findings. Rules run on each completed scan; results appear within about five
         minutes of a scan finishing.
       </p>
@@ -100,7 +100,7 @@ function DomainFindings({
           )}
           {top.status === 'success' && (
             <>
-              <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+              <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-subtle">
                 Highest risk
               </h3>
               <FindingList items={top.data.items} />

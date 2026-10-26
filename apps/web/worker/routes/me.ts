@@ -9,6 +9,7 @@ export const meRoutes = new Hono<AppBindings>().get('/', (c) => {
     user,
     permissions: [...ROLE_PERMISSIONS[user.role]],
     authProvider: c.get('identity').provider,
+    organisation: c.get('config').organisation,
   };
   return c.json(body);
 });

@@ -12,6 +12,9 @@ Per target: ``A``, ``AAAA``, ``CNAME``. At the job's apex additionally ``MX``, `
   (e.g. a null MX is ``0 .``).
 - NXDOMAIN / NODATA: ``success`` with ``values: []`` and ``evidence.rcode``.
 - Resolver timeout: ``timeout``; other resolver failures: ``error`` with the exception class only.
+- ``geo`` (Milestone 13, A/AAAA only): ``[{ip, country}]`` for values the offline DB-IP database
+  (``app.geoip``) places in a country, in ``values`` order; omitted when empty. Display-only, never
+  used for scope decisions; a lookup error omits the field and never fails the query.
 """
 
 from __future__ import annotations
@@ -25,6 +28,9 @@ import dns.name
 import dns.resolver
 
 from app.checks import CHECKER_VERSION, CheckContext, utc_now_iso
+
+#: ``ip -> ISO 3166-1 alpha-2 country`` or None (``GeoIp.country``).
+GeoLookup = Callable[[str], str | None]
 
 TARGET_RECORD_TYPES: tuple[str, ...] = ("A", "AAAA", "CNAME")
 APEX_RECORD_TYPES: tuple[str, ...] = ("MX", "NS", "TXT", "CAA", "SOA", "DS", "DNSKEY")
@@ -126,12 +132,33 @@ def normalise_values(rdtype: str, values: list[str]) -> tuple[list[str], bool]:
     return clipped, truncated
 
 
+def geo_entries(
+    lookup: Callable[[str], str | None] | None, rdtype: str, values: list[str]
+) -> list[dict[str, str]]:
+    """``[{ip, country}]`` for A/AAAA values with a known country, in ``values`` order (≤ 100).
+    Any error yields ``[]`` — geo must never fail or alter a DNS observation."""
+    if lookup is None or rdtype not in ("A", "AAAA"):
+        return []
+    out: list[dict[str, str]] = []
+    try:
+        for value in values[:100]:
+            if len(value) > 45:
+                continue
+            country = lookup(value)
+            if country and len(country) == 2 and country.isascii() and country.isupper():
+                out.append({"ip": value, "country": country})
+    except Exception:
+        return []
+    return out
+
+
 def query_to_observation(
     resolver: DnsResolver,
     target_id: str,
     hostname: str,
     rdtype: str,
     lifetime: float,
+    geo: GeoLookup | None = None,
 ) -> dict[str, Any]:
     """Runs one query and maps the outcome to a ``dns`` observation (never raises DNS errors)."""
     try:
@@ -168,7 +195,7 @@ def query_to_observation(
     ttl = answer.ttl if values else None
     if ttl is not None:
         ttl = max(0, min(int(ttl), 2_147_483_647))
-    return _observation(
+    observation = _observation(
         target_id,
         hostname,
         rdtype,
@@ -177,6 +204,10 @@ def query_to_observation(
         values=values,
         evidence=evidence,
     )
+    entries = geo_entries(geo, rdtype, values)
+    if entries:
+        observation["geo"] = entries
+    return observation
 
 
 def planned_queries(hostname: str, is_apex: bool) -> list[tuple[str, str]]:
@@ -194,6 +225,7 @@ def check_dns(
     is_apex: bool,
     ctx: CheckContext,
     sink: Callable[[dict[str, Any]], None],
+    geo: GeoLookup | None = None,
 ) -> None:
     """Queries every planned record for one target, appending observations to ``sink``.
 
@@ -203,4 +235,4 @@ def check_dns(
     for name, rdtype in planned_queries(hostname, is_apex):
         ctx.before_network_call()
         lifetime = max(0.1, min(ctx.read_seconds, ctx.remaining()))
-        sink(query_to_observation(resolver, target_id, name, rdtype, lifetime))
+        sink(query_to_observation(resolver, target_id, name, rdtype, lifetime, geo))

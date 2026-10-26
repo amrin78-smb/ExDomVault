@@ -78,23 +78,23 @@ export function AssetDecisionForm({
       onSubmit={submit}
       noValidate
       aria-labelledby={`${id}-title`}
-      className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm"
+      className="space-y-3 rounded-md border border-line bg-surface-2 p-3 text-sm"
     >
-      <h3 id={`${id}-title`} className="font-semibold text-slate-800">
+      <h3 id={`${id}-title`} className="font-semibold text-fg">
         {title}
       </h3>
-      <p className="text-slate-600">{ASSET_ACTION_HELP[action]}</p>
-      {description && <div className="text-slate-600">{description}</div>}
+      <p className="text-fg-muted">{ASSET_ACTION_HELP[action]}</p>
+      {description && <div className="text-fg-muted">{description}</div>}
       <div>
-        <label htmlFor={`${id}-reason`} className="block font-medium text-slate-700">
+        <label htmlFor={`${id}-reason`} className="block font-medium text-fg-2">
           Reason{' '}
-          <span className="font-normal text-slate-500">
+          <span className="font-normal text-fg-subtle">
             (required, at least {REASON_MIN} characters; recorded in the audit log)
           </span>
         </label>
         <textarea
           id={`${id}-reason`}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm"
+          className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm"
           rows={3}
           value={reason}
           onChange={(e) => setReason(e.target.value)}

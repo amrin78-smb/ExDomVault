@@ -245,7 +245,7 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         const id = uuidParam(c, 'id');
         const query = parseQuery(c, assetListQuerySchema);
         const db = await c.get('db')();
-        return c.json(await listAssets(db, c.get('user'), { ...query, domainId: id }, id));
+        return c.json(await listAssets(db, c.get('user'), { ...query, domainId: id }, id, now()));
       })
       // Exposed software on the domain (Milestone 11); same permission and visibility as /software.
       .get('/:id/software', requirePermission('findings:read'), async (c) => {

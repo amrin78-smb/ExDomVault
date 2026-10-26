@@ -26,3 +26,4 @@ export * from './domain/roles.ts';
 export * from './domain/severity.ts';
 export * from './domain/software.ts';
 export * from './domain/finding-lifecycle.ts';
+export * from './domain/continents.ts';

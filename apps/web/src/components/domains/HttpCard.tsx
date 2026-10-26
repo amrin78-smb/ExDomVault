@@ -75,7 +75,7 @@ export function HttpCard({ state }: { state: AsyncState<{ http: HttpSnapshot[] }
       summary={httpSummary(state)}
     >
       {state.status === 'loading' && (
-        <p className="text-sm text-slate-500" role="status">
+        <p className="text-sm text-fg-subtle" role="status">
           Loading HTTP observations…
         </p>
       )}
@@ -123,16 +123,16 @@ function HttpEntry({ snapshot: s }: { snapshot: HttpSnapshot }) {
 
   return (
     <section aria-labelledby={headingId} className="space-y-3 text-sm">
-      <h3 id={headingId} className="break-all font-mono text-sm font-semibold text-slate-800">
+      <h3 id={headingId} className="break-all font-mono text-sm font-semibold text-fg">
         {s.url}
         {s.finalUrl && s.finalUrl !== s.url && (
-          <span className="font-normal text-slate-600"> → {s.finalUrl}</span>
+          <span className="font-normal text-fg-muted"> → {s.finalUrl}</span>
         )}
       </h3>
       <ResultNote status={s.resultStatus} prefix="HTTP" />
-      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
         <span>
-          Status <span className="font-mono text-slate-900">{s.statusCode ?? '—'}</span>
+          Status <span className="font-mono text-fg">{s.statusCode ?? '—'}</span>
         </span>
         <span>
           {s.redirectCount} redirect{s.redirectCount === 1 ? '' : 's'}
@@ -150,7 +150,7 @@ function HttpEntry({ snapshot: s }: { snapshot: HttpSnapshot }) {
       {connected && (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs" aria-label={`Security headers of ${s.url}`}>
-            <thead className="border-b border-slate-200 uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-line uppercase tracking-wide text-fg-subtle">
               <tr>
                 <th scope="col" className="py-1.5 pr-3 font-medium">
                   Security header
@@ -160,19 +160,19 @@ function HttpEntry({ snapshot: s }: { snapshot: HttpSnapshot }) {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line-soft">
               {SECURITY_HEADERS.map((name) => {
                 const value = text(source[name]);
                 return (
                   <tr key={name} className="align-top">
-                    <th scope="row" className="py-1.5 pr-3 font-mono font-normal text-slate-800">
+                    <th scope="row" className="py-1.5 pr-3 font-mono font-normal text-fg">
                       {name}
                     </th>
                     <td className="py-1.5">
                       {value ? (
-                        <span className="break-all font-mono text-slate-700">{value}</span>
+                        <span className="break-all font-mono text-fg-2">{value}</span>
                       ) : (
-                        <span className="text-slate-500">Missing</span>
+                        <span className="text-fg-subtle">Missing</span>
                       )}
                     </td>
                   </tr>
@@ -185,20 +185,20 @@ function HttpEntry({ snapshot: s }: { snapshot: HttpSnapshot }) {
 
       {(server || poweredBy) && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <p className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
             Disclosed software (not verified)
           </p>
           <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-xs">
             {server && (
               <>
-                <dt className="font-mono text-slate-500">server</dt>
-                <dd className="break-all text-slate-800">{server}</dd>
+                <dt className="font-mono text-fg-subtle">server</dt>
+                <dd className="break-all text-fg">{server}</dd>
               </>
             )}
             {poweredBy && (
               <>
-                <dt className="font-mono text-slate-500">x-powered-by</dt>
-                <dd className="break-all text-slate-800">{poweredBy}</dd>
+                <dt className="font-mono text-fg-subtle">x-powered-by</dt>
+                <dd className="break-all text-fg">{poweredBy}</dd>
               </>
             )}
           </dl>
@@ -207,14 +207,14 @@ function HttpEntry({ snapshot: s }: { snapshot: HttpSnapshot }) {
 
       {hopList.length > 0 && (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Requests</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Requests</p>
           <ol aria-label={`Requests for ${s.url}`} className="mt-1 space-y-1 text-xs">
             {hopList.map((h, i) => (
               <li key={`${i}:${h.url}`} className="flex flex-wrap gap-x-2">
-                <span className="break-all font-mono text-slate-800">{h.url}</span>
-                {h.ip && <span className="font-mono text-slate-500">{h.ip}</span>}
-                {h.status !== null && <span className="text-slate-600">{h.status}</span>}
-                <span className="text-slate-600">
+                <span className="break-all font-mono text-fg">{h.url}</span>
+                {h.ip && <span className="font-mono text-fg-subtle">{h.ip}</span>}
+                {h.status !== null && <span className="text-fg-muted">{h.status}</span>}
+                <span className="text-fg-muted">
                   {DECISION_TEXT[h.decision] ?? `${h.decision} — not followed`}
                 </span>
               </li>
@@ -223,7 +223,7 @@ function HttpEntry({ snapshot: s }: { snapshot: HttpSnapshot }) {
         </div>
       )}
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-fg-subtle">
         Observed <ObservedLink at={s.observedAt} scanJobId={s.scanJobId} />
       </p>
     </section>

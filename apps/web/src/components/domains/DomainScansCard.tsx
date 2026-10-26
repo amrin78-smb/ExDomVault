@@ -83,10 +83,10 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
       <div className="space-y-4 text-sm">
         {canRequest && profiles.status === 'success' && (
           <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-fg-muted">
               <span className="mb-1 block">Profile</span>
               <select
-                className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm"
+                className="rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm shadow-sm"
                 value={profile}
                 onChange={(e) => setProfile(e.target.value)}
               >
@@ -111,7 +111,7 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
           </div>
         )}
         {profiles.status === 'success' && (
-          <div className="space-y-1 text-xs text-slate-500">
+          <div className="space-y-1 text-xs text-fg-subtle">
             <p>{pickable.find((p) => p.key === profile)?.description}</p>
             {pickable.find((p) => p.key === profile)?.config.active && (
               <p data-testid="tier-note">
@@ -126,9 +126,9 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
         {recent.status === 'error' && <ErrorAlert error={recent.error} />}
         {recent.status === 'success' &&
           (recent.data.items.length === 0 ? (
-            <p className="text-slate-500">No scans yet.</p>
+            <p className="text-fg-subtle">No scans yet.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-line-soft">
               {recent.data.items.map((j) => (
                 <li key={j.id} className="flex items-center justify-between gap-3 py-2">
                   <Link to={`/scans/${j.id}`} className="text-sky-800 hover:underline">

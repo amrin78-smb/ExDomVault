@@ -425,3 +425,39 @@ describe('0001_domain_authorisation', () => {
     }
   });
 });
+
+describe('0008_inventory_geo', () => {
+  it('adds a nullable ISO alpha-2 country code to asset addresses', async () => {
+    const { asset } = await seedDomainAndAsset('geo.example');
+    const [row] = await t.db
+      .insert(assetIps)
+      .values({ assetId: asset.id, ipAddress: '192.0.2.20', source: 'dns' })
+      .returning();
+    expect(row!.countryCode).toBeNull();
+    await t.db
+      .insert(assetIps)
+      .values({ assetId: asset.id, ipAddress: '192.0.2.21', source: 'dns', countryCode: 'NL' });
+    for (const bad of ['nl', 'NLD', 'N', '1A', '']) {
+      expect(
+        await violation(() =>
+          t.db.insert(assetIps).values({
+            assetId: asset.id,
+            ipAddress: `192.0.2.${30 + bad.length}`,
+            source: 'dns',
+            countryCode: bad,
+          }),
+        ),
+      ).toBe('asset_ips_country_code_format');
+    }
+  });
+
+  it('indexes the latest-per-key lookups of the inventory views', async () => {
+    const { rows } = await t.pglite.query<{ indexname: string }>(
+      "select indexname from pg_indexes where indexname in ('port_observations_ip_port_time_idx', 'tls_observations_host_port_time_idx') order by 1",
+    );
+    expect(rows.map((r) => r.indexname)).toEqual([
+      'port_observations_ip_port_time_idx',
+      'tls_observations_host_port_time_idx',
+    ]);
+  });
+});

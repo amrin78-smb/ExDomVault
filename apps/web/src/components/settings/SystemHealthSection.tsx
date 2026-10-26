@@ -35,10 +35,10 @@ const WORKER_STATUS: Record<WorkerStatus, { label: string; icon: LucideIcon; cla
     online: { label: 'Online', icon: CheckCircle2, className: 'text-emerald-800' },
     stale: { label: 'Not seen recently', icon: Clock, className: 'text-amber-800' },
     offline: { label: 'Offline', icon: XCircle, className: 'text-red-800' },
-    never_seen: { label: 'Never seen', icon: CircleDashed, className: 'text-slate-600' },
+    never_seen: { label: 'Never seen', icon: CircleDashed, className: 'text-fg-muted' },
   };
 
-const th = 'py-1.5 pr-4 text-left text-xs font-medium text-slate-500';
+const th = 'py-1.5 pr-4 text-left text-xs font-medium text-fg-subtle';
 const td = 'py-1.5 pr-4';
 
 const percent = (rate: number | null) => (rate === null ? '—' : `${Math.round(rate * 1000) / 10}%`);
@@ -61,7 +61,7 @@ export function SystemHealthSection() {
 
   if (state.status === 'loading') {
     return (
-      <p role="status" className="py-8 text-center text-sm text-slate-500">
+      <p role="status" className="py-8 text-center text-sm text-fg-subtle">
         Loading system health…
       </p>
     );
@@ -82,7 +82,7 @@ export function SystemHealthSection() {
   const h = state.data;
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-fg-muted">
         <p>
           Computed by the server at {formatDateTime(h.generatedAt)}. Refreshes every minute while
           this page is open.
@@ -189,7 +189,7 @@ function WorkersCard({ workers }: { workers: Health['workers'] }) {
       }
     >
       {workers.length === 0 ? (
-        <p className="text-sm text-slate-500">No workers registered.</p>
+        <p className="text-sm text-fg-subtle">No workers registered.</p>
       ) : (
         <table className="min-w-full text-sm">
           <thead>
@@ -208,7 +208,7 @@ function WorkersCard({ workers }: { workers: Health['workers'] }) {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line-soft">
             {workers.map((w) => {
               const s = WORKER_STATUS[w.status];
               return (
@@ -271,7 +271,7 @@ function QueueCard({ queue }: { queue: Health['queue'] }) {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 tabular-nums">
+            <tbody className="divide-y divide-line-soft tabular-nums">
               {queue.byProfile.map((p) => (
                 <tr key={p.profile}>
                   <td className={`${td} font-mono text-xs`}>{p.profile}</td>
@@ -332,10 +332,10 @@ function ScansCard({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 tabular-nums">
+            <tbody className="divide-y divide-line-soft tabular-nums">
               {rows.map(([label, w]) => (
                 <tr key={label}>
-                  <th scope="row" className={`${td} text-left font-medium text-slate-800`}>
+                  <th scope="row" className={`${td} text-left font-medium text-fg`}>
                     {label}
                   </th>
                   <td className={`${td} text-right`}>{w.succeeded}</td>
@@ -350,17 +350,17 @@ function ScansCard({
           </table>
         </div>
         <div>
-          <h3 className="mb-1 text-xs font-medium text-slate-500">
+          <h3 className="mb-1 text-xs font-medium text-fg-subtle">
             Top failure codes (last 24 hours)
           </h3>
           {failures.length === 0 ? (
-            <p className="text-sm text-slate-500">No failures in the last 24 hours.</p>
+            <p className="text-sm text-fg-subtle">No failures in the last 24 hours.</p>
           ) : (
-            <ul className="divide-y divide-slate-100 text-sm" aria-label="Top failure codes">
+            <ul className="divide-y divide-line-soft text-sm" aria-label="Top failure codes">
               {failures.map((f) => (
                 <li key={f.code} className="flex justify-between gap-4 py-1.5">
-                  <span className="font-mono text-xs text-slate-800">{f.code}</span>
-                  <span className="tabular-nums text-slate-700">{f.count}</span>
+                  <span className="font-mono text-xs text-fg">{f.code}</span>
+                  <span className="tabular-nums text-fg-2">{f.count}</span>
                 </li>
               ))}
             </ul>
@@ -379,7 +379,7 @@ function DatabaseCard({ database }: { database: Health['database'] }) {
       summary={database.ok ? 'Reachable' : 'Not responding'}
     >
       <div className="flex items-center gap-3 text-sm">
-        <Database className="size-5 text-slate-400" aria-hidden />
+        <Database className="size-5 text-fg-faint" aria-hidden />
         {database.ok ? (
           <span className="inline-flex items-center gap-1 font-medium text-emerald-800">
             <CheckCircle2 className="size-4" aria-hidden />
@@ -391,7 +391,7 @@ function DatabaseCard({ database }: { database: Health['database'] }) {
             Not responding
           </span>
         )}
-        <span className="text-slate-600">
+        <span className="text-fg-muted">
           {database.latencyMs === null ? 'Latency unknown' : `${database.latencyMs} ms round trip`}
         </span>
       </div>
@@ -413,27 +413,27 @@ function RetentionCard({ retention }: { retention: Health['retention'] }) {
     >
       <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-xs text-slate-500">Last cleanup</dt>
-          <dd className="text-slate-800">
+          <dt className="text-xs text-fg-subtle">Last cleanup</dt>
+          <dd className="text-fg">
             {retention.lastRunAt ? formatDateTime(retention.lastRunAt) : 'Not run yet'}
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-slate-500">Rows deleted in last cleanup</dt>
-          <dd className="tabular-nums text-slate-800">{retention.deletedLastRun}</dd>
+          <dt className="text-xs text-fg-subtle">Rows deleted in last cleanup</dt>
+          <dd className="tabular-nums text-fg">{retention.deletedLastRun}</dd>
         </div>
         <div>
-          <dt className="text-xs text-slate-500">Observations kept</dt>
-          <dd className="text-slate-800">
+          <dt className="text-xs text-fg-subtle">Observations kept</dt>
+          <dd className="text-fg">
             {retention.policy.observationDays} days (latest per key always kept)
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-slate-500">Finished scan jobs kept</dt>
-          <dd className="text-slate-800">{retention.policy.scanJobDays} days</dd>
+          <dt className="text-xs text-fg-subtle">Finished scan jobs kept</dt>
+          <dd className="text-fg">{retention.policy.scanJobDays} days</dd>
         </div>
       </dl>
-      <p className="mt-3 text-xs text-slate-500">
+      <p className="mt-3 text-xs text-fg-subtle">
         Findings, their status history, comments and the audit log are never deleted.
       </p>
     </Card>

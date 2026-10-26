@@ -28,7 +28,7 @@ const STATUS_LABELS = {
 } as const;
 
 const selectClass =
-  'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
+  'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm';
 
 export function SoftwarePage() {
   const [params, setParams] = useSearchParams();
@@ -79,7 +79,7 @@ export function SoftwarePage() {
 
         <Card title="Portfolio by product">
           {summary.status === 'loading' && (
-            <p className="text-sm text-slate-500" role="status">
+            <p className="text-sm text-fg-subtle" role="status">
               Loading summary…
             </p>
           )}
@@ -88,7 +88,7 @@ export function SoftwarePage() {
           )}
           {summary.status === 'success' &&
             (summary.data.products.length === 0 ? (
-              <p className="text-sm text-slate-500">No software recorded yet.</p>
+              <p className="text-sm text-fg-subtle">No software recorded yet.</p>
             ) : (
               <SoftwareRollup products={summary.data.products} productHref={productHref} />
             ))}
@@ -102,7 +102,7 @@ export function SoftwarePage() {
               </label>
               <div className="relative">
                 <Search
-                  className="pointer-events-none absolute left-2 top-2 size-4 text-slate-400"
+                  className="pointer-events-none absolute left-2 top-2 size-4 text-fg-faint"
                   aria-hidden
                 />
                 <input
@@ -111,12 +111,12 @@ export function SoftwarePage() {
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
                   placeholder="Hostname, domain or version"
-                  className="w-60 rounded-md border border-slate-300 py-1.5 pl-8 pr-2 text-sm shadow-sm"
+                  className="w-60 rounded-md border border-line-strong py-1.5 pl-8 pr-2 text-sm shadow-sm"
                 />
               </div>
               <Button type="submit">Search</Button>
             </form>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-fg-muted">
               <span className="mb-1 block">Product</span>
               <select
                 className={selectClass}
@@ -131,7 +131,7 @@ export function SoftwarePage() {
                 ))}
               </select>
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-fg-muted">
               <span className="mb-1 block">Show</span>
               <select
                 className={selectClass}
@@ -149,13 +149,13 @@ export function SoftwarePage() {
 
           {domainId && (
             <div className="mb-4 flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pl-2.5 pr-1 text-xs text-slate-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-surface-3 py-0.5 pl-2.5 pr-1 text-xs text-fg-2">
                 Domain: {domainLabel}
                 <button
                   type="button"
                   onClick={() => setParam('domainId', '')}
                   aria-label={`Clear filter Domain: ${domainLabel}`}
-                  className="rounded-full p-0.5 hover:bg-slate-200"
+                  className="rounded-full p-0.5 hover:bg-line"
                 >
                   <X className="size-3" aria-hidden />
                 </button>
@@ -172,7 +172,7 @@ export function SoftwarePage() {
             />
           )}
           {state.status === 'loading' && (
-            <p className="py-8 text-center text-sm text-slate-500" role="status">
+            <p className="py-8 text-center text-sm text-fg-subtle" role="status">
               Loading software…
             </p>
           )}

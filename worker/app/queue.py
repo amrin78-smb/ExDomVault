@@ -49,6 +49,7 @@ from app.client import ApiError, AuthError, LeaseLost, WorkerApiClient
 from app.config import WorkerConfig
 from app.discovery import DiscoveryProvider, DiscoveryUnavailable, run_discovery
 from app.dns_checks import DnsResolver, check_dns
+from app.geoip import GeoIp
 from app.health import HealthReporter
 from app.http_checks import check_http
 from app.logging_config import get_logger, log_event
@@ -244,6 +245,7 @@ class Worker:
         policy_factory: PolicyFactory = ScopePolicy.from_job,
         self_protection: SelfProtection | None = None,
         discovery_provider: DiscoveryProvider | None = None,
+        geoip: GeoIp | None = None,
     ) -> None:
         self._config = config
         self._api = api
@@ -260,6 +262,7 @@ class Worker:
             configured_deny=config.deny_networks
         )
         self._discovery = discovery_provider
+        self._geoip = geoip
         self._completed = 0
         self._total = 0
 
@@ -273,6 +276,7 @@ class Worker:
         )  # fmt: skip
         while not self.shutdown.is_set():
             self._refresh_self_protection()  # start-up, then hourly
+            self.refresh_geoip()  # between jobs: download when due, (re)load the cache
             try:
                 outcome = self.run_once()
             except Exception as exc:  # never let the loop die on a bug
@@ -287,6 +291,10 @@ class Worker:
         self._health.update(status="stopped")
         log_event(self._log, logging.INFO, "worker_stopped")
         return 0
+
+    def refresh_geoip(self) -> None:
+        if self._geoip is not None:
+            self._geoip.maybe_refresh()  # never raises
 
     def _refresh_self_protection(self) -> None:
         if self._config.active_scanning_enabled is True:
@@ -573,6 +581,7 @@ class Worker:
         checks = spec.checks
         holder = run.policy
         resolver = run.resolver
+        geo = self._geoip.country if self._geoip is not None and self._geoip.enabled else None
         discovery_ran: list[bool] = []
 
         def discover(_policy: ScopePolicy | None) -> None:
@@ -623,7 +632,9 @@ class Worker:
             if "dns" in checks:
                 guarded(
                     ("dns",),
-                    lambda _p: check_dns(resolver, target.id, hostname, is_apex, ctx, sink),
+                    lambda _p: check_dns(
+                        resolver, target.id, hostname, is_apex, ctx, sink, geo=geo
+                    ),
                     connecting=False,
                 )
             if "rdap" in checks and is_apex:

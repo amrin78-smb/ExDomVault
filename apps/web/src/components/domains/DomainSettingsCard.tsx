@@ -12,7 +12,7 @@ import { Card } from '../ui/Card.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 import { CriticalityLabel } from './DomainBadges.tsx';
 
-const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
+const inputClass = 'w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
 
 /** Business owner, criticality and monitoring. Monitoring changes need explicit confirmation. */
 export function DomainSettingsCard({
@@ -71,10 +71,10 @@ export function DomainSettingsCard({
       {canWrite ? (
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-sm font-medium text-slate-700">
+            <label className="block text-sm font-medium text-fg-2">
               Criticality
               <select
-                className={`${inputClass} mt-1 bg-white`}
+                className={`${inputClass} mt-1 bg-surface`}
                 value={criticality}
                 onChange={(e) => setCriticality(e.target.value as Criticality)}
               >
@@ -85,7 +85,7 @@ export function DomainSettingsCard({
                 ))}
               </select>
             </label>
-            <label className="block text-sm font-medium text-slate-700">
+            <label className="block text-sm font-medium text-fg-2">
               Business owner
               <input
                 className={`${inputClass} mt-1`}
@@ -109,7 +109,7 @@ export function DomainSettingsCard({
       ) : (
         <dl className="grid gap-4 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
               Criticality
             </dt>
             <dd className="mt-1">
@@ -117,7 +117,7 @@ export function DomainSettingsCard({
             </dd>
           </div>
           <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
               Business owner
             </dt>
             <dd className="mt-1">{domain.businessOwner ?? 'Not set'}</dd>
@@ -125,13 +125,13 @@ export function DomainSettingsCard({
         </dl>
       )}
 
-      <div className="mt-5 border-t border-slate-100 pt-4 text-sm">
+      <div className="mt-5 border-t border-line-soft pt-4 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-medium text-slate-800">
+            <p className="font-medium text-fg">
               Monitoring is {domain.monitoringEnabled ? 'on' : 'off'}
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-fg-subtle">
               Passive monitoring of public DNS, certificates and registration data, once collection
               is available. Active scanning also requires verification.
             </p>
@@ -146,9 +146,9 @@ export function DomainSettingsCard({
           <div
             role="alertdialog"
             aria-label="Confirm monitoring change"
-            className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+            className="mt-3 rounded-md border border-line bg-surface-2 p-3"
           >
-            <p className="text-slate-700">
+            <p className="text-fg-2">
               {domain.monitoringEnabled
                 ? `Stop monitoring ${domain.fqdn}? Scheduled checks for this domain will stop.`
                 : `Start monitoring ${domain.fqdn}? Public DNS, certificate and registration data will be collected on a schedule.`}

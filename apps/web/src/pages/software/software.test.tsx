@@ -36,14 +36,14 @@ const rowOf = (text: string) => {
 };
 
 describe('Software page', () => {
-  it('is in the primary navigation after Assets', async () => {
+  it('is in the primary navigation after Certificates (Milestone 13 order)', async () => {
     stubSoftware();
     renderAt('/software');
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     const labels = within(nav)
       .getAllByRole('link')
       .map((l) => l.textContent);
-    expect(labels.indexOf('Software')).toBe(labels.indexOf('Assets') + 1);
+    expect(labels.indexOf('Software')).toBe(labels.indexOf('Certificates') + 1);
     expect(screen.getByRole('heading', { level: 1, name: 'Software' })).toBeInTheDocument();
   });
 

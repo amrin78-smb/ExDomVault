@@ -10,7 +10,7 @@ export function SeverityCounts({ bySeverity }: { bySeverity: Partial<Record<Seve
       {ORDERED.map((sev) => (
         <li key={sev} className="flex items-center justify-between text-sm">
           <SeverityBadge severity={sev} />
-          <span className="tabular-nums font-medium text-slate-800" data-testid={`count-${sev}`}>
+          <span className="tabular-nums font-medium text-fg" data-testid={`count-${sev}`}>
             {bySeverity[sev] ?? 0}
           </span>
         </li>

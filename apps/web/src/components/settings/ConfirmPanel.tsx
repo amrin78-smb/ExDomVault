@@ -44,10 +44,10 @@ export function ConfirmPanel({
         danger ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'
       }`}
     >
-      <p id={titleId} className="font-medium text-slate-900">
+      <p id={titleId} className="font-medium text-fg">
         {title}
       </p>
-      <div id={bodyId} className="text-slate-700">
+      <div id={bodyId} className="text-fg-2">
         {children}
       </div>
       <div className="flex gap-2">

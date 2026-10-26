@@ -115,9 +115,14 @@ signed in (subject is bound) → email in `BOOTSTRAP_ADMIN_EMAILS` (created as a
     "role": "admin"
   },
   "permissions": ["users:manage", "…"],
-  "authProvider": "dev"
+  "authProvider": "dev",
+  "organisation": "Example Org"
 }
 ```
+
+`organisation` (Milestone 13) comes from the optional Worker binding `ORG_NAME` (a Worker secret in
+production, so the name is not committed): control characters removed, trimmed, cut to 100
+characters; `null` when unset or blank. It is a display label only and never fails configuration.
 
 ## Domains
 
@@ -771,6 +776,15 @@ Query (`assetListQuerySchema`): `page` (≥1), `pageSize` (1–100, default 25),
 case-insensitive, LIKE wildcards literal), `sort` (`hostname` default, `-lastSeenAt`, `-firstSeenAt`).
 Returns the standard page envelope `{ items, page, pageSize, total }`.
 
+Milestone 13: every asset carries `role` — its primary role from collected evidence
+(`classifyAssetRole`, computed per page by `assetRolesFor` in one statement): MX/NS target of a
+monitored apex (latest successful answer), open TCP role ports on its current addresses (latest
+port observation per address/port), a successful HTTP response within 30 days, or third-party
+hosting; else `unclassified`. Optional `role` filter (`ASSET_ROLES`; invalid → `400`): roles are
+evaluated for up to `ASSET_ROLE_FILTER_LIMIT` (5000) assets matching the other filters, in sort
+order, then paged in memory (beyond that the list and `total` are truncated). The asset CSV export
+ignores `role`. `GET /assets/:id` includes `role` too.
+
 ### `GET /api/v1/domains/:id/assets` — `assets:read`
 
 As `GET /assets`, scoped to the domain (a `domainId` query parameter cannot widen it). `404` for an
@@ -1153,6 +1167,134 @@ endoflife.date and CISA KEV immediately (bounded by the timeouts above; at most 
 within a minute of the last attempt the call is a no-op). NVD is never triggered manually (rate limits).
 Response `200` with **`intelFeedsResponseSchema`** — the feed list after the sync, so feed errors show
 up as `lastError` rather than as an HTTP error.
+
+## Overview dashboard and search (Milestone 13)
+
+Contracts: `packages/shared/src/api/dashboard.ts`, `packages/shared/src/api/search.ts`.
+Implementation: `routes/dashboard.ts`, `services/dashboard.ts`, `routes/search.ts`,
+`services/search.ts`.
+
+Both routes accept any role holding at least one of `domains:read`, `assets:read` or
+`findings:read` (today: every role) and gate each **section / group** by the permission of the list
+it summarises: domain counts — `domains:read`; scans — `scans:read`; assets, IPs, ports and
+certificates — `assets:read`; findings, software and vulnerabilities — `findings:read`. A section the
+caller may not read is zero / empty. Asset owners additionally see only data on assets they own
+(findings, assets, current IPs, certificates, software rows with that `asset_id`); domain counts and
+scans are always empty for them.
+
+### `GET /api/v1/dashboard?range=7|30|90`
+
+`dashboardResponseSchema`; `range` defaults to 30, anything else is `400 validation_failed`. Every card
+is one aggregate statement (`generate_series` for daily series, `DISTINCT ON` for latest
+observations), so the response costs a fixed number of queries. Days are UTC; a series has
+`range + 1` points (range start … today); `delta` = last point − first point.
+
+| Field                        | Definition                                                                                                                                                                                                                                                                                            |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lastScanAt`                 | Newest `completed_at` of a succeeded scan or discovery job                                                                                                                                                                                                                                            |
+| `stats.domains`              | `value` = all domains, `active` = `monitoring_enabled`; series = domains with `created_at` before each day's end                                                                                                                                                                                      |
+| `stats.assets`               | `value` = approved, `pending` = pending; series = currently approved assets with `approved_at` before each day's end                                                                                                                                                                                  |
+| `stats.openFindings`         | `value` = non-resolved findings (accepted risks included, as in reports); series = `first_seen_at` < day end and (`resolved_at` null or ≥ day end) — a reopened finding counts from its current `resolved_at` only                                                                                    |
+| `stats.criticalHigh`         | The same for `critical` and `high`                                                                                                                                                                                                                                                                    |
+| `stats.expiringCertificates` | Distinct hostnames whose latest **successful** TLS observation in the last 90 days has `not_after` ≤ now + 30 days (expired included); no history (`series` `[]`, `delta` null)                                                                                                                       |
+| `stats.eolSoftware`          | Software inventory rows whose (product, version) is on an end-of-life cycle; `kev` = rows with a possible known-exploited CVE — the same read-time computation as `GET /software` (`statusComputer`); no history                                                                                      |
+| `severity`                   | Non-resolved findings per severity (every severity key present)                                                                                                                                                                                                                                       |
+| `trend`                      | Per day: findings first seen that day by severity, and findings whose `resolved_at` falls on the day                                                                                                                                                                                                  |
+| `topRemediation`             | ≤ 5 actionable findings (`open`, `acknowledged`, `remediation_in_progress`; accepted risks excluded) by `risk_score` desc, severity desc, `first_seen_at`, id. `cves` = `evidence.cveId` when it is a CVE id (SOFT-002), else `[]`; `assetRole` from `assetRolesFor` (null for domain-level findings) |
+| `latestScans`                | ≤ 5 scan/discovery jobs newest first (`created_at`), `profile` = the scan profile's name                                                                                                                                                                                                              |
+| `certificateExpiry`          | ≤ 5 of the expiring certificates above, soonest first; `daysLeft` = floor of days remaining (negative if expired)                                                                                                                                                                                     |
+| `recentAssets`               | ≤ 5 assets by `first_seen_at` desc (any status), with their role                                                                                                                                                                                                                                      |
+| `topSoftware`                | ≤ 5 products by distinct hosts (`coalesce(hostname, ip)`), then product key; `versions` = ≤ 3 disclosed versions by distinct hosts (ties alphabetical); `eolHosts` = hosts on an end-of-life version; `kevCves` = distinct possible KEV CVEs across the reported versions                             |
+
+### `GET /api/v1/search?q=`
+
+`searchResponseSchema`. `q` is trimmed and must be 2–100 characters (`400 validation_failed`
+otherwise). Matching is case-insensitive substring `ILIKE` with `%`, `_` and `\` escaped (no
+wildcards); each group returns at most `SEARCH_GROUP_LIMIT` (5) rows ordered exact match first, then
+shortest, then alphabetically. Rate limiting is the global API limiter.
+
+| Group             | Matches                                                                                                                                                                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `domains`         | `domains.fqdn` (a Unicode term is also tried as its A-label)                                                                                                                                                                                               |
+| `assets`          | `assets.hostname` (same A-label handling)                                                                                                                                                                                                                  |
+| `ips`             | Only for IP-looking text (digits and dots, or hex with a colon): **prefix** match on `host(ip_address)` of current `asset_ips`; each with ≤ 10 visible assets currently resolving to it                                                                    |
+| `ports`           | Only for `443`, `port:443`, `port 443` (1–65535): addresses whose latest successful observation of that port is `open` (TCP preferred when both protocols exist), ordered by address; `hostname` = first visible asset currently on the address, else null |
+| `software`        | Inventory rows by product key, catalogue label or version (distinct product, version, host, domain); exact product/version first, then product, version                                                                                                    |
+| `vulnerabilities` | Only for CVE-looking text (`CVE-2024-38475`, `cve-2024`, `2024-384`): CVE ids that possibly affect at least one visible reported version (SOFT-002 matching), `affectedHosts` = distinct hosts on an affected version; `kev` from the advisory             |
+| `findings`        | Finding titles (all statuses)                                                                                                                                                                                                                              |
+
+## Inventory views (Milestone 13)
+
+Contract: `packages/shared/src/api/inventory.ts`. Implementation: `routes/inventory.ts`,
+`services/inventory.ts`, `services/attack-surface.ts`, `services/asset-roles.ts`. Read-only
+projections of collected observations, each a fixed handful of set-based statements. Paged lists
+take `page` (1–10 000) and `pageSize` (1–100, default 25); `q` is a trimmed 1–100 character
+case-insensitive substring. Asset owners see only data tied to assets they own; every other role
+sees everything (all four roles hold the permissions below, so no role gets `403` today).
+
+### `GET /api/v1/ports` — `assets:read`
+
+Query `portsQuerySchema`: `state` (`open` default, `closed`, `filtered`, `all`), `port` (1–65535),
+`domainId`, `q` (address, service or hostname), `sort` (`port` default → port, address, protocol;
+`ip` → address, port, protocol; `last_observed` → newest first, then address, port, protocol).
+
+One row per (address, port, protocol): the **latest successful** port observation. `hostnames` =
+assets whose current address it is (visible ones only, by hostname); `domain` = the first
+hostname's domain, else the observing job's domain; `country` = the address's `asset_ips`
+`country_code` (current rows first); `policyViolation` = an active (non-resolved) `EXP-002`
+finding whose component is `<ip>:<port>` (`[v6]:port`); `firstObservedAt` = earliest successful
+observation of that key. Asset owners see only addresses one of their assets currently resolves to.
+`counts` = rows by state over every filter **except** `state`; `total` = rows for the requested
+state.
+
+### `GET /api/v1/certificates` — `assets:read`
+
+Query `certificatesQuerySchema`: `status` (`expired`, `expiring`, `valid`, `mismatch`,
+`untrusted`), `domainId`, `q` (hostname, issuer or subject), `sort` (`expiry` default → `notAfter`
+ascending, nulls last, then hostname, port; `hostname` → hostname, port).
+
+One row per (hostname, port): the latest successful `tls_certificate` observation within the last
+90 days (older ones are ignored, as in the reports). `trusted` = `evidence.trusted` recorded by the
+worker's chain validation (null when absent). Status precedence: `expired` (`notAfter` passed) >
+`mismatch` (`hostnameMatches = false`) > `untrusted` (`trusted = false`) > `expiring` (`notAfter`
+within `CERTIFICATE_EXPIRING_DAYS` = 30) > `valid`. `daysLeft` = whole days to `notAfter` (floor).
+Asset owners see only observations of assets they own. `counts` cover every filter except `status`.
+
+### `GET /api/v1/vulnerabilities` — `findings:read`
+
+Query `vulnerabilitiesQuerySchema`: `kev` (`true`/`false`), `q` (CVE id, title, product key or
+label), `sort` (`hosts` default → affected hosts desc, CVSS desc, CVE; `cvss` → CVSS desc nulls
+last, CVE; `cve` → CVE ascending by year then number).
+
+One row per CVE that **possibly** affects at least one disclosed version in the software inventory,
+matched exactly like `SOFT-002`: a version precise enough to range-match (`preciseEnough`) inside
+any NVD range of a CISA KEV advisory (`matchAdvisories`, `nvd_status = 'ok'`). `affectedHosts` =
+distinct inventory locations (hostname, else address); `affectedDomains` = distinct domains;
+`openFindings` = active `SOFT-002` findings whose `evidence.cveId` is the CVE; `cvss` = highest over
+the CVE's product rows; `kevDueDate` is always null (the KEV sync stores `dateAdded` only). Every
+advisory the matcher considers is a KEV entry, so `kev=false` returns an empty list. Without any
+synced feed the list is empty. Up to 5000 (product, version) groups are evaluated. Asset owners see
+only inventory rows and findings on assets they own.
+
+### `GET /api/v1/attack-surface` — `assets:read`
+
+`attackSurfaceResponseSchema`, no query. Scope: **approved** assets visible to the caller and their
+**current** addresses.
+
+- `totals`: approved assets, distinct current addresses, open TCP ports (latest successful
+  observation per address/port that is `open`), approved assets with a hosting hint.
+- `assetRoles`: every role in `ASSET_ROLES` order with its count (0 allowed), from `assetRolesFor`.
+- `hostingProviders`: by `hosting_hint` provider/kind, null bucket = no known third party; sorted by
+  count desc, null last, then name.
+- `countries`: by `asset_ips.country_code` (an address whose rows disagree takes the lowest code);
+  `assets` / `ips` are distinct counts; sorted by addresses desc, assets desc, code.
+- `continents`: the same, via `continentOf` (`packages/shared/src/domain/continents.ts`: all 249
+  ISO 3166-1 codes plus `XK`; Russia → Europe, Turkey → Asia, Egypt → Africa, Panama → North America,
+  AQ/BV/GS/HM/TF → Antarctica). Only continents with data are listed.
+- `unknownCountryIps`: current addresses without a country; `geoAttribution` = `DBIP_ATTRIBUTION`
+  when any country is known, else null.
+- `exposedServices`: top 10 open TCP ports by distinct current addresses (ties by port), `service` =
+  the most common reported service name.
 
 ## Internal worker API — signed requests
 

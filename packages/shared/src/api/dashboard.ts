@@ -4,7 +4,9 @@ import { severitySchema } from '../domain/severity.ts';
 import { assetStatusSchema, assetSourceSchema } from './assets.ts';
 
 /**
- * Overview dashboard (Milestone 13). `GET /api/v1/dashboard?range=7|30|90` (`domains:read`).
+ * Overview dashboard (Milestone 13). `GET /api/v1/dashboard?range=7|30|90` (any of `domains:read`,
+ * `assets:read`, `findings:read`; each section needs its list's permission — asset owners have no
+ * `domains:read`/`scans:read`, so domain counts and scans are empty for them).
  * One request for the overview's headline cards; scoped like every list (asset owners see only
  * their assets and findings; domain-level counts are 0 for them). All numbers are real database
  * aggregates — nothing estimated or invented.

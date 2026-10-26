@@ -22,6 +22,7 @@ from app.client import Signer, WorkerApiClient
 from app.config import ConfigError, WorkerConfig, load_config
 from app.discovery import CrtShProvider
 from app.dns_checks import DnspythonResolver
+from app.geoip import GeoIp
 from app.health import HealthReporter, check_health
 from app.identity import load_private_key
 from app.logging_config import configure_logging, log_event
@@ -56,6 +57,8 @@ def build_worker(config: WorkerConfig, shutdown: threading.Event) -> Worker:
         shutdown=shutdown,
         # Passive discovery: fixed Certificate Transparency provider (crt.sh), never a target.
         discovery_provider=CrtShProvider(),
+        # Display-only country of A/AAAA answers (DB-IP Lite, downloaded to the state directory).
+        geoip=GeoIp(config.geoip_dir, enabled=config.geoip_enabled),
     )
 
 
@@ -93,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         profiles=list(config.profiles), cf_access_configured=config.access_client_id is not None,
         active_scanning_enabled=config.active_scanning_enabled, version=__version__,
         activeScanningEnabled=config.active_scanning_enabled, nmapAvailable=config.nmap_available,
+        geoipEnabled=config.geoip_enabled, geoipDir=config.geoip_dir,
     )  # fmt: skip
     if args.check_config:
         return 0
@@ -100,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     shutdown = threading.Event()
     worker = build_worker(config, shutdown)
     if args.once:
+        worker.refresh_geoip()
         outcome = worker.run_once()
         return 0 if outcome in ("idle", "job") else 1
     install_signal_handlers(shutdown)

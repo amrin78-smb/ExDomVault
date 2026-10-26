@@ -39,9 +39,9 @@ function CopyField({ label, value }: { label: string; value: string }) {
   };
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{label}</dt>
       <dd className="mt-1 flex items-start gap-2">
-        <code className="min-w-0 flex-1 break-all rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-800">
+        <code className="min-w-0 flex-1 break-all rounded bg-surface-3 px-2 py-1 font-mono text-xs text-fg">
           {value}
         </code>
         <Button onClick={copy} aria-label={`Copy ${label.toLowerCase()}`}>
@@ -175,19 +175,19 @@ export function VerificationPanel({
           {attested && challenge?.method === 'admin_attestation' && (
             <dl className="grid gap-3 sm:grid-cols-3">
               <div className="sm:col-span-3">
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
                   Reason
                 </dt>
                 <dd className="mt-1 whitespace-pre-line">{challenge.reason}</dd>
               </div>
               <div className="sm:col-span-2">
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
                   Reference
                 </dt>
                 <dd className="mt-1">{challenge.reference ?? '—'}</dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
                   Review by
                 </dt>
                 <dd className="mt-1">
@@ -197,11 +197,11 @@ export function VerificationPanel({
             </dl>
           )}
           {result?.outcome === 'verified' && (
-            <p className="text-slate-600" role="status">
+            <p className="text-fg-muted" role="status">
               {result.message}
             </p>
           )}
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-fg-subtle">
             {attested
               ? 'An administrator has recorded that the organisation owns this domain and authorises active scanning. This is weaker evidence than DNS proof and lapses on the review date unless renewed. '
               : "DNS proof shows control of this domain's zone. "}
@@ -220,10 +220,10 @@ export function VerificationPanel({
               aria-label="Confirm revocation"
               className="space-y-2 rounded-md border border-red-200 bg-red-50 p-3"
             >
-              <label className="block text-sm font-medium text-slate-700">
+              <label className="block text-sm font-medium text-fg-2">
                 Why is this verification being revoked?
                 <textarea
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+                  className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
                   rows={2}
                   value={revokeReason}
                   onChange={(e) => setRevokeReason(e.target.value)}
@@ -264,7 +264,7 @@ export function VerificationPanel({
     >
       <div className="space-y-4 text-sm">
         {!pending && !issued && (
-          <p className="text-slate-600">
+          <p className="text-fg-muted">
             {domain.verificationStatus === 'revoked'
               ? 'Verification of this domain was revoked.'
               : challenge?.status === 'expired'
@@ -287,7 +287,7 @@ export function VerificationPanel({
             <dl className="space-y-3">
               <CopyField label="Name" value={issued.record.name} />
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Type</dt>
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Type</dt>
                 <dd className="mt-1 font-mono text-xs">TXT</dd>
               </div>
               <CopyField label="Value" value={issued.record.value} />
@@ -299,20 +299,20 @@ export function VerificationPanel({
           <dl className="grid gap-3 sm:grid-cols-3">
             {!issued && recordName && (
               <div className="sm:col-span-3">
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
                   TXT record name
                 </dt>
                 <dd className="mt-1 font-mono text-xs">{recordName}</dd>
               </div>
             )}
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
                 Expires
               </dt>
               <dd className="mt-1">{formatDateTime(pending.expiresAt)}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
                 Last checked
               </dt>
               <dd className="mt-1">
@@ -320,7 +320,7 @@ export function VerificationPanel({
               </dd>
             </div>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
                 Last result
               </dt>
               <dd className="mt-1">
@@ -333,14 +333,14 @@ export function VerificationPanel({
         )}
 
         {pending && !issued && canVerify && (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-fg-subtle">
             The value was shown when verification started. If you no longer have it, generate a new
             one (the old value stops working).
           </p>
         )}
 
         {result && result.outcome !== 'verified' && (
-          <p role="status" className="rounded-md bg-slate-100 px-3 py-2 text-slate-700">
+          <p role="status" className="rounded-md bg-surface-3 px-3 py-2 text-fg-2">
             {result.message}
           </p>
         )}
@@ -379,7 +379,7 @@ export function VerificationPanel({
               void authorise();
             }}
           >
-            <p className="text-slate-700">
+            <p className="text-fg-2">
               Use this when the organisation owns the domain but its DNS is managed elsewhere (for
               example by the registrar). Your name, reason and reference are recorded in the audit
               log, and the authorisation lapses on the review date.

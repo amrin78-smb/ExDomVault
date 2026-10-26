@@ -57,18 +57,16 @@ export function FindingComments({
       }
     >
       {comments.length === 0 ? (
-        <p className="text-sm text-slate-500">No comments yet.</p>
+        <p className="text-sm text-fg-subtle">No comments yet.</p>
       ) : (
         <ol className="space-y-3 text-sm">
           {comments.map((c) => (
-            <li key={c.id} className="rounded-md border border-slate-100 px-3 py-2">
-              <div className="text-xs text-slate-500">
-                <span className="font-medium text-slate-700">
-                  {userLabel(c.author, 'Former user')}
-                </span>{' '}
+            <li key={c.id} className="rounded-md border border-line-soft px-3 py-2">
+              <div className="text-xs text-fg-subtle">
+                <span className="font-medium text-fg-2">{userLabel(c.author, 'Former user')}</span>{' '}
                 · <time dateTime={c.createdAt}>{formatDateTime(c.createdAt)}</time>
               </div>
-              <p className="mt-1 whitespace-pre-wrap break-words text-slate-800">{c.body}</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-fg">{c.body}</p>
             </li>
           ))}
         </ol>
@@ -76,12 +74,12 @@ export function FindingComments({
 
       {canComment && (
         <form onSubmit={submit} className="mt-4 space-y-2 text-sm">
-          <label htmlFor={`${id}-body`} className="block font-medium text-slate-700">
+          <label htmlFor={`${id}-body`} className="block font-medium text-fg-2">
             Add a comment
           </label>
           <textarea
             id={`${id}-body`}
-            className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm"
+            className="w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm"
             rows={3}
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -90,7 +88,7 @@ export function FindingComments({
             placeholder="Remediation notes, context or questions"
           />
           <div className="flex items-center justify-between gap-2">
-            <span id={`${id}-count`} className="text-xs text-slate-500">
+            <span id={`${id}-count`} className="text-xs text-fg-subtle">
               {body.length} / {FINDING_COMMENT_MAX} characters
             </span>
             <Button type="submit" variant="primary" disabled={busy || body.trim().length === 0}>

@@ -15,7 +15,7 @@ import { formatDateTime } from '../../lib/format.ts';
 import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
 const selectClass =
-  'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
+  'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm';
 
 export function ScansPage() {
   const [params, setParams] = useSearchParams();
@@ -54,7 +54,7 @@ export function ScansPage() {
       />
       <Card>
         <div className="mb-4 flex flex-wrap items-end gap-3">
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Status</span>
             <select
               className={selectClass}
@@ -83,7 +83,7 @@ export function ScansPage() {
           />
         )}
         {state.status === 'loading' && (
-          <p className="py-8 text-center text-sm text-slate-500" role="status">
+          <p className="py-8 text-center text-sm text-fg-subtle" role="status">
             Loading scans…
           </p>
         )}
@@ -100,7 +100,7 @@ export function ScansPage() {
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
                   <th scope="col" className="py-2 pr-4">
                     Domain
                   </th>
@@ -124,11 +124,11 @@ export function ScansPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line-soft">
                 {state.data.items.map((j) => {
                   const total = Object.values(j.targetCounts).reduce((a, b) => a + b, 0);
                   return (
-                    <tr key={j.id} className="hover:bg-slate-50">
+                    <tr key={j.id} className="hover:bg-surface-2">
                       <td className="py-2.5 pr-4">
                         <Link
                           to={`/scans/${j.id}`}
@@ -142,16 +142,16 @@ export function ScansPage() {
                       <td className="py-2.5 pr-4">
                         <ScanStatusBadge status={j.status} />
                         {j.cancelRequestedAt && j.status !== 'cancelled' && (
-                          <span className="ml-2 text-xs text-slate-500">cancelling</span>
+                          <span className="ml-2 text-xs text-fg-subtle">cancelling</span>
                         )}
                       </td>
-                      <td className="py-2.5 pr-4 tabular-nums text-slate-700">
+                      <td className="py-2.5 pr-4 tabular-nums text-fg-2">
                         {j.targetCounts.succeeded}/{total}
                       </td>
-                      <td className="py-2.5 pr-4 text-slate-600">
+                      <td className="py-2.5 pr-4 text-fg-muted">
                         {j.trigger === 'schedule' ? 'Scheduled' : (j.requestedBy?.email ?? 'User')}
                       </td>
-                      <td className="py-2.5 text-slate-600">{formatDateTime(j.createdAt)}</td>
+                      <td className="py-2.5 text-fg-muted">{formatDateTime(j.createdAt)}</td>
                     </tr>
                   );
                 })}
@@ -159,7 +159,7 @@ export function ScansPage() {
             </table>
             <nav
               aria-label="Pagination"
-              className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm text-slate-600"
+              className="mt-4 flex items-center justify-between border-t border-line-soft pt-3 text-sm text-fg-muted"
             >
               <span>{state.data.total} scans</span>
               <div className="flex gap-2">

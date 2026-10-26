@@ -56,10 +56,10 @@ export function BulkAssetActions({
     <div
       role="group"
       aria-label="Decisions for selected assets"
-      className="mb-4 space-y-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+      className="mb-4 space-y-3 rounded-md border border-line bg-surface px-3 py-2 text-sm shadow-sm"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-slate-600">{assets.length} selected:</span>
+        <span className="text-fg-muted">{assets.length} selected:</span>
         {offered.map((a) => (
           <Button
             key={a}

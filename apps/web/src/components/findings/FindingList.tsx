@@ -20,7 +20,7 @@ export function FindingList({
   showLastSeen?: boolean;
 }) {
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul className="divide-y divide-line-soft">
       {items.map((f) => (
         <li key={f.id} className="flex items-center justify-between gap-3 py-2 text-sm">
           <div className="min-w-0">
@@ -30,7 +30,7 @@ export function FindingList({
             >
               {f.title}
             </Link>
-            <div className="truncate text-xs text-slate-500">
+            <div className="truncate text-xs text-fg-subtle">
               <span className="font-mono">{f.hostname}</span> · {f.ruleId}
               {f.assignee && <> · assigned to {userLabel(f.assignee)}</>}
               {showLastSeen && <> · last seen {formatDateTime(f.lastSeenAt)}</>}

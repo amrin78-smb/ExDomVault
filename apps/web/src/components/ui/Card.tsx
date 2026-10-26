@@ -91,37 +91,37 @@ export function Card({
 
   const heading =
     title && collapsible ? (
-      <h2 className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+      <h2 className="min-w-0 flex-1 text-sm font-semibold text-fg">
         <button
           type="button"
           onClick={toggle}
           aria-expanded={open}
           aria-controls={bodyId}
-          className="flex w-full min-w-0 items-center gap-2 text-left hover:text-slate-950"
+          className="flex w-full min-w-0 items-center gap-2 rounded text-left hover:text-fg"
         >
           <ChevronRight
-            className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`}
+            className={`size-4 shrink-0 text-fg-faint transition-transform ${open ? 'rotate-90' : ''}`}
             aria-hidden
           />
           <span className="shrink-0">{title}</span>
           {!open && summary && (
-            <span className="min-w-0 truncate text-xs font-normal text-slate-500">{summary}</span>
+            <span className="min-w-0 truncate text-xs font-normal text-fg-subtle">{summary}</span>
           )}
         </button>
       </h2>
     ) : (
-      title && <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+      title && <h2 className="text-sm font-semibold text-fg">{title}</h2>
     );
 
   return (
     <section
-      className={`rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}
+      className={`rounded-xl border border-line bg-surface shadow-card ${className}`}
       aria-label={title}
     >
       {title && (
         <div
           className={`flex flex-wrap items-start justify-between gap-3 px-4 py-3 ${
-            open ? 'border-b border-slate-100' : ''
+            open ? 'border-b border-line' : ''
           }`}
         >
           {heading}

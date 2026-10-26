@@ -111,14 +111,14 @@ export function FindingWorkflow({
       <div className="space-y-4 text-sm">
         <dl className="grid gap-3 sm:grid-cols-2">
           <div>
-            <dt className="text-slate-500">Status</dt>
+            <dt className="text-fg-subtle">Status</dt>
             <dd className="mt-1">
               <FindingStatusBadge status={finding.status} />
             </dd>
           </div>
           <div>
-            <dt className="text-slate-500">Assigned to</dt>
-            <dd className="mt-1 text-slate-800" data-testid="assignee">
+            <dt className="text-fg-subtle">Assigned to</dt>
+            <dd className="mt-1 text-fg" data-testid="assignee">
               {finding.assignee ? userLabel(finding.assignee) : 'Unassigned'}
             </dd>
           </div>
@@ -142,10 +142,10 @@ export function FindingWorkflow({
         )}
 
         {finding.status !== 'resolved' && (
-          <div className="rounded-md border border-slate-200 px-3 py-2">
+          <div className="rounded-md border border-line px-3 py-2">
             {finding.manualResolution ? (
               <>
-                <p className="text-slate-600">
+                <p className="text-fg-muted">
                   This rule reports a change (for example a new record or service). It does not
                   clear by itself: once someone has reviewed the change, they can mark it as
                   reviewed to resolve it.
@@ -157,7 +157,7 @@ export function FindingWorkflow({
                 )}
               </>
             ) : (
-              <p className="text-slate-600">
+              <p className="text-fg-muted">
                 This finding resolves automatically when a later successful scan shows the condition
                 is gone. Failed or incomplete scans never resolve it.
               </p>
@@ -194,7 +194,7 @@ export function FindingWorkflow({
         {canRecheck && <Recheck findingId={finding.id} onNotice={setNotice} />}
 
         {readOnly && (
-          <p className="text-slate-500">
+          <p className="text-fg-subtle">
             You can view this finding but your role cannot change it.
           </p>
         )}
@@ -245,16 +245,16 @@ function AcceptedRiskBlock({
   return (
     <section
       aria-label="Accepted risk"
-      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+      className="rounded-md border border-line bg-surface-2 px-3 py-2"
     >
-      <h3 className="mb-2 font-semibold text-slate-800">Accepted risk</h3>
+      <h3 className="mb-2 font-semibold text-fg">Accepted risk</h3>
       <dl className="grid gap-2 sm:grid-cols-[9rem_1fr]">
-        <dt className="text-slate-500">Reason</dt>
-        <dd className="whitespace-pre-wrap text-slate-800">{acceptedRisk.reason}</dd>
-        <dt className="text-slate-500">Approved by</dt>
-        <dd className="text-slate-800">{userLabel(acceptedRisk.approvedBy)}</dd>
-        <dt className="text-slate-500">Review date</dt>
-        <dd className="text-slate-800">{formatDate(acceptedRisk.reviewAt)}</dd>
+        <dt className="text-fg-subtle">Reason</dt>
+        <dd className="whitespace-pre-wrap text-fg">{acceptedRisk.reason}</dd>
+        <dt className="text-fg-subtle">Approved by</dt>
+        <dd className="text-fg">{userLabel(acceptedRisk.approvedBy)}</dd>
+        <dt className="text-fg-subtle">Review date</dt>
+        <dd className="text-fg">{formatDate(acceptedRisk.reviewAt)}</dd>
       </dl>
       {(soon || lapsed) && (
         <p className="mt-2 flex gap-2 text-amber-900" role="note">
@@ -299,12 +299,12 @@ function AssigneePicker({
   return (
     <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
       <div>
-        <label htmlFor={`${id}-assignee`} className="block font-medium text-slate-700">
+        <label htmlFor={`${id}-assignee`} className="block font-medium text-fg-2">
           Assignee
         </label>
         <select
           id={`${id}-assignee`}
-          className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm"
+          className="mt-1 rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm shadow-sm"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={users.status === 'loading'}
@@ -367,7 +367,7 @@ function Recheck({
           <RefreshCw className="size-4" aria-hidden />
           Re-check now
         </Button>
-        <span className="text-slate-500">
+        <span className="text-fg-subtle">
           Queues a scan of this domain that runs this rule&apos;s checks.
         </span>
       </div>

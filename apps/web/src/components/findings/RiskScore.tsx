@@ -7,11 +7,11 @@ export function RiskScore({ score }: { score: number }) {
       <span aria-hidden data-testid="risk-bar">
         <ProportionBar
           percent={score}
-          className="h-1.5 w-12 rounded-full bg-slate-200"
+          className="h-1.5 w-12 rounded-full bg-line"
           fillClassName="fill-slate-600"
         />
       </span>
-      <span className="tabular-nums font-medium text-slate-800">
+      <span className="tabular-nums font-medium text-fg">
         <span className="sr-only">Risk </span>
         {score}
       </span>

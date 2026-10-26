@@ -4,3 +4,4 @@ export * from './registry.ts';
 export * from './risk.ts';
 export * from './types.ts';
 export * from './software/index.ts';
+export { preciseEnough } from './rules/software.ts';

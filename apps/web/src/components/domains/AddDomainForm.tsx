@@ -6,7 +6,7 @@ import { Button } from '../ui/Button.tsx';
 import { Card } from '../ui/Card.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 
-const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
+const inputClass = 'w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
 
 /** Registers a domain. The server normalises and validates the name; it is not trusted here. */
 export function AddDomainForm({ onCancel }: { onCancel: () => void }) {
@@ -33,13 +33,13 @@ export function AddDomainForm({ onCancel }: { onCancel: () => void }) {
   return (
     <Card title="Add a domain">
       <form onSubmit={onSubmit} className="space-y-4">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-fg-muted">
           Enter a registered domain you control, such as{' '}
           <code className="font-mono">example.com</code>. Subdomains are tracked as assets of their
           domain. Adding a domain does not authorise any scanning: it must be verified first.
         </p>
         <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block text-sm font-medium text-slate-700">
+          <label className="block text-sm font-medium text-fg-2">
             Domain
             <input
               className={`${inputClass} mt-1 font-mono`}
@@ -52,10 +52,10 @@ export function AddDomainForm({ onCancel }: { onCancel: () => void }) {
               placeholder="example.com"
             />
           </label>
-          <label className="block text-sm font-medium text-slate-700">
+          <label className="block text-sm font-medium text-fg-2">
             Criticality
             <select
-              className={`${inputClass} mt-1 bg-white`}
+              className={`${inputClass} mt-1 bg-surface`}
               value={criticality}
               onChange={(e) => setCriticality(e.target.value as Criticality)}
             >
@@ -66,8 +66,8 @@ export function AddDomainForm({ onCancel }: { onCancel: () => void }) {
               ))}
             </select>
           </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Business owner <span className="font-normal text-slate-500">(optional)</span>
+          <label className="block text-sm font-medium text-fg-2">
+            Business owner <span className="font-normal text-fg-subtle">(optional)</span>
             <input
               className={`${inputClass} mt-1`}
               value={businessOwner}

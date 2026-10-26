@@ -47,7 +47,7 @@ export function IntelFeedsSection() {
   return (
     <Card title="Intelligence feeds">
       <div className="space-y-4 text-sm">
-        <p className="text-slate-600">
+        <p className="text-fg-muted">
           Software checks compare self-reported versions with these public feeds. The server
           synchronises them on a schedule; matches are reported as possibly affected and need
           verification.
@@ -79,7 +79,7 @@ export function IntelFeedsSection() {
           />
         )}
         {state.status === 'loading' && (
-          <p className="text-slate-500" role="status">
+          <p className="text-fg-subtle" role="status">
             Loading feed status…
           </p>
         )}
@@ -99,9 +99,9 @@ export function IntelFeedsSection() {
 
 /** Feed status rows; also used by Settings → System health. */
 export function FeedList({ feeds }: { feeds: IntelFeedStatus[] }) {
-  if (feeds.length === 0) return <p className="text-slate-500">No feeds configured.</p>;
+  if (feeds.length === 0) return <p className="text-fg-subtle">No feeds configured.</p>;
   return (
-    <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
+    <ul className="divide-y divide-line-soft rounded-md border border-line">
       {feeds.map((f) => (
         <FeedRow key={f.feed} feed={f} />
       ))}
@@ -120,7 +120,7 @@ function FeedState({ feed }: { feed: IntelFeedStatus }) {
   }
   if (!feed.lastSuccessAt) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-fg-muted">
         <CircleDashed className="size-3.5" aria-hidden />
         Never synchronised
       </span>
@@ -140,35 +140,35 @@ function FeedRow({ feed }: { feed: IntelFeedStatus }) {
     <li className="space-y-2 p-3" aria-label={label}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="font-medium text-slate-900">{label}</div>
-          <div className="text-xs text-slate-500">{INTEL_FEED_DESCRIPTIONS[feed.feed]}</div>
+          <div className="font-medium text-fg">{label}</div>
+          <div className="text-xs text-fg-subtle">{INTEL_FEED_DESCRIPTIONS[feed.feed]}</div>
         </div>
         <FeedState feed={feed} />
       </div>
       <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <dt className="text-slate-500">Last success</dt>
-          <dd className="text-slate-800">
+          <dt className="text-fg-subtle">Last success</dt>
+          <dd className="text-fg">
             {feed.lastSuccessAt ? formatDateTime(feed.lastSuccessAt) : 'Never'}
           </dd>
         </div>
         <div>
-          <dt className="text-slate-500">Last attempt</dt>
-          <dd className="text-slate-800">
+          <dt className="text-fg-subtle">Last attempt</dt>
+          <dd className="text-fg">
             {feed.lastAttemptAt ? formatDateTime(feed.lastAttemptAt) : 'Never'}
           </dd>
         </div>
         <div>
-          <dt className="text-slate-500">Items held</dt>
-          <dd className="tabular-nums text-slate-800">{feed.items}</dd>
+          <dt className="text-fg-subtle">Items held</dt>
+          <dd className="tabular-nums text-fg">{feed.items}</dd>
         </div>
         <div>
-          <dt className="text-slate-500">Source version</dt>
-          <dd className="font-mono text-slate-800">{feed.sourceVersion ?? '—'}</dd>
+          <dt className="text-fg-subtle">Source version</dt>
+          <dd className="font-mono text-fg">{feed.sourceVersion ?? '—'}</dd>
         </div>
       </dl>
       {feed.feed === 'nvd' && (
-        <p className="text-xs text-slate-600">
+        <p className="text-xs text-fg-muted">
           {feed.pending === 0
             ? 'No known-exploited CVEs are waiting for their NVD record.'
             : `${feed.pending} known-exploited CVE${feed.pending === 1 ? ' is' : 's are'} waiting for their NVD record (fetched gradually within NVD rate limits).`}

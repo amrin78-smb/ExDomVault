@@ -112,6 +112,15 @@ export const ROUTE_ACCESS: Record<string, Access> = {
 
   'GET /ops/health': user(ADMIN),
   'GET /ops/alerts': user(ALL, 'content differs for admins (operational alerts)'),
+
+  // Milestone 13: sections / groups gated per permission and scoped for asset owners.
+  'GET /dashboard': user(ALL, 'sections gated per permission; asset owners scoped'),
+  'GET /search': user(ALL, 'groups gated per permission; asset owners scoped'),
+  // Milestone 13 inventory views: object-level filtering for asset owners.
+  'GET /ports': user(ALL, 'asset owners see only their assets (object level)'),
+  'GET /certificates': user(ALL, 'asset owners see only their assets (object level)'),
+  'GET /vulnerabilities': user(ALL, 'asset owners see only their assets (object level)'),
+  'GET /attack-surface': user(ALL, 'asset owners see only their assets (object level)'),
 };
 
 // ------------------------------------------------------------------------------------------------

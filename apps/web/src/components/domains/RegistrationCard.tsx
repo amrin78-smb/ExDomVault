@@ -51,7 +51,7 @@ export function RegistrationCard({
       summary={registrationSummary(domain, state, now)}
     >
       {state.status === 'loading' && (
-        <p className="text-sm text-slate-500" role="status">
+        <p className="text-sm text-fg-subtle" role="status">
           Loading registration…
         </p>
       )}
@@ -108,12 +108,12 @@ function SnapshotView({ snapshot: s, now }: { snapshot: RegistrationSnapshot; no
   const hasFields = s.registrar !== null || s.registeredAt !== null || s.expiresAt !== null;
   return (
     <div className="space-y-3 text-sm">
-      {statusText && <p className="text-slate-600">{statusText}</p>}
-      {resultNote && <p className="text-xs italic text-slate-500">RDAP {resultNote}.</p>}
+      {statusText && <p className="text-fg-muted">{statusText}</p>}
+      {resultNote && <p className="text-xs italic text-fg-subtle">RDAP {resultNote}.</p>}
       {(s.dataStatus === 'available' || hasFields) && (
         <RegistrationFieldsList fields={s} now={now} />
       )}
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-fg-subtle">
         Observed{' '}
         <Link to={`/scans/${s.scanJobId}`} className="text-sky-800 hover:underline">
           {formatDateTime(s.observedAt)}
@@ -125,7 +125,7 @@ function SnapshotView({ snapshot: s, now }: { snapshot: RegistrationSnapshot; no
 
 function DomainFallback({ domain, now }: { domain: Domain; now: Date }) {
   const note = DOMAIN_STATUS_TEXT[domain.registrationDataStatus];
-  if (note) return <p className="text-sm text-slate-600">{note}</p>;
+  if (note) return <p className="text-sm text-fg-muted">{note}</p>;
   return <RegistrationFieldsList fields={domain} now={now} />;
 }
 
@@ -141,14 +141,14 @@ function RegistrationFieldsList({ fields, now }: { fields: RegistrationFields; n
       </Field>
       {fields.nameservers && (
         <div className="sm:col-span-3">
-          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
             Nameservers
           </dt>
           <dd className="mt-1">
             {fields.nameservers.length === 0 ? (
               'Not provided'
             ) : (
-              <ul className="space-y-0.5 font-mono text-xs text-slate-800">
+              <ul className="space-y-0.5 font-mono text-xs text-fg">
                 {fields.nameservers.map((ns) => (
                   <li key={ns} className="break-all">
                     {ns}
@@ -166,7 +166,7 @@ function RegistrationFieldsList({ fields, now }: { fields: RegistrationFields; n
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{label}</dt>
       <dd className="mt-1">{children}</dd>
     </div>
   );
@@ -176,7 +176,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function Expiry({ iso, now }: { iso: string; now: Date }) {
   const days = Math.floor((new Date(iso).getTime() - now.getTime()) / DAY_MS);
   let text: string;
-  let tone = 'text-slate-500';
+  let tone = 'text-fg-subtle';
   if (days < 0) {
     const ago = -days;
     text = `expired ${ago} day${ago === 1 ? '' : 's'} ago`;

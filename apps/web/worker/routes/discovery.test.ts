@@ -389,6 +389,75 @@ describe('DNS observations update the inventory', () => {
     await submit(s, 'result-0003', [dns(s.apex, 'cdn.example.com', 'CNAME', [])]);
     expect(await hint('cdn.example.com')).toBeNull();
   });
+
+  it('records the geolocated country of A/AAAA addresses and keeps it when geo is absent', async () => {
+    const s = await setup();
+    const withGeo = (o: ReturnType<typeof dns>, geo: { ip: string; country: string }[]) => ({
+      ...o,
+      geo,
+    });
+    const countries = async () =>
+      (await t.db.select().from(assetIps))
+        .map((r) => [r.ipAddress, r.countryCode] as const)
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+
+    const first = await submit(s, 'result-0001', [
+      disc(s.apex, 'www.example.com'),
+      withGeo(dns(s.apex, 'www.example.com', 'A', ['192.0.2.10', '192.0.2.11']), [
+        { ip: '192.0.2.10', country: 'NL' },
+      ]),
+      withGeo(dns(s.apex, 'www.example.com', 'AAAA', ['2001:db8::1']), [
+        // Non-canonical spelling of the same address still matches.
+        { ip: '2001:DB8:0::1', country: 'DE' },
+      ]),
+    ]);
+    expect(first.status).toBe(200);
+    expect(await countries()).toEqual([
+      ['192.0.2.10', 'NL'],
+      ['192.0.2.11', null],
+      ['2001:db8::1', 'DE'],
+    ]);
+
+    // No geo: countries unchanged. New geo for .11, changed geo for .10.
+    await submit(s, 'result-0002', [
+      dns(s.apex, 'www.example.com', 'A', ['192.0.2.10', '192.0.2.11'], { observedAt: iso(60) }),
+    ]);
+    expect((await countries())[0]).toEqual(['192.0.2.10', 'NL']);
+    await submit(s, 'result-0003', [
+      withGeo(
+        dns(s.apex, 'www.example.com', 'A', ['192.0.2.10', '192.0.2.11'], {
+          observedAt: iso(120),
+        }),
+        [
+          { ip: '192.0.2.10', country: 'BE' },
+          { ip: '192.0.2.11', country: 'FR' },
+        ],
+      ),
+    ]);
+    expect(await countries()).toEqual([
+      ['192.0.2.10', 'BE'],
+      ['192.0.2.11', 'FR'],
+      ['2001:db8::1', 'DE'],
+    ]);
+
+    // Failed lookups set nothing; malformed country codes are rejected by the schema.
+    await submit(s, 'result-0004', [
+      withGeo(
+        dns(s.apex, 'www.example.com', 'A', ['192.0.2.10'], {
+          resultStatus: 'error',
+          observedAt: iso(180),
+        }),
+        [{ ip: '192.0.2.10', country: 'US' }],
+      ),
+    ]);
+    expect((await countries())[0]).toEqual(['192.0.2.10', 'BE']);
+    const bad = await submit(s, 'result-0005', [
+      withGeo(dns(s.apex, 'www.example.com', 'A', ['192.0.2.10']), [
+        { ip: '192.0.2.10', country: 'be' },
+      ]),
+    ]);
+    expect(bad.status).toBe(400);
+  });
 });
 
 describe('POST /domains/:id/discovery', () => {

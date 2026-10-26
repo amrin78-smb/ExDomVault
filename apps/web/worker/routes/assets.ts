@@ -42,7 +42,7 @@ export function assetRoutes(deps: AssetRouteDeps = {}) {
       .get('/', requirePermission('assets:read'), async (c) => {
         const query = parseQuery(c, assetListQuerySchema);
         const db = await c.get('db')();
-        return c.json(await listAssets(db, c.get('user'), query));
+        return c.json(await listAssets(db, c.get('user'), query, undefined, now()));
       })
       // Registered before /:id so `bulk` is never read as an id.
       .post('/bulk', requirePermission('assets:approve'), async (c) => {
@@ -72,7 +72,7 @@ export function assetRoutes(deps: AssetRouteDeps = {}) {
       .get('/:id', requirePermission('assets:read'), async (c) => {
         const id = uuidParam(c, 'id');
         const db = await c.get('db')();
-        const res: AssetDetailResponse = await getAsset(db, c.get('user'), id);
+        const res: AssetDetailResponse = await getAsset(db, c.get('user'), id, now());
         return c.json(res);
       })
       .patch('/:id', requirePermission('assets:approve'), async (c) => {
@@ -81,7 +81,7 @@ export function assetRoutes(deps: AssetRouteDeps = {}) {
         const db = await c.get('db')();
         await setAssetOwner(db, id, ownerUserId, actorOf(c), now());
         c.get('logger').info('asset_owner_changed', { assetId: id });
-        const res: AssetResponse = { asset: (await getAsset(db, c.get('user'), id)).asset };
+        const res: AssetResponse = { asset: (await getAsset(db, c.get('user'), id, now())).asset };
         return c.json(res);
       })
       .post('/:id/approve', requirePermission('assets:approve'), async (c) => {
@@ -90,7 +90,7 @@ export function assetRoutes(deps: AssetRouteDeps = {}) {
         const db = await c.get('db')();
         await decideAsset(db, c.get('user'), id, { action: 'approve', ...body }, actorOf(c), now());
         c.get('logger').info('asset_decision', { assetId: id, action: 'approve' });
-        const res: AssetResponse = { asset: (await getAsset(db, c.get('user'), id)).asset };
+        const res: AssetResponse = { asset: (await getAsset(db, c.get('user'), id, now())).asset };
         return c.json(res);
       })
       .post('/:id/reject', requirePermission('assets:approve'), async (c) => decision(c, 'reject'))
@@ -112,7 +112,7 @@ export function assetRoutes(deps: AssetRouteDeps = {}) {
       now(),
     );
     c.get('logger').info('asset_decision', { assetId: id, action });
-    const res: AssetResponse = { asset: (await getAsset(db, c.get('user'), id)).asset };
+    const res: AssetResponse = { asset: (await getAsset(db, c.get('user'), id, now())).asset };
     return c.json(res);
   }
 }

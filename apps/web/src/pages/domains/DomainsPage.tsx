@@ -32,7 +32,7 @@ const PAGE_SIZES = ['25', '50', '100'] as const;
 const FILTER_KEYS = ['q', 'verificationStatus', 'criticality', 'monitoring'] as const;
 
 const selectClass =
-  'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
+  'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm';
 
 export function DomainsPage() {
   const [params, setParams] = useSearchParams();
@@ -193,7 +193,7 @@ export function DomainsPage() {
             </label>
             <div className="relative">
               <Search
-                className="pointer-events-none absolute left-2 top-2 size-4 text-slate-400"
+                className="pointer-events-none absolute left-2 top-2 size-4 text-fg-faint"
                 aria-hidden
               />
               <input
@@ -202,12 +202,12 @@ export function DomainsPage() {
                 value={searchDraft}
                 onChange={(e) => setSearchDraft(e.target.value)}
                 placeholder="Search domains"
-                className="w-56 rounded-md border border-slate-300 py-1.5 pl-8 pr-2 text-sm shadow-sm"
+                className="w-56 rounded-md border border-line-strong py-1.5 pl-8 pr-2 text-sm shadow-sm"
               />
             </div>
             <Button type="submit">Search</Button>
           </form>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Verification</span>
             <select
               className={selectClass}
@@ -222,7 +222,7 @@ export function DomainsPage() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Criticality</span>
             <select
               className={selectClass}
@@ -237,7 +237,7 @@ export function DomainsPage() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Monitoring</span>
             <select
               className={selectClass}
@@ -249,7 +249,7 @@ export function DomainsPage() {
               <option value="false">Off</option>
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Sort</span>
             <select
               className={selectClass}
@@ -262,7 +262,7 @@ export function DomainsPage() {
               <option value="-criticality">Most critical first</option>
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Per page</span>
             <select
               className={selectClass}
@@ -287,7 +287,7 @@ export function DomainsPage() {
           />
         )}
         {state.status === 'loading' && (
-          <p className="py-8 text-center text-sm text-slate-500" role="status">
+          <p className="py-8 text-center text-sm text-fg-subtle" role="status">
             Loading domains…
           </p>
         )}
@@ -311,7 +311,7 @@ export function DomainsPage() {
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
                     {canSelect && (
                       <th scope="col" className="w-8 py-2 pr-2">
                         <input
@@ -351,9 +351,9 @@ export function DomainsPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line-soft">
                   {state.data.items.map((d) => (
-                    <tr key={d.id} className="hover:bg-slate-50">
+                    <tr key={d.id} className="hover:bg-surface-2">
                       {canSelect && (
                         <td className="py-2.5 pr-2">
                           <input
@@ -372,7 +372,7 @@ export function DomainsPage() {
                           {d.fqdn}
                         </Link>
                         {d.unicodeFqdn !== d.fqdn && (
-                          <span className="ml-2 text-xs text-slate-500">({d.unicodeFqdn})</span>
+                          <span className="ml-2 text-xs text-fg-subtle">({d.unicodeFqdn})</span>
                         )}
                         {d.warnings.includes('mixed_script') && (
                           <AlertTriangle
@@ -390,13 +390,13 @@ export function DomainsPage() {
                       <td className="py-2.5 pr-4">
                         <CriticalityLabel criticality={d.criticality} />
                       </td>
-                      <td className="py-2.5 pr-4 text-slate-700">
-                        {d.businessOwner ?? <span className="text-slate-400">Not set</span>}
+                      <td className="py-2.5 pr-4 text-fg-2">
+                        {d.businessOwner ?? <span className="text-fg-faint">Not set</span>}
                       </td>
-                      <td className="py-2.5 pr-4 text-slate-700">
+                      <td className="py-2.5 pr-4 text-fg-2">
                         {d.monitoringEnabled ? 'On' : 'Off'}
                       </td>
-                      <td className="py-2.5 text-slate-600">{formatDate(d.createdAt)}</td>
+                      <td className="py-2.5 text-fg-muted">{formatDate(d.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -432,7 +432,7 @@ function Pagination({
   return (
     <nav
       aria-label="Pagination"
-      className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm text-slate-600"
+      className="mt-4 flex items-center justify-between border-t border-line-soft pt-3 text-sm text-fg-muted"
     >
       <span>
         {first}–{last} of {total}
@@ -485,7 +485,7 @@ function BulkAuthorise({
       title={`Authorise ${ids.length} selected domain${ids.length === 1 ? '' : 's'} without DNS`}
     >
       <form onSubmit={submit} className="space-y-3 text-sm">
-        <p className="text-slate-600">
+        <p className="text-fg-muted">
           Records that the organisation owns these domains and authorises active scanning of them.
           Already-verified domains are skipped. Each domain gets its own audit record with your
           name, this reason and reference; the authorisation lapses on the review date.
@@ -548,9 +548,9 @@ function BulkMonitoring({
     <div
       role="group"
       aria-label="Monitoring for selected domains"
-      className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+      className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface px-3 py-2 text-sm shadow-sm"
     >
-      <span className="text-slate-600">{ids.length} selected — monitoring:</span>
+      <span className="text-fg-muted">{ids.length} selected — monitoring:</span>
       <Button onClick={onTurnOn} disabled={busy}>
         Turn on monitoring for selected
       </Button>

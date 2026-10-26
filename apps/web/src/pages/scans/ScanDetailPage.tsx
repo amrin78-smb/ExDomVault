@@ -23,8 +23,8 @@ const POLL_MS = 10_000;
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 text-sm text-slate-800">{children}</dd>
+      <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{label}</dt>
+      <dd className="mt-1 text-sm text-fg">{children}</dd>
     </div>
   );
 }
@@ -57,7 +57,7 @@ export function ScanDetailPage() {
       );
     }
     return (
-      <p className="py-8 text-center text-sm text-slate-500" role="status">
+      <p className="py-8 text-center text-sm text-fg-subtle" role="status">
         Loading scan…
       </p>
     );
@@ -84,7 +84,7 @@ export function ScanDetailPage() {
       <BackLink />
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+          <h1 className="text-xl font-semibold tracking-tight text-fg">
             {job.jobType === 'discovery' ? (
               'Discovery for'
             ) : (
@@ -105,11 +105,11 @@ export function ScanDetailPage() {
           </h1>
           <div className="mt-2 flex items-center gap-3">
             <ScanStatusBadge status={job.status} />
-            <span className="text-xs text-slate-600">{JOB_TYPE_LABELS[job.jobType]} job</span>
+            <span className="text-xs text-fg-muted">{JOB_TYPE_LABELS[job.jobType]} job</span>
             {job.cancelRequestedAt && isActive && (
-              <span className="text-xs text-slate-500">Cancellation requested</span>
+              <span className="text-xs text-fg-subtle">Cancellation requested</span>
             )}
-            {isActive && <span className="text-xs text-slate-500">Refreshes every 10 s</span>}
+            {isActive && <span className="text-xs text-fg-subtle">Refreshes every 10 s</span>}
           </div>
         </div>
         {canRequest && isActive && !job.cancelRequestedAt && (
@@ -129,7 +129,7 @@ export function ScanDetailPage() {
           <dl className="grid gap-4 sm:grid-cols-2">
             <Field label="Requested">
               {formatDateTime(job.createdAt)}
-              <span className="block text-xs text-slate-500">
+              <span className="block text-xs text-fg-subtle">
                 {job.trigger === 'schedule'
                   ? 'Scheduled monitoring'
                   : (job.requestedBy?.email ?? '—')}
@@ -151,7 +151,7 @@ export function ScanDetailPage() {
                 {job.progress.completedTargets ?? 0} / {job.progress.totalTargets ?? targets.length}{' '}
                 targets
                 {job.progress.message && (
-                  <span className="block text-xs text-slate-500">{job.progress.message}</span>
+                  <span className="block text-xs text-fg-subtle">{job.progress.message}</span>
                 )}
               </Field>
             )}
@@ -159,14 +159,14 @@ export function ScanDetailPage() {
               <Field label="Last error">
                 <code className="font-mono text-xs">{job.errorCode}</code>
                 {job.errorSummary && (
-                  <span className="block text-xs text-slate-600">{job.errorSummary}</span>
+                  <span className="block text-xs text-fg-muted">{job.errorSummary}</span>
                 )}
               </Field>
             )}
             {job.reason && <Field label="Reason">{job.reason}</Field>}
           </dl>
           {job.jobType === 'discovery' && (
-            <p className="mt-4 text-xs text-slate-500" data-testid="discovery-note">
+            <p className="mt-4 text-xs text-fg-subtle" data-testid="discovery-note">
               Discovery looks up names in public Certificate Transparency logs and never contacts
               the domain&apos;s hosts. Hostnames it finds wait in{' '}
               <Link
@@ -179,7 +179,7 @@ export function ScanDetailPage() {
             </p>
           )}
           {job.status === 'queued' && !job.worker && (
-            <p className="mt-4 text-xs text-slate-500">
+            <p className="mt-4 text-xs text-fg-subtle">
               Waiting for the scanning worker to claim this job. Results appear once the home worker
               (Milestone 5) is running.
             </p>
@@ -238,7 +238,7 @@ function TargetsCard({ targets }: { targets: ScanJobDetailResponse['targets'] })
     >
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
             <th scope="col" className="py-2 pr-4">
               Hostname
             </th>
@@ -253,15 +253,15 @@ function TargetsCard({ targets }: { targets: ScanJobDetailResponse['targets'] })
             </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-line-soft">
           {shown.map((t) => (
             <tr key={t.id}>
               <td className="py-2 pr-4 font-mono text-xs">{t.hostname}</td>
               <td className="py-2 pr-4 capitalize">{t.status}</td>
-              <td className="py-2 pr-4 text-slate-600">
+              <td className="py-2 pr-4 text-fg-muted">
                 {t.completedAt ? formatDateTime(t.completedAt) : '—'}
               </td>
-              <td className="py-2 font-mono text-xs text-slate-600">{t.errorCode ?? '—'}</td>
+              <td className="py-2 font-mono text-xs text-fg-muted">{t.errorCode ?? '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -275,7 +275,7 @@ function BackLink() {
   return (
     <Link
       to="/scans"
-      className="mb-4 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900"
+      className="mb-4 inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
     >
       <ArrowLeft className="size-4" aria-hidden />
       Scans

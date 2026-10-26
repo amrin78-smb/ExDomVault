@@ -4,7 +4,7 @@ import type { OpsAlertsResponse } from '@exdomainvault/shared';
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALERTS_POLL_MS } from '../components/layout/OpsAlertBanner.tsx';
+import { ALERTS_POLL_MS } from '../lib/ops-alerts.ts';
 import { OPS_PATHS, apiError, ok, renderAt, stubApi } from '../testing/stub-api.tsx';
 
 type Alert = OpsAlertsResponse['alerts'][number];

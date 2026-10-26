@@ -87,4 +87,17 @@ describe('loadConfig', () => {
       );
     });
   });
+
+  describe('organisation (ORG_NAME)', () => {
+    it('is null when unset or blank', () => {
+      expect(loadConfig(base).organisation).toBeNull();
+      expect(loadConfig({ ...base, ORG_NAME: '   ' }).organisation).toBeNull();
+    });
+
+    it('is trimmed, stripped of control characters and capped, never failing the config', () => {
+      expect(loadConfig({ ...base, ORG_NAME: '  Example Org  ' }).organisation).toBe('Example Org');
+      expect(loadConfig({ ...base, ORG_NAME: 'Ex\u0000am\nple' }).organisation).toBe('Ex am ple');
+      expect(loadConfig({ ...base, ORG_NAME: 'x'.repeat(250) }).organisation).toBe('x'.repeat(100));
+    });
+  });
 });

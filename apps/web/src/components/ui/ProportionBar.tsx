@@ -9,7 +9,7 @@ export function ProportionBar({
   fillClassName,
 }: {
   percent: number;
-  /** Size, track colour and rounding, e.g. `h-1.5 w-12 rounded-full bg-slate-200`. */
+  /** Size, track colour and rounding, e.g. `h-1.5 w-12 rounded-full bg-line`. */
   className: string;
   /** Fill colour as a Tailwind `fill-*` class. */
   fillClassName: string;

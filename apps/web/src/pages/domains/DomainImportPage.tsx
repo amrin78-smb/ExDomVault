@@ -23,8 +23,8 @@ import { usePermission } from '../../lib/session.ts';
 const STATUS_TEXT: Record<ImportRowStatus, { label: string; cls: string }> = {
   valid: { label: 'Will be added', cls: 'text-emerald-800' },
   invalid: { label: 'Invalid', cls: 'text-red-800' },
-  duplicate_in_file: { label: 'Duplicate in file', cls: 'text-slate-600' },
-  already_registered: { label: 'Already registered', cls: 'text-slate-600' },
+  duplicate_in_file: { label: 'Duplicate in file', cls: 'text-fg-muted' },
+  already_registered: { label: 'Already registered', cls: 'text-fg-muted' },
 };
 
 const EXAMPLE =
@@ -95,7 +95,7 @@ export function DomainImportPage() {
     <>
       <Link
         to="/domains"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
       >
         <ArrowLeft className="size-4" aria-hidden />
         Domains
@@ -107,23 +107,23 @@ export function DomainImportPage() {
 
       <div className="space-y-4">
         <Card title="1. Choose a file">
-          <div className="space-y-3 text-sm text-slate-600">
+          <div className="space-y-3 text-sm text-fg-muted">
             <p>
               A header row is required. Columns: <code className="font-mono">domain</code>{' '}
               (required), <code className="font-mono">criticality</code> (low, medium, high or
               critical; default medium) and <code className="font-mono">business_owner</code>. Up to{' '}
               {IMPORT_MAX_ROWS} rows, 256 KB.
             </p>
-            <pre className="overflow-x-auto rounded bg-slate-100 p-2 font-mono text-xs text-slate-700">
+            <pre className="overflow-x-auto rounded bg-surface-3 p-2 font-mono text-xs text-fg-2">
               {EXAMPLE}
             </pre>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-line-strong bg-surface px-3 py-1.5 font-medium text-fg-2 shadow-sm hover:bg-surface-2">
               <FileUp className="size-4" aria-hidden />
               {fileName ?? 'Choose CSV file'}
               <input type="file" accept=".csv,text/csv" className="sr-only" onChange={onFile} />
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
+              <span className="mb-1 block text-xs font-medium text-fg-subtle">
                 Or paste CSV text
               </span>
               <textarea
@@ -134,7 +134,7 @@ export function DomainImportPage() {
                 }}
                 rows={6}
                 spellCheck={false}
-                className="w-full rounded-md border border-slate-300 p-2 font-mono text-xs shadow-sm"
+                className="w-full rounded-md border border-line-strong p-2 font-mono text-xs shadow-sm"
               />
             </label>
             <Button variant="primary" onClick={runPreview} disabled={busy || csv.trim() === ''}>
@@ -152,8 +152,8 @@ export function DomainImportPage() {
             onConfirm={confirm}
           >
             {canVerify && (
-              <div className="mt-4 space-y-3 rounded-md border border-slate-200 p-3 text-sm">
-                <label className="flex items-start gap-2 font-medium text-slate-800">
+              <div className="mt-4 space-y-3 rounded-md border border-line p-3 text-sm">
+                <label className="flex items-start gap-2 font-medium text-fg">
                   <input
                     type="checkbox"
                     className="mt-0.5"
@@ -163,7 +163,7 @@ export function DomainImportPage() {
                   <span>
                     Also authorise every imported domain for active scanning (administrator
                     authorisation)
-                    <span className="block font-normal text-slate-500">
+                    <span className="block font-normal text-fg-subtle">
                       For domains the organisation owns whose DNS you cannot edit. Recorded per
                       domain in the audit log; lapses on the review date.
                     </span>
@@ -199,7 +199,7 @@ export function DomainImportPage() {
                 ))}
               </ul>
             )}
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-fg-subtle">
               {result.authorised > 0
                 ? 'Authorised domains show "Authorised (admin)" on the Domains page.'
                 : 'Imported domains are unverified: passive monitoring works, but active scanning needs verification or authorisation.'}
@@ -239,7 +239,7 @@ function PreviewCard({
         </div>
       ) : (
         <>
-          <p className="mb-3 text-sm text-slate-700">
+          <p className="mb-3 text-sm text-fg-2">
             {summary.total} row{summary.total === 1 ? '' : 's'}:{' '}
             <strong>{summary.valid} to add</strong>, {summary.invalid} invalid,{' '}
             {summary.duplicateInFile} duplicated in the file, {summary.alreadyRegistered} already
@@ -247,8 +247,8 @@ function PreviewCard({
           </p>
           <div className="max-h-96 overflow-auto">
             <table className="min-w-full text-sm">
-              <thead className="sticky top-0 bg-white">
-                <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+              <thead className="sticky top-0 bg-surface">
+                <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
                   <th scope="col" className="py-2 pr-3">
                     Line
                   </th>
@@ -266,12 +266,12 @@ function PreviewCard({
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line-soft">
                 {preview.rows.map((r) => (
                   <tr key={r.line}>
-                    <td className="py-1.5 pr-3 tabular-nums text-slate-500">{r.line}</td>
+                    <td className="py-1.5 pr-3 tabular-nums text-fg-subtle">{r.line}</td>
                     <td className="py-1.5 pr-3 font-mono text-xs">
-                      {r.fqdn ?? <span className="text-slate-500">{r.input || '(empty)'}</span>}
+                      {r.fqdn ?? <span className="text-fg-subtle">{r.input || '(empty)'}</span>}
                       {r.warnings.includes('mixed_script') && (
                         <span className="ml-2 text-amber-700">mixed scripts</span>
                       )}
@@ -301,7 +301,7 @@ function PreviewCard({
               Import {summary.valid} domain{summary.valid === 1 ? '' : 's'}
             </Button>
             {summary.valid === 0 && (
-              <span className="text-sm text-slate-500">There is nothing to import.</span>
+              <span className="text-sm text-fg-subtle">There is nothing to import.</span>
             )}
           </div>
         </>

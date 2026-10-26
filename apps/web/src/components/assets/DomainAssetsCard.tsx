@@ -82,13 +82,13 @@ export function DomainAssetsCard({ domain }: { domain: Domain }) {
     <Card title="Assets" collapsible="domain.assets" summary={assetsSummary()}>
       <div className="space-y-4 text-sm">
         {!canRead && (
-          <p className="text-slate-500">You do not have access to the asset inventory.</p>
+          <p className="text-fg-subtle">You do not have access to the asset inventory.</p>
         )}
         {state.status === 'error' && (
           <ErrorAlert error={state.error} title="Could not load assets" />
         )}
         {canRead && state.status === 'loading' && (
-          <p className="text-slate-500" role="status">
+          <p className="text-fg-subtle" role="status">
             Loading assets…
           </p>
         )}
@@ -96,10 +96,10 @@ export function DomainAssetsCard({ domain }: { domain: Domain }) {
           <>
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {ASSET_STATUSES.map((s) => (
-                <div key={s} className="rounded-md border border-slate-100 px-3 py-2">
-                  <dt className="text-xs text-slate-500">{ASSET_STATUS_LABELS[s]}</dt>
+                <div key={s} className="rounded-md border border-line-soft px-3 py-2">
+                  <dt className="text-xs text-fg-subtle">{ASSET_STATUS_LABELS[s]}</dt>
                   <dd
-                    className="text-lg font-semibold tabular-nums text-slate-900"
+                    className="text-lg font-semibold tabular-nums text-fg"
                     data-testid={`asset-count-${s}`}
                   >
                     {counts.get(s) ?? 0}
@@ -108,7 +108,7 @@ export function DomainAssetsCard({ domain }: { domain: Domain }) {
               ))}
             </dl>
             {state.data.items.length < state.data.total && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-fg-subtle">
                 Counts cover the first {state.data.items.length} of {state.data.total} hostnames.
               </p>
             )}
@@ -128,8 +128,8 @@ export function DomainAssetsCard({ domain }: { domain: Domain }) {
           </>
         )}
 
-        <div className="space-y-2 border-t border-slate-100 pt-3">
-          <p className="text-xs text-slate-500">
+        <div className="space-y-2 border-t border-line-soft pt-3">
+          <p className="text-xs text-fg-subtle">
             Discovery looks up names in public Certificate Transparency logs. It never contacts your
             hosts, and new names wait as Pending review: nothing is scanned until approved. Hosts
             covered by a wildcard certificate are not found this way: import them from a DNS zone
@@ -154,7 +154,7 @@ export function DomainAssetsCard({ domain }: { domain: Domain }) {
           )}
           <div aria-live="polite">
             {result && (
-              <p role="status" className="text-slate-700">
+              <p role="status" className="text-fg-2">
                 {result.created
                   ? 'Discovery queued. New hostnames appear here when the job finishes.'
                   : 'Discovery is already queued or running for this domain.'}{' '}

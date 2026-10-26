@@ -11,10 +11,10 @@ export function RouteErrorPage() {
   return (
     <div
       role="alert"
-      className="mx-auto mt-24 max-w-md rounded-lg border border-red-200 bg-white p-6 text-center"
+      className="mx-auto mt-24 max-w-md rounded-lg border border-red-200 bg-surface p-6 text-center"
     >
-      <h1 className="text-lg font-semibold text-slate-900">Something went wrong</h1>
-      <p className="mt-2 text-sm text-slate-600">{message}</p>
+      <h1 className="text-lg font-semibold text-fg">Something went wrong</h1>
+      <p className="mt-2 text-sm text-fg-muted">{message}</p>
       <a href="/" className="mt-4 inline-block text-sm font-medium text-sky-700 hover:underline">
         Reload the application
       </a>

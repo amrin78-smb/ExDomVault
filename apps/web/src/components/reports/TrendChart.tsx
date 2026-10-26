@@ -33,7 +33,7 @@ export function TrendChart({ trend, compact = false }: { trend: Trend; compact?:
   const first = trend[0];
   const lastDay = trend[trend.length - 1];
   if (!first || !lastDay) {
-    return <p className="text-sm text-slate-500">No trend data yet.</p>;
+    return <p className="text-sm text-fg-subtle">No trend data yet.</p>;
   }
 
   const max = Math.max(1, ...trend.map((d) => Math.max(d.created, d.resolved)));
@@ -58,7 +58,7 @@ export function TrendChart({ trend, compact = false }: { trend: Trend; compact?:
 
   return (
     <figure className="space-y-2">
-      <figcaption className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+      <figcaption className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
         {SERIES.map((s) => (
           <span key={s.key} className="inline-flex items-center gap-1.5">
             <svg width="18" height="6" aria-hidden>
@@ -72,11 +72,10 @@ export function TrendChart({ trend, compact = false }: { trend: Trend; compact?:
                 strokeDasharray={s.dash}
               />
             </svg>
-            {s.label}{' '}
-            <span className="font-medium tabular-nums text-slate-800">{totals[s.key]}</span>
+            {s.label} <span className="font-medium tabular-nums text-fg">{totals[s.key]}</span>
           </span>
         ))}
-        <span className="text-slate-500">
+        <span className="text-fg-subtle">
           {trend.length} days to {formatDate(`${lastDay.date}T00:00:00Z`)} (UTC)
         </span>
       </figcaption>
@@ -172,7 +171,7 @@ export function TrendChart({ trend, compact = false }: { trend: Trend; compact?:
         </svg>
         {hover !== null && hovered && (
           <div
-            className="pointer-events-none absolute top-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm"
+            className="pointer-events-none absolute top-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-fg-2 shadow-sm"
             style={
               hover > trend.length / 2
                 ? { right: `${100 - (x(hover) / W) * 100 + 1}%` }
@@ -180,20 +179,18 @@ export function TrendChart({ trend, compact = false }: { trend: Trend; compact?:
             }
             aria-hidden
           >
-            <div className="font-medium text-slate-900">
-              {formatDate(`${hovered.date}T00:00:00Z`)}
-            </div>
+            <div className="font-medium text-fg">{formatDate(`${hovered.date}T00:00:00Z`)}</div>
             <div>Created {hovered.created}</div>
             <div>Resolved {hovered.resolved}</div>
           </div>
         )}
       </div>
-      <details className="text-xs text-slate-600">
+      <details className="text-xs text-fg-muted">
         <summary className="cursor-pointer text-sky-800">Show data table</summary>
         <table id={tableId} className="mt-2 min-w-full text-xs">
           <caption className="sr-only">Findings created and resolved per UTC day</caption>
           <thead>
-            <tr className="text-left text-slate-500">
+            <tr className="text-left text-fg-subtle">
               <th scope="col" className="py-1 pr-4 font-medium">
                 Date (UTC)
               </th>
@@ -205,7 +202,7 @@ export function TrendChart({ trend, compact = false }: { trend: Trend; compact?:
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 tabular-nums">
+          <tbody className="divide-y divide-line-soft tabular-nums">
             {trend.map((d) => (
               <tr key={d.date}>
                 <td className="py-1 pr-4">{d.date}</td>

@@ -12,7 +12,7 @@ function Bar({ value, max, className }: { value: number; max: number; className:
   return (
     <ProportionBar
       percent={pct}
-      className="h-1.5 w-24 rounded-full bg-slate-100"
+      className="h-1.5 w-24 rounded-full bg-surface-3"
       fillClassName={className}
     />
   );
@@ -27,7 +27,7 @@ function Versions({ versions }: { versions: Product['versions'] }) {
       {shown.map((v) => (
         <li
           key={v.version ?? '(hidden)'}
-          className="whitespace-nowrap rounded bg-slate-100 px-1.5 py-0.5 text-slate-700"
+          className="whitespace-nowrap rounded bg-surface-3 px-1.5 py-0.5 text-fg-2"
         >
           {v.version === null ? (
             <span className="italic">hidden</span>
@@ -38,7 +38,7 @@ function Versions({ versions }: { versions: Product['versions'] }) {
         </li>
       ))}
       {rest > 0 && (
-        <li className="whitespace-nowrap px-1.5 py-0.5 text-slate-500">
+        <li className="whitespace-nowrap px-1.5 py-0.5 text-fg-subtle">
           + {rest} on other versions
         </li>
       )}
@@ -62,7 +62,7 @@ export function SoftwareRollup({
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
             <th scope="col" className="py-2 pr-4">
               Product
             </th>
@@ -80,7 +80,7 @@ export function SoftwareRollup({
             </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-line-soft">
           {sorted.map((p) => (
             <tr key={p.product}>
               <td className="whitespace-nowrap py-2 pr-4 align-top">
@@ -90,7 +90,7 @@ export function SoftwareRollup({
               </td>
               <td className="py-2 pr-4 align-top">
                 <div className="flex items-center gap-2">
-                  <span className="w-8 text-right tabular-nums text-slate-800">{p.hosts}</span>
+                  <span className="w-8 text-right tabular-nums text-fg">{p.hosts}</span>
                   <Bar value={p.hosts} max={max} className="fill-slate-500" />
                 </div>
               </td>
@@ -99,15 +99,13 @@ export function SoftwareRollup({
               </td>
               <td className="py-2 pr-4 align-top">
                 <div className="flex items-center gap-2">
-                  <span className="w-8 text-right tabular-nums text-slate-800">{p.eol}</span>
+                  <span className="w-8 text-right tabular-nums text-fg">{p.eol}</span>
                   <Bar value={p.eol} max={p.hosts} className="fill-amber-500" />
                 </div>
               </td>
               <td className="py-2 align-top">
                 <div className="flex items-center gap-2">
-                  <span className="w-8 text-right tabular-nums text-slate-800">
-                    {p.knownExploited}
-                  </span>
+                  <span className="w-8 text-right tabular-nums text-fg">{p.knownExploited}</span>
                   <Bar value={p.knownExploited} max={p.hosts} className="fill-orange-600" />
                 </div>
               </td>

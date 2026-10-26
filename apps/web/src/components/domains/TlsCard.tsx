@@ -26,7 +26,7 @@ export function ResultNote({ status, prefix }: { status: ObservationResult; pref
   if (status === 'success') return null;
   const note = ACTIVE_RESULT_NOTES[status];
   return (
-    <span className="block text-xs italic text-slate-500">
+    <span className="block text-xs italic text-fg-subtle">
       {prefix ? `${prefix} ${note}.` : note}
     </span>
   );
@@ -36,7 +36,7 @@ export function ResultNote({ status, prefix }: { status: ObservationResult; pref
 export function FactBadge({ ok, children }: { ok: boolean | null; children: ReactNode }) {
   const Icon = ok ? Check : X;
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+    <span className="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-fg-2">
       {ok !== null && <Icon className="size-3" aria-hidden />}
       {children}
     </span>
@@ -95,7 +95,7 @@ export function TlsCard({
       summary={tlsSummary(state, now)}
     >
       {state.status === 'loading' && (
-        <p className="text-sm text-slate-500" role="status">
+        <p className="text-sm text-fg-subtle" role="status">
           Loading certificates…
         </p>
       )}
@@ -138,7 +138,7 @@ function TlsEntry({ snapshot: s, now }: { snapshot: TlsSnapshot; now: Date }) {
   return (
     <section aria-labelledby={headingId} className="space-y-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 id={headingId} className="break-all font-mono text-sm font-semibold text-slate-800">
+        <h3 id={headingId} className="break-all font-mono text-sm font-semibold text-fg">
           {s.hostname}
           {s.port !== 443 ? `:${s.port}` : ''}
         </h3>
@@ -153,7 +153,7 @@ function TlsEntry({ snapshot: s, now }: { snapshot: TlsSnapshot; now: Date }) {
       </div>
       <ResultNote status={s.resultStatus} prefix="TLS" />
       {verifyError && (
-        <p className="text-xs text-slate-600">
+        <p className="text-xs text-fg-muted">
           Verification error: <span className="font-mono">{verifyError}</span>
         </p>
       )}
@@ -179,11 +179,11 @@ function TlsEntry({ snapshot: s, now }: { snapshot: TlsSnapshot; now: Date }) {
           {s.subjectAltNames.length > 0 && (
             <div className="sm:col-span-2">
               <details>
-                <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                <summary className="cursor-pointer text-xs font-medium text-fg-muted">
                   {s.subjectAltNames.length} subject alternative name
                   {s.subjectAltNames.length === 1 ? '' : 's'}
                 </summary>
-                <ul className="mt-1 space-y-0.5 font-mono text-xs text-slate-800">
+                <ul className="mt-1 space-y-0.5 font-mono text-xs text-fg">
                   {s.subjectAltNames.map((n) => (
                     <li key={n} className="break-all">
                       {n}
@@ -195,7 +195,7 @@ function TlsEntry({ snapshot: s, now }: { snapshot: TlsSnapshot; now: Date }) {
           )}
         </dl>
       )}
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-fg-subtle">
         Observed <ObservedLink at={s.observedAt} scanJobId={s.scanJobId} />
       </p>
     </section>
@@ -205,7 +205,7 @@ function TlsEntry({ snapshot: s, now }: { snapshot: TlsSnapshot; now: Date }) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{label}</dt>
       <dd className="mt-1 break-words">{children}</dd>
     </div>
   );
@@ -215,7 +215,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function CertExpiry({ iso, now }: { iso: string; now: Date }) {
   const days = daysUntil(iso, now);
   let text: string;
-  let tone = 'text-slate-500';
+  let tone = 'text-fg-subtle';
   if (days < 0) {
     const ago = -days;
     text = `expired ${ago} day${ago === 1 ? '' : 's'} ago`;

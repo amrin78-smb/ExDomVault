@@ -46,7 +46,7 @@ const SORT_LABELS: Record<(typeof ASSET_SORTS)[number], string> = {
 };
 
 const selectClass =
-  'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
+  'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm';
 
 export function AssetsPage() {
   const [params, setParams] = useSearchParams();
@@ -139,7 +139,7 @@ export function AssetsPage() {
             </label>
             <div className="relative">
               <Search
-                className="pointer-events-none absolute left-2 top-2 size-4 text-slate-400"
+                className="pointer-events-none absolute left-2 top-2 size-4 text-fg-faint"
                 aria-hidden
               />
               <input
@@ -148,12 +148,12 @@ export function AssetsPage() {
                 value={searchDraft}
                 onChange={(e) => setSearchDraft(e.target.value)}
                 placeholder="Hostname"
-                className="w-56 rounded-md border border-slate-300 py-1.5 pl-8 pr-2 text-sm shadow-sm"
+                className="w-56 rounded-md border border-line-strong py-1.5 pl-8 pr-2 text-sm shadow-sm"
               />
             </div>
             <Button type="submit">Search</Button>
           </form>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Status</span>
             <select
               className={selectClass}
@@ -171,7 +171,7 @@ export function AssetsPage() {
             </select>
           </label>
           {(domainOptions.length > 0 || domainId) && (
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-fg-muted">
               <span className="mb-1 block">Domain</span>
               <select
                 className={selectClass}
@@ -192,7 +192,7 @@ export function AssetsPage() {
               </select>
             </label>
           )}
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Source</span>
             <select
               className={selectClass}
@@ -207,7 +207,7 @@ export function AssetsPage() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Third-party hosting</span>
             <select
               className={selectClass}
@@ -219,7 +219,7 @@ export function AssetsPage() {
               <option value="false">No provider detected</option>
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Sort</span>
             <select
               className={selectClass}
@@ -236,7 +236,7 @@ export function AssetsPage() {
             </select>
           </label>
           {params.get('q') && (
-            <span className="inline-flex items-center gap-1 self-center rounded-full bg-slate-100 py-0.5 pl-2.5 pr-1 text-xs text-slate-700">
+            <span className="inline-flex items-center gap-1 self-center rounded-full bg-surface-3 py-0.5 pl-2.5 pr-1 text-xs text-fg-2">
               Search: {params.get('q')}
               <button
                 type="button"
@@ -245,7 +245,7 @@ export function AssetsPage() {
                   setParam('q', '');
                 }}
                 aria-label="Clear search"
-                className="rounded-full p-0.5 hover:bg-slate-200"
+                className="rounded-full p-0.5 hover:bg-line"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -286,7 +286,7 @@ export function AssetsPage() {
           />
         )}
         {state.status === 'loading' && (
-          <p className="py-8 text-center text-sm text-slate-500" role="status">
+          <p className="py-8 text-center text-sm text-fg-subtle" role="status">
             Loading assets…
           </p>
         )}
@@ -323,7 +323,7 @@ export function AssetsPage() {
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
                     {canDecide && (
                       <th scope="col" className="w-8 py-2 pr-2">
                         <input
@@ -366,9 +366,9 @@ export function AssetsPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line-soft">
                   {state.data.items.map((a) => (
-                    <tr key={a.id} className="hover:bg-slate-50">
+                    <tr key={a.id} className="hover:bg-surface-2">
                       {canDecide && (
                         <td className="py-2.5 pr-2">
                           <input
@@ -392,25 +392,25 @@ export function AssetsPage() {
                           </div>
                         )}
                       </td>
-                      <td className="py-2.5 pr-4 font-mono text-slate-700">{a.domain.fqdn}</td>
+                      <td className="py-2.5 pr-4 font-mono text-fg-2">{a.domain.fqdn}</td>
                       <td className="py-2.5 pr-4">
                         <AssetStatusBadge status={a.status} />
                       </td>
-                      <td className="py-2.5 pr-4 text-slate-700">{sourceLabel(a.source)}</td>
+                      <td className="py-2.5 pr-4 text-fg-2">{sourceLabel(a.source)}</td>
                       <td className="py-2.5 pr-4">
                         {a.hostingHint ? (
                           <HostingHintChip hint={a.hostingHint} />
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-fg-faint">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 pr-4 font-mono text-xs text-slate-700">
+                      <td className="py-2.5 pr-4 font-mono text-xs text-fg-2">
                         <IpSummary ips={a.currentIps} />
                       </td>
-                      <td className="whitespace-nowrap py-2.5 pr-4 text-slate-600">
+                      <td className="whitespace-nowrap py-2.5 pr-4 text-fg-muted">
                         {formatDateTime(a.lastSeenAt)}
                       </td>
-                      <td className="py-2.5 text-right tabular-nums text-slate-700">
+                      <td className="py-2.5 text-right tabular-nums text-fg-2">
                         {a.activeFindings > 0 ? (
                           <Link
                             to={`/findings?q=${encodeURIComponent(a.hostname)}&domainId=${a.domain.id}`}
@@ -448,7 +448,7 @@ const statusLabel = (status: string) =>
 
 /** First two current addresses and how many more. */
 function IpSummary({ ips }: { ips: string[] }) {
-  if (ips.length === 0) return <span className="font-sans text-slate-400">None resolved</span>;
+  if (ips.length === 0) return <span className="font-sans text-fg-faint">None resolved</span>;
   const shown = ips.slice(0, 2);
   const more = ips.length - shown.length;
   return (
@@ -458,7 +458,7 @@ function IpSummary({ ips }: { ips: string[] }) {
           {ip}
         </span>
       ))}
-      {more > 0 && <span className="block font-sans text-slate-500">+{more} more</span>}
+      {more > 0 && <span className="block font-sans text-fg-subtle">+{more} more</span>}
     </span>
   );
 }

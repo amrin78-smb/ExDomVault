@@ -1,7 +1,7 @@
 import { ATTESTATION_MAX_MONTHS, type AuthorisationInput } from '@exdomainvault/shared';
 import { addMonthsIso } from '../../lib/format.ts';
 
-const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
+const inputClass = 'w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
 
 /** Reason, reference and review date for an administrator authorisation (controlled). */
 export function AuthorisationFields({
@@ -13,7 +13,7 @@ export function AuthorisationFields({
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      <label className="block text-sm font-medium text-slate-700 sm:col-span-3">
+      <label className="block text-sm font-medium text-fg-2 sm:col-span-3">
         Reason
         <textarea
           className={`${inputClass} mt-1`}
@@ -26,8 +26,8 @@ export function AuthorisationFields({
           placeholder="e.g. Registered and owned by Thai Union Group; DNS managed by the registrar (CSC)"
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700 sm:col-span-2">
-        Reference <span className="font-normal text-slate-500">(optional: ticket, contract)</span>
+      <label className="block text-sm font-medium text-fg-2 sm:col-span-2">
+        Reference <span className="font-normal text-fg-subtle">(optional: ticket, contract)</span>
         <input
           className={`${inputClass} mt-1`}
           value={value.reference ?? ''}
@@ -35,7 +35,7 @@ export function AuthorisationFields({
           maxLength={200}
         />
       </label>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-fg-2">
         Review by
         <input
           type="date"

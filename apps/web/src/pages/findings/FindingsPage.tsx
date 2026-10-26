@@ -42,7 +42,7 @@ const FILTER_KEYS = [
 const QUERY_KEYS = ['page', 'pageSize', ...FILTER_KEYS, 'sort'] as const;
 
 const selectClass =
-  'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
+  'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm';
 
 export function FindingsPage() {
   const [params, setParams] = useSearchParams();
@@ -113,7 +113,7 @@ export function FindingsPage() {
             </label>
             <div className="relative">
               <Search
-                className="pointer-events-none absolute left-2 top-2 size-4 text-slate-400"
+                className="pointer-events-none absolute left-2 top-2 size-4 text-fg-faint"
                 aria-hidden
               />
               <input
@@ -122,12 +122,12 @@ export function FindingsPage() {
                 value={searchDraft}
                 onChange={(e) => setSearchDraft(e.target.value)}
                 placeholder="Title, hostname or domain"
-                className="w-60 rounded-md border border-slate-300 py-1.5 pl-8 pr-2 text-sm shadow-sm"
+                className="w-60 rounded-md border border-line-strong py-1.5 pl-8 pr-2 text-sm shadow-sm"
               />
             </div>
             <Button type="submit">Search</Button>
           </form>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Status</span>
             <select
               className={selectClass}
@@ -143,7 +143,7 @@ export function FindingsPage() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Severity</span>
             <select
               className={selectClass}
@@ -158,7 +158,7 @@ export function FindingsPage() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Category</span>
             <select
               className={selectClass}
@@ -173,7 +173,7 @@ export function FindingsPage() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Assignee</span>
             <select
               className={selectClass}
@@ -185,7 +185,7 @@ export function FindingsPage() {
               <option value="unassigned">Unassigned</option>
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Sort</span>
             <select
               className={selectClass}
@@ -251,7 +251,7 @@ export function FindingsPage() {
           />
         )}
         {state.status === 'loading' && (
-          <p className="py-8 text-center text-sm text-slate-500" role="status">
+          <p className="py-8 text-center text-sm text-fg-subtle" role="status">
             Loading findings…
           </p>
         )}
@@ -273,7 +273,7 @@ export function FindingsPage() {
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
                     {canSelect && (
                       <th scope="col" className="w-8 py-2 pr-2">
                         <input
@@ -316,9 +316,9 @@ export function FindingsPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line-soft">
                   {state.data.items.map((f) => (
-                    <tr key={f.id} className="hover:bg-slate-50">
+                    <tr key={f.id} className="hover:bg-surface-2">
                       {canSelect && (
                         <td className="py-2.5 pr-2">
                           <input
@@ -339,12 +339,12 @@ export function FindingsPage() {
                         >
                           {f.title}
                         </Link>
-                        <div className="font-mono text-xs text-slate-500">{f.ruleId}</div>
+                        <div className="font-mono text-xs text-fg-subtle">{f.ruleId}</div>
                       </td>
                       <td className="py-2.5 pr-4">
-                        <div className="font-mono text-slate-800">{f.domain.fqdn}</div>
+                        <div className="font-mono text-fg">{f.domain.fqdn}</div>
                         {f.hostname !== f.domain.fqdn && (
-                          <div className="font-mono text-xs text-slate-500">{f.hostname}</div>
+                          <div className="font-mono text-xs text-fg-subtle">{f.hostname}</div>
                         )}
                       </td>
                       <td className="py-2.5 pr-4">
@@ -353,14 +353,14 @@ export function FindingsPage() {
                       <td className="py-2.5 pr-4">
                         <FindingStatusBadge status={f.status} />
                       </td>
-                      <td className="py-2.5 pr-4 text-slate-700">
+                      <td className="py-2.5 pr-4 text-fg-2">
                         {f.assignee ? (
                           userLabel(f.assignee)
                         ) : (
-                          <span className="text-slate-400">Unassigned</span>
+                          <span className="text-fg-faint">Unassigned</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap py-2.5 text-slate-600">
+                      <td className="whitespace-nowrap py-2.5 text-fg-muted">
                         {formatDateTime(f.lastSeenAt)}
                       </td>
                     </tr>
@@ -383,13 +383,13 @@ export function FindingsPage() {
 
 function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pl-2.5 pr-1 text-xs text-slate-700">
+    <span className="inline-flex items-center gap-1 rounded-full bg-surface-3 py-0.5 pl-2.5 pr-1 text-xs text-fg-2">
       {label}
       <button
         type="button"
         onClick={onClear}
         aria-label={`Clear filter ${label}`}
-        className="rounded-full p-0.5 hover:bg-slate-200"
+        className="rounded-full p-0.5 hover:bg-line"
       >
         <X className="size-3" aria-hidden />
       </button>

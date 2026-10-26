@@ -176,7 +176,7 @@ class FakeResolver:
 def setup(valid_env, tmp_path):
     def build(
         job, *, resolver=None, heartbeat_interval=None, rdap_routes=None, env=None,
-        policy_factory=None, self_protection=None,
+        policy_factory=None, self_protection=None, geoip=None,
     ):  # fmt: skip
         key = Ed25519PrivateKey.generate()
         api = FakeApi(key, job)
@@ -200,6 +200,8 @@ def setup(valid_env, tmp_path):
 
         resolver = resolver or FakeResolver()
         extra = {} if policy_factory is None else {"policy_factory": policy_factory}
+        if geoip is not None:
+            extra["geoip"] = geoip
         config = load_config({**valid_env, **(env or {})})
         # Never detect the real host's addresses or query a real resolver in tests.
         protection = self_protection or SelfProtection(
@@ -226,7 +228,7 @@ def setup(valid_env, tmp_path):
 def assert_observation_shape(o):
     common = {"kind", "targetId", "observedAt", "checkerVersion", "resultStatus", "evidence"}
     if o["kind"] == "dns":
-        assert set(o) == common | {"hostname", "recordType", "ttl", "values"}
+        assert set(o) - {"geo"} == common | {"hostname", "recordType", "ttl", "values"}
         assert re.fullmatch(r"[a-z0-9_.-]+", o["hostname"])
         assert not o["hostname"].endswith(".")
         assert o["values"] == sorted(o["values"])
@@ -299,6 +301,41 @@ def test_passive_job_end_to_end(setup):
     health = json.loads((worker._health._path).read_text())
     assert health["lastJobId"] == JOB_ID
     assert health["status"] == "ok"
+
+
+class PublicResolver(FakeResolver):
+    def query(self, name, rdtype, lifetime):
+        if rdtype == "A" and name == "www.example.com":
+            return DnsAnswer(300, ["8.8.8.8", "9.9.9.9"], name)
+        return super().query(name, rdtype, lifetime)
+
+
+def test_passive_job_adds_geo_to_a_records(setup, tmp_path):
+    from .test_geoip import ROWS, Server, make_geo, seed_cache
+
+    geo = make_geo(tmp_path, Server())
+    seed_cache(geo, ROWS)
+    geo.maybe_refresh()
+    worker, api, _resolver, _ = setup(make_job(), resolver=PublicResolver(), geoip=geo)
+    assert worker.run_once() == "job"
+    observations = [o for r in api.endpoint_calls("results") for o in r["observations"]]
+    www_a = next(o for o in observations if o["targetId"] == WWW_ID and o["recordType"] == "A")
+    assert www_a["geo"] == [{"ip": "8.8.8.8", "country": "US"}]  # 9.9.9.9 is ZZ in the fixture
+    # The apex A answer is a documentation address: never looked up, field omitted.
+    apex_a = next(o for o in observations if o["targetId"] == APEX_ID and o["recordType"] == "A")
+    assert "geo" not in apex_a
+
+
+def test_disabled_geoip_adds_nothing(setup, tmp_path):
+    from .test_geoip import ROWS, Server, make_geo, seed_cache
+
+    geo = make_geo(tmp_path, Server(), enabled=False)
+    seed_cache(geo, ROWS)
+    geo.maybe_refresh()
+    worker, api, _resolver, _ = setup(make_job(), resolver=PublicResolver(), geoip=geo)
+    assert worker.run_once() == "job"
+    observations = [o for r in api.endpoint_calls("results") for o in r["observations"]]
+    assert all("geo" not in o for o in observations)
 
 
 def test_idle_when_no_job(setup):

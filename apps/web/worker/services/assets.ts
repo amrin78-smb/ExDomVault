@@ -1,9 +1,11 @@
 import { schema, type Database } from '@exdomainvault/database';
 import { fingerprint } from '@exdomainvault/rules';
 import {
+  ASSET_ROLE_FILTER_LIMIT,
   allowedAssetActions,
   hostingHintSchema,
   type Asset,
+  type AssetRole,
   type AssetBulkDecisionResponse,
   type AssetDetailResponse,
   type AssetListQuery,
@@ -30,6 +32,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { ApiError } from '../lib/errors.ts';
 import { writeAuditMany, type AuditEntry } from './audit.ts';
 import type { Actor } from './domains.ts';
+import { assetRolesFor } from './asset-roles.ts';
 import { stopActiveJobsForAssets } from './scans.ts';
 
 const { assetIps, assets, discoveryObservations, domains, findingStatusHistory, findings, users } =
@@ -127,7 +130,7 @@ export async function currentIpsOf(db: Database, ids: string[]): Promise<Map<str
   return out;
 }
 
-export function toAssetDto(r: JoinRow, currentIps: string[]): Asset {
+export function toAssetDto(r: JoinRow, currentIps: string[], role?: AssetRole): Asset {
   const a = r.a;
   const hint = hostingHintSchema.safeParse(a.hostingHint);
   return {
@@ -141,6 +144,7 @@ export function toAssetDto(r: JoinRow, currentIps: string[]): Asset {
     lastSeenAt: a.lastSeenAt.toISOString(),
     currentIps,
     hostingHint: hint.success ? hint.data : null,
+    ...(role ? { role } : {}),
     wildcardOnly: a.wildcardOnly,
     owner: a.ownerUserId && r.ownerEmail ? { id: a.ownerUserId, email: r.ownerEmail } : null,
     decidedBy: a.decidedBy && r.deciderEmail ? { id: a.decidedBy, email: r.deciderEmail } : null,
@@ -183,28 +187,65 @@ export async function listAssets(
   user: User,
   q: AssetListQuery,
   scopedDomainId?: string,
+  now: Date = new Date(),
 ): Promise<AssetListResponse> {
   if (scopedDomainId) await assertDomainVisible(db, user, scopedDomainId);
 
   const where = assetListWhere(user, q);
+  const offset = (q.page - 1) * q.pageSize;
 
-  const [rows, [total]] = await Promise.all([
-    assetBaseQuery(db)
+  let rows: JoinRow[];
+  let total: number;
+  let roles: Map<string, AssetRole>;
+  if (q.role) {
+    // Roles are evidence-derived at read time: evaluate the (capped) matching set, then page.
+    const candidates = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .innerJoin(domains, eq(domains.id, assets.domainId))
       .where(where)
       .orderBy(...ASSET_ORDER[q.sort])
-      .limit(q.pageSize)
-      .offset((q.page - 1) * q.pageSize),
-    db.select({ n: count() }).from(assets).where(where),
-  ]);
+      .limit(ASSET_ROLE_FILTER_LIMIT);
+    roles = await assetRolesFor(
+      db,
+      candidates.map((c) => c.id),
+      now,
+    );
+    const matching = candidates.filter((c) => roles.get(c.id) === q.role).map((c) => c.id);
+    total = matching.length;
+    const pageIds = matching.slice(offset, offset + q.pageSize);
+    rows =
+      pageIds.length === 0
+        ? []
+        : await assetBaseQuery(db)
+            .where(inArray(assets.id, pageIds))
+            .orderBy(...ASSET_ORDER[q.sort]);
+  } else {
+    const [page, [counted]] = await Promise.all([
+      assetBaseQuery(db)
+        .where(where)
+        .orderBy(...ASSET_ORDER[q.sort])
+        .limit(q.pageSize)
+        .offset(offset),
+      db.select({ n: count() }).from(assets).where(where),
+    ]);
+    rows = page;
+    total = counted?.n ?? 0;
+    roles = await assetRolesFor(
+      db,
+      rows.map((r) => r.a.id),
+      now,
+    );
+  }
   const ips = await currentIpsOf(
     db,
     rows.map((r) => r.a.id),
   );
   return {
-    items: rows.map((r) => toAssetDto(r, ips.get(r.a.id) ?? [])),
+    items: rows.map((r) => toAssetDto(r, ips.get(r.a.id) ?? [], roles.get(r.a.id))),
     page: q.page,
     pageSize: q.pageSize,
-    total: total?.n ?? 0,
+    total,
   };
 }
 
@@ -220,9 +261,14 @@ async function visibleAsset(db: Database, user: User, id: string): Promise<JoinR
 export const MAX_DISCOVERY_SIGHTINGS = 50;
 
 /** GET /assets/:id — the asset, its address history and its latest 50 discovery sightings. */
-export async function getAsset(db: Database, user: User, id: string): Promise<AssetDetailResponse> {
+export async function getAsset(
+  db: Database,
+  user: User,
+  id: string,
+  now: Date = new Date(),
+): Promise<AssetDetailResponse> {
   const row = await visibleAsset(db, user, id);
-  const [ips, sightings] = await Promise.all([
+  const [ips, sightings, roles] = await Promise.all([
     db
       .select()
       .from(assetIps)
@@ -234,11 +280,13 @@ export async function getAsset(db: Database, user: User, id: string): Promise<As
       .where(eq(discoveryObservations.assetId, id))
       .orderBy(desc(discoveryObservations.observedAt), desc(discoveryObservations.id))
       .limit(MAX_DISCOVERY_SIGHTINGS),
+    assetRolesFor(db, [id], now),
   ]);
   return {
     asset: toAssetDto(
       row,
       ips.filter((i) => i.isCurrent).map((i) => displayIp(i.ipAddress)),
+      roles.get(id),
     ),
     ips: ips.map((i) => ({
       ipAddress: displayIp(i.ipAddress),

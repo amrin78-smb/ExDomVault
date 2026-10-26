@@ -15,7 +15,7 @@ import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 
 const DAY_MS = 86_400_000;
 const REVIEW_WARNING_DAYS = 30;
-const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
+const inputClass = 'w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
 
 const toError = (err: unknown) => (err instanceof Error ? err : new Error(String(err)));
 
@@ -31,7 +31,7 @@ export function ApprovedNetworksSection({ now = new Date() }: { now?: Date }) {
   return (
     <Card title="Approved networks">
       <div className="space-y-5 text-sm">
-        <div className="space-y-2 text-slate-600">
+        <div className="space-y-2 text-fg-muted">
           <p>
             Port probes and service identification only ever run against addresses inside these
             networks. Approve only ranges your organisation operates (for example your own server or
@@ -45,7 +45,7 @@ export function ApprovedNetworksSection({ now = new Date() }: { now?: Date }) {
 
         <CreateNetworkForm onCreated={refresh} />
 
-        {state.status === 'loading' && <p className="text-slate-500">Loading networks…</p>}
+        {state.status === 'loading' && <p className="text-fg-subtle">Loading networks…</p>}
         {state.status === 'error' && <ErrorAlert error={state.error} />}
         {state.status === 'success' &&
           (state.data.items.length === 0 ? (
@@ -55,7 +55,7 @@ export function ApprovedNetworksSection({ now = new Date() }: { now?: Date }) {
           ) : (
             <ul
               aria-label="Approved networks"
-              className="divide-y divide-slate-100 rounded-md border border-slate-200"
+              className="divide-y divide-line-soft rounded-md border border-line"
             >
               {state.data.items.map((n) => (
                 <NetworkRow key={n.id} network={n} now={now} onChanged={refresh} />
@@ -102,7 +102,7 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
   return (
     <form onSubmit={submit} aria-label="Approve a network" className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3">
-        <label className="block font-medium text-slate-700">
+        <label className="block font-medium text-fg-2">
           Network (CIDR)
           <input
             className={`${inputClass} mt-1 font-mono`}
@@ -115,7 +115,7 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
             required
           />
         </label>
-        <label className="block font-medium text-slate-700 sm:col-span-2">
+        <label className="block font-medium text-fg-2 sm:col-span-2">
           Label
           <input
             className={`${inputClass} mt-1`}
@@ -126,7 +126,7 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
             required
           />
         </label>
-        <label className="block font-medium text-slate-700 sm:col-span-3">
+        <label className="block font-medium text-fg-2 sm:col-span-3">
           Reason
           <textarea
             className={`${inputClass} mt-1`}
@@ -139,8 +139,8 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
             placeholder="Why the organisation operates this range and may probe it"
           />
         </label>
-        <label className="block font-medium text-slate-700 sm:col-span-2">
-          Reference <span className="font-normal text-slate-500">(optional: ticket, contract)</span>
+        <label className="block font-medium text-fg-2 sm:col-span-2">
+          Reference <span className="font-normal text-fg-subtle">(optional: ticket, contract)</span>
           <input
             className={`${inputClass} mt-1`}
             value={value.reference ?? ''}
@@ -148,7 +148,7 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
             maxLength={200}
           />
         </label>
-        <label className="block font-medium text-slate-700">
+        <label className="block font-medium text-fg-2">
           Review by
           <input
             type="date"
@@ -161,7 +161,7 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
           />
         </label>
       </div>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-fg-subtle">
         At most a /16 (IPv4) or /32 (IPv6), public addresses only. The approval lapses on the review
         date (at most {APPROVED_NETWORK_MAX_MONTHS} months ahead) unless renewed.
       </p>
@@ -177,7 +177,7 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
 function ReviewDate({ iso, now }: { iso: string; now: Date }) {
   const days = Math.floor((new Date(iso).getTime() - now.getTime()) / DAY_MS);
   let note = '';
-  let tone = 'text-slate-600';
+  let tone = 'text-fg-muted';
   if (days < 0) {
     note = ' (lapsed)';
     tone = 'rounded bg-red-50 px-1.5 py-0.5 font-medium text-red-800';
@@ -224,28 +224,27 @@ function NetworkRow({
   };
 
   return (
-    <li className={`space-y-2 p-3 ${revoked ? 'bg-slate-50' : ''}`} aria-label={n.label}>
+    <li className={`space-y-2 p-3 ${revoked ? 'bg-surface-2' : ''}`} aria-label={n.label}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-medium text-slate-900">
-            {n.label}{' '}
-            <span className="ml-1 font-mono text-xs font-normal text-slate-700">{n.cidr}</span>
+          <p className="font-medium text-fg">
+            {n.label} <span className="ml-1 font-mono text-xs font-normal text-fg-2">{n.cidr}</span>
             {revoked && (
-              <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+              <span className="ml-2 rounded bg-line px-1.5 py-0.5 text-xs font-medium text-fg-2">
                 Revoked
               </span>
             )}
           </p>
-          <p className="mt-1 text-slate-600">{n.reason}</p>
-          {n.reference && <p className="text-xs text-slate-500">Reference: {n.reference}</p>}
-          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+          <p className="mt-1 text-fg-muted">{n.reason}</p>
+          {n.reference && <p className="text-xs text-fg-subtle">Reference: {n.reference}</p>}
+          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-fg-subtle">
             <span>
               Approved by {n.createdBy?.email ?? 'unknown user'} on {formatDateTime(n.createdAt)}
             </span>
             {!revoked && <ReviewDate iso={n.expiresAt} now={now} />}
           </p>
           {revoked && n.revokedAt && (
-            <p className="mt-1 text-xs text-slate-600">
+            <p className="mt-1 text-xs text-fg-muted">
               Revoked {formatDateTime(n.revokedAt)}
               {n.revokeReason ? `: ${n.revokeReason}` : ''}
             </p>
@@ -263,7 +262,7 @@ function NetworkRow({
           aria-label={`Confirm revoking ${n.cidr}`}
           className="space-y-2 rounded-md border border-red-200 bg-red-50 p-3"
         >
-          <label className="block text-sm font-medium text-slate-700">
+          <label className="block text-sm font-medium text-fg-2">
             Why is this approval being revoked?
             <textarea
               className={`${inputClass} mt-1`}

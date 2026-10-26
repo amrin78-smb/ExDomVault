@@ -22,8 +22,8 @@ import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 import { ConfirmPanel } from './ConfirmPanel.tsx';
 
 const PAGE_SIZE = 25;
-const inputClass = 'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
-const selectClass = 'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm';
+const inputClass = 'w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
+const selectClass = 'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm shadow-sm';
 
 const toError = (err: unknown) => (err instanceof Error ? err : new Error(String(err)));
 const isRole = (v: string | null): v is Role =>
@@ -132,7 +132,7 @@ export function UsersSection() {
                 setFilter({ q: search.trim() });
               }}
             >
-              <label className="block text-xs font-medium text-slate-600">
+              <label className="block text-xs font-medium text-fg-muted">
                 Email or name
                 <input
                   type="search"
@@ -144,7 +144,7 @@ export function UsersSection() {
               </label>
               <Button type="submit">Search</Button>
             </form>
-            <label className="block text-xs font-medium text-slate-600">
+            <label className="block text-xs font-medium text-fg-muted">
               Role
               <select
                 className={`${selectClass} mt-1 block`}
@@ -159,7 +159,7 @@ export function UsersSection() {
                 ))}
               </select>
             </label>
-            <label className="block text-xs font-medium text-slate-600">
+            <label className="block text-xs font-medium text-fg-muted">
               Status
               <select
                 className={`${selectClass} mt-1 block`}
@@ -174,7 +174,7 @@ export function UsersSection() {
           </div>
 
           {state.status === 'loading' && (
-            <p role="status" className="text-slate-500">
+            <p role="status" className="text-fg-subtle">
               Loading users…
             </p>
           )}
@@ -190,7 +190,7 @@ export function UsersSection() {
                   <table className="min-w-full text-sm">
                     <caption className="sr-only">Users</caption>
                     <thead>
-                      <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
                         <th scope="col" className="py-2 pr-4">
                           Email
                         </th>
@@ -214,7 +214,7 @@ export function UsersSection() {
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-line-soft">
                       {state.data.items.map((u) => (
                         <UserRow
                           key={u.id}
@@ -309,7 +309,7 @@ function AddUserForm({ onCreated }: { onCreated: (message: string) => void }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
-          <label className="block font-medium text-slate-700">
+          <label className="block font-medium text-fg-2">
             Email
             <input
               type="email"
@@ -330,7 +330,7 @@ function AddUserForm({ onCreated }: { onCreated: (message: string) => void }) {
           )}
         </div>
         <div>
-          <label className="block font-medium text-slate-700">
+          <label className="block font-medium text-fg-2">
             Name (optional)
             <input
               className={`${inputClass} mt-1`}
@@ -347,7 +347,7 @@ function AddUserForm({ onCreated }: { onCreated: (message: string) => void }) {
             </p>
           )}
         </div>
-        <label className="block font-medium text-slate-700">
+        <label className="block font-medium text-fg-2">
           Role
           <select
             className={`${selectClass} mt-1 block w-full`}
@@ -388,11 +388,11 @@ function UserRow({
   const label = user.displayName ? `${user.displayName} (${user.email})` : user.email;
   return (
     <>
-      <tr className={user.isActive ? '' : 'text-slate-500'}>
+      <tr className={user.isActive ? '' : 'text-fg-subtle'}>
         <th scope="row" className="py-2 pr-4 text-left font-normal">
           <span className="break-all">{user.email}</span>
           {isSelf && (
-            <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+            <span className="ml-2 rounded bg-surface-3 px-1.5 py-0.5 text-xs font-medium text-fg-2">
               You
             </span>
           )}
@@ -403,11 +403,11 @@ function UserRow({
           {user.isActive ? (
             <span className="text-emerald-700">Active</span>
           ) : (
-            <span className="font-medium text-slate-600">Inactive</span>
+            <span className="font-medium text-fg-muted">Inactive</span>
           )}
         </td>
         <td className="py-2 pr-4">{user.signedIn ? 'Yes' : 'Not yet'}</td>
-        <td className="py-2 pr-4 text-slate-600">
+        <td className="py-2 pr-4 text-fg-muted">
           {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Never'}
         </td>
         <td className="py-2 text-right">
@@ -423,7 +423,7 @@ function UserRow({
       </tr>
       {open && (
         <tr>
-          <td colSpan={7} className="bg-slate-50 p-3">
+          <td colSpan={7} className="bg-surface-2 p-3">
             <UserEditor id={editorId} label={label} user={user} isSelf={isSelf} onSaved={onSaved} />
           </td>
         </tr>
@@ -475,7 +475,7 @@ function UserEditor({
   return (
     <div id={id} role="group" aria-label={`Manage ${user.email}`} className="space-y-4 text-sm">
       {isSelf && (
-        <p className="text-slate-600">
+        <p className="text-fg-muted">
           This is your own account. You cannot change your own role or deactivate yourself; another
           administrator must do that.
         </p>
@@ -492,7 +492,7 @@ function UserEditor({
           );
         }}
       >
-        <label className="block font-medium text-slate-700" htmlFor={`${fieldId}-name`}>
+        <label className="block font-medium text-fg-2" htmlFor={`${fieldId}-name`}>
           Display name
           <input
             id={`${fieldId}-name`}
@@ -508,7 +508,7 @@ function UserEditor({
       </form>
 
       <div className="flex flex-wrap items-end gap-2">
-        <label className="block font-medium text-slate-700">
+        <label className="block font-medium text-fg-2">
           Role
           <select
             className={`${selectClass} mt-1 block`}

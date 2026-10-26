@@ -320,8 +320,8 @@ function Gate({
   if (access === 'loading') return <Loading />;
   if (access === 'no') {
     return (
-      <p className="flex items-center gap-2 text-sm text-slate-500">
-        <Lock className="size-4 shrink-0 text-slate-400" aria-hidden />
+      <p className="flex items-center gap-2 text-sm text-fg-subtle">
+        <Lock className="size-4 shrink-0 text-fg-faint" aria-hidden />
         {denied}
       </p>
     );
@@ -331,7 +331,7 @@ function Gate({
 
 function Loading() {
   return (
-    <p className="text-sm text-slate-500" role="status">
+    <p className="text-sm text-fg-subtle" role="status">
       Loading…
     </p>
   );
@@ -482,12 +482,12 @@ function LatestScans({ state }: { state: AsyncState<ScanJobListResponse> }) {
             Scans run daily for monitored domains, or on request from a domain page.
           </EmptyState>
         ) : (
-          <ul className="divide-y divide-slate-100 text-sm">
+          <ul className="divide-y divide-line-soft text-sm">
             {data.items.map((j) => (
               <li key={j.id} className="flex items-center justify-between gap-3 py-2">
                 <Link to={`/scans/${j.id}`} className="min-w-0 text-sky-800 hover:underline">
                   <span className="block truncate font-mono">{j.domain?.fqdn ?? 'Discovery'}</span>
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-xs text-fg-subtle">
                     <span className="capitalize">{j.profile}</span> ·{' '}
                     {formatDateTime(j.completedAt ?? j.createdAt)}
                   </span>
@@ -511,7 +511,7 @@ function WorkerHealth({ state }: { state: AsyncState<{ items: Worker[] }> }) {
             Register the scanning worker in Settings.
           </EmptyState>
         ) : (
-          <ul className="divide-y divide-slate-100 text-sm">
+          <ul className="divide-y divide-line-soft text-sm">
             {data.items.map((w) => {
               const stale = isStale(w);
               const label =
@@ -519,12 +519,12 @@ function WorkerHealth({ state }: { state: AsyncState<{ items: Worker[] }> }) {
               return (
                 <li key={w.id} className="flex items-center justify-between gap-3 py-2">
                   <div className="min-w-0">
-                    <div className="truncate font-mono text-slate-800">{w.name}</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="truncate font-mono text-fg">{w.name}</div>
+                    <div className="text-xs text-fg-subtle">
                       Last seen {w.lastSeenAt ? formatDateTime(w.lastSeenAt) : 'never'}
                     </div>
                   </div>
-                  <span className="shrink-0 text-xs font-medium text-slate-700">{label}</span>
+                  <span className="shrink-0 text-xs font-medium text-fg-2">{label}</span>
                 </li>
               );
             })}
@@ -604,15 +604,15 @@ function ExposedSoftware({ state }: { state: AsyncState<SoftwareSummaryResponse>
           <div className="space-y-3">
             <dl className="grid grid-cols-2 gap-3">
               <div>
-                <dt className="text-xs text-slate-500">End-of-life installs</dt>
-                <dd className="text-2xl font-semibold tabular-nums text-slate-900">{eol}</dd>
+                <dt className="text-xs text-fg-subtle">End-of-life installs</dt>
+                <dd className="text-2xl font-semibold tabular-nums text-fg">{eol}</dd>
               </div>
               <div>
-                <dt className="text-xs text-slate-500">Possibly KEV-affected</dt>
-                <dd className="text-2xl font-semibold tabular-nums text-slate-900">{kev}</dd>
+                <dt className="text-xs text-fg-subtle">Possibly KEV-affected</dt>
+                <dd className="text-2xl font-semibold tabular-nums text-fg">{kev}</dd>
               </div>
             </dl>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-fg-subtle">
               Versions are self-reported; matches mean possibly affected — verify.
             </p>
             <Link to="/software" className="text-xs text-sky-800 hover:underline">

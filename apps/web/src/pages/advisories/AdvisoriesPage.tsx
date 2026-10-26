@@ -14,7 +14,7 @@ import { api } from '../../lib/api.ts';
 import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
 const selectClass =
-  'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm';
+  'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm';
 
 export function AdvisoriesPage() {
   const [params, setParams] = useSearchParams();
@@ -48,7 +48,7 @@ export function AdvisoriesPage() {
         description="Plain-language remediation guidance for findings, highest risk first. Advisories are generated from deterministic rules and recorded evidence."
         actions={
           <>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-fg-muted">
               <span className="mb-1 block">Findings</span>
               <select
                 className={selectClass}
@@ -73,7 +73,7 @@ export function AdvisoriesPage() {
         />
       )}
       {state.status === 'loading' && (
-        <p className="py-8 text-center text-sm text-slate-500" role="status">
+        <p className="py-8 text-center text-sm text-fg-subtle" role="status">
           Loading advisories…
         </p>
       )}
@@ -95,12 +95,12 @@ export function AdvisoriesPage() {
               <li key={a.id}>
                 <article
                   aria-label={a.title}
-                  className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-lg border border-line bg-surface p-4 shadow-sm"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h2 className="font-semibold text-slate-900">{a.title}</h2>
-                      <p className="mt-0.5 font-mono text-xs text-slate-500">
+                      <h2 className="font-semibold text-fg">{a.title}</h2>
+                      <p className="mt-0.5 font-mono text-xs text-fg-subtle">
                         {a.finding.domain.fqdn}
                         {a.finding.hostname !== a.finding.domain.fqdn && ` · ${a.finding.hostname}`}
                         {` · ${a.finding.ruleId}`}
@@ -112,20 +112,20 @@ export function AdvisoriesPage() {
                       <RiskScore score={a.finding.riskScore} />
                     </div>
                   </div>
-                  <p className="mt-3 text-sm text-slate-700">{a.summary}</p>
+                  <p className="mt-3 text-sm text-fg-2">{a.summary}</p>
                   <div className="mt-3 grid gap-4 text-sm md:grid-cols-2">
                     <div>
-                      <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-subtle">
                         Business impact
                       </h3>
-                      <p className="text-slate-700">{a.businessImpact}</p>
+                      <p className="text-fg-2">{a.businessImpact}</p>
                     </div>
                     {a.recommendedActions.length > 0 && (
                       <div>
-                        <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                        <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-subtle">
                           Recommended actions
                         </h3>
-                        <ol className="list-decimal space-y-1 pl-5 text-slate-700">
+                        <ol className="list-decimal space-y-1 pl-5 text-fg-2">
                           {a.recommendedActions.map((action) => (
                             <li key={action}>{action}</li>
                           ))}

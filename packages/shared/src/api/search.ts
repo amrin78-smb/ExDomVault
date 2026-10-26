@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { severitySchema } from '../domain/severity.ts';
 
 /**
- * Global search (Milestone 13, top bar / Ctrl+K). `GET /api/v1/search?q=` (`domains:read`).
+ * Global search (Milestone 13, top bar / Ctrl+K). `GET /api/v1/search?q=` (any of `domains:read`,
+ * `assets:read`, `findings:read`; each group needs its list's permission).
  * Case-insensitive substring match per group, at most SEARCH_GROUP_LIMIT hits per group, results
  * scoped like the lists they link to (a group the caller may not read is returned empty). A query
  * that is a port number (`443`, `port:443`) also searches open ports; one that looks like a CVE id

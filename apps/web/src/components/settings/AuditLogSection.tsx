@@ -13,8 +13,8 @@ import { EmptyState } from '../ui/EmptyState.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 
 const PAGE_SIZE = 50;
-const inputClass = 'rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm';
-const selectClass = 'rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm';
+const inputClass = 'rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm';
+const selectClass = 'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm shadow-sm';
 
 const ACTION_RE = /^[a-z_.]+$/;
 const RESOURCE_RE = /^[a-z_]+$/;
@@ -115,7 +115,7 @@ export function AuditLogSection() {
   return (
     <Card title="Audit log" actions={<ExportCsvButton resource="audit-logs" filters={query} />}>
       <div className="space-y-4 text-sm">
-        <p className="text-slate-600">
+        <p className="text-fg-muted">
           Every privileged change is recorded here and cannot be edited or deleted. Times are UTC.
         </p>
         <AuditFilters
@@ -126,7 +126,7 @@ export function AuditLogSection() {
         />
 
         {state.status === 'loading' && (
-          <p role="status" className="text-slate-500">
+          <p role="status" className="text-fg-subtle">
             Loading audit entries…
           </p>
         )}
@@ -142,7 +142,7 @@ export function AuditLogSection() {
                 <table className="min-w-full text-sm">
                   <caption className="sr-only">Audit log entries, newest first</caption>
                   <thead>
-                    <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
                       <th scope="col" className="py-2 pr-4">
                         Time
                       </th>
@@ -160,7 +160,7 @@ export function AuditLogSection() {
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 align-top">
+                  <tbody className="divide-y divide-line-soft align-top">
                     {state.data.items.map((e) => (
                       <AuditRow key={e.id} entry={e} />
                     ))}
@@ -215,7 +215,7 @@ function AuditFilters({ initial, onApply }: { initial: Filters; onApply: (f: Fil
       className="flex flex-wrap items-end gap-3"
     >
       <div>
-        <label className="block text-xs font-medium text-slate-600">
+        <label className="block text-xs font-medium text-fg-muted">
           Action or prefix
           <input
             className={`${inputClass} mt-1 block w-48 font-mono`}
@@ -236,7 +236,7 @@ function AuditFilters({ initial, onApply }: { initial: Filters; onApply: (f: Fil
         ))}
       </datalist>
       <div>
-        <label className="block text-xs font-medium text-slate-600">
+        <label className="block text-xs font-medium text-fg-muted">
           Resource type
           <input
             className={`${inputClass} mt-1 block w-40 font-mono`}
@@ -255,7 +255,7 @@ function AuditFilters({ initial, onApply }: { initial: Filters; onApply: (f: Fil
           <option key={r} value={r} />
         ))}
       </datalist>
-      <label className="block text-xs font-medium text-slate-600">
+      <label className="block text-xs font-medium text-fg-muted">
         Actor type
         <select
           className={`${selectClass} mt-1 block`}
@@ -269,7 +269,7 @@ function AuditFilters({ initial, onApply }: { initial: Filters; onApply: (f: Fil
         </select>
       </label>
       <div>
-        <label className="block text-xs font-medium text-slate-600">
+        <label className="block text-xs font-medium text-fg-muted">
           From
           <input
             type="date"
@@ -282,7 +282,7 @@ function AuditFilters({ initial, onApply }: { initial: Filters; onApply: (f: Fil
         {errorFor('from')}
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-600">
+        <label className="block text-xs font-medium text-fg-muted">
           To
           <input
             type="date"
@@ -329,29 +329,29 @@ function AuditRow({ entry: e }: { entry: AuditEntry }) {
   const fields = Object.keys(e.metadata).length;
   return (
     <tr>
-      <td className="whitespace-nowrap py-2 pr-4 text-slate-600">
+      <td className="whitespace-nowrap py-2 pr-4 text-fg-muted">
         <time dateTime={e.createdAt}>{formatDateTime(e.createdAt)}</time>
       </td>
       <td className="py-2 pr-4">
         {e.actor ? (
           <span className="break-all">{e.actor.email}</span>
         ) : (
-          <span className="text-slate-600">{ACTOR_LABELS[e.actorType]}</span>
+          <span className="text-fg-muted">{ACTOR_LABELS[e.actorType]}</span>
         )}
         {e.actor && e.actorType !== 'user' && (
-          <span className="block text-xs text-slate-500">{ACTOR_LABELS[e.actorType]}</span>
+          <span className="block text-xs text-fg-subtle">{ACTOR_LABELS[e.actorType]}</span>
         )}
       </td>
-      <td className="py-2 pr-4 font-mono text-xs text-slate-800">{e.action}</td>
+      <td className="py-2 pr-4 font-mono text-xs text-fg">{e.action}</td>
       <td className="py-2 pr-4">
-        <span className="font-mono text-xs text-slate-800">{e.resourceType}</span>
+        <span className="font-mono text-xs text-fg">{e.resourceType}</span>
         {e.resourceId && (
-          <span className="block break-all font-mono text-xs text-slate-500">{e.resourceId}</span>
+          <span className="block break-all font-mono text-xs text-fg-subtle">{e.resourceId}</span>
         )}
       </td>
       <td className="py-2">
         {fields === 0 && !e.requestId ? (
-          <span className="text-slate-400">—</span>
+          <span className="text-fg-faint">—</span>
         ) : (
           <details>
             <summary className="cursor-pointer text-sky-800">
@@ -363,12 +363,12 @@ function AuditRow({ entry: e }: { entry: AuditEntry }) {
             </summary>
             {/* Rendered as text: metadata is never interpreted as HTML. */}
             {fields > 0 && (
-              <pre className="mt-1 max-w-xl overflow-x-auto whitespace-pre-wrap break-all rounded bg-slate-100 p-2 font-mono text-xs text-slate-700">
+              <pre className="mt-1 max-w-xl overflow-x-auto whitespace-pre-wrap break-all rounded bg-surface-3 p-2 font-mono text-xs text-fg-2">
                 {JSON.stringify(e.metadata, null, 2)}
               </pre>
             )}
             {e.requestId && (
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-fg-subtle">
                 Request ID: <span className="font-mono">{e.requestId}</span>
               </p>
             )}

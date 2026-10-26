@@ -39,8 +39,8 @@ const savedMessage = (s: ScanSchedule) =>
 function Item({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-0.5 text-slate-800">{children}</dd>
+      <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{label}</dt>
+      <dd className="mt-0.5 text-fg">{children}</dd>
     </div>
   );
 }
@@ -59,12 +59,12 @@ export function ScheduledScansSection() {
   return (
     <Card title="Scheduled scans">
       <div className="space-y-4 text-sm">
-        <p className="text-slate-600">
+        <p className="text-fg-muted">
           When on, every monitored domain that is authorised for active scanning is scanned about
           once per interval with the chosen profile. Off by default.
         </p>
         {state.status === 'loading' && (
-          <p role="status" className="text-slate-500">
+          <p role="status" className="text-fg-subtle">
             Loading the scan schedule…
           </p>
         )}
@@ -97,7 +97,7 @@ export function ScheduledScansSection() {
                 onSaved={setSaved}
               />
             ) : (
-              <p className="text-xs text-slate-500">Only administrators can change the schedule.</p>
+              <p className="text-xs text-fg-subtle">Only administrators can change the schedule.</p>
             )}
           </>
         )}
@@ -113,7 +113,7 @@ function ScheduleSummary({ data }: { data: ScanScheduleResponse }) {
       <Item label="Status">
         <span
           className={`rounded px-1.5 py-0.5 text-xs font-medium ${
-            s.enabled ? 'bg-sky-100 text-sky-900' : 'bg-slate-200 text-slate-700'
+            s.enabled ? 'bg-sky-100 text-sky-900' : 'bg-line text-fg-2'
           }`}
         >
           {s.enabled ? 'On' : 'Off'}
@@ -187,9 +187,9 @@ function ScheduleForm({
     <form
       onSubmit={submit}
       aria-label="Change the scan schedule"
-      className="space-y-4 border-t border-slate-100 pt-4"
+      className="space-y-4 border-t border-line-soft pt-4"
     >
-      <label className="flex items-center gap-2 font-medium text-slate-700">
+      <label className="flex items-center gap-2 font-medium text-fg-2">
         <input
           type="checkbox"
           role="switch"
@@ -204,13 +204,13 @@ function ScheduleForm({
         Enable scheduled scans
       </label>
       <fieldset disabled={busy}>
-        <legend className="font-medium text-slate-700">Profile</legend>
+        <legend className="font-medium text-fg-2">Profile</legend>
         <div className="mt-1 grid gap-2 sm:grid-cols-2">
           {PROFILES.map((p) => (
             <label
               key={p.key}
               className={`flex gap-2 rounded-md border p-2 ${
-                profile === p.key ? 'border-sky-300 bg-sky-50' : 'border-slate-200'
+                profile === p.key ? 'border-sky-300 bg-sky-50' : 'border-line'
               }`}
             >
               <input
@@ -227,10 +227,10 @@ function ScheduleForm({
                 className="mt-0.5"
               />
               <span>
-                <span id={`scan-schedule-${p.key}-name`} className="font-medium text-slate-900">
+                <span id={`scan-schedule-${p.key}-name`} className="font-medium text-fg">
                   {p.name}
                 </span>
-                <span id={`scan-schedule-${p.key}-desc`} className="block text-xs text-slate-600">
+                <span id={`scan-schedule-${p.key}-desc`} className="block text-xs text-fg-muted">
                   {p.description}
                 </span>
               </span>
@@ -239,7 +239,7 @@ function ScheduleForm({
         </div>
       </fieldset>
       <div>
-        <label htmlFor={intervalId} className="block font-medium text-slate-700">
+        <label htmlFor={intervalId} className="block font-medium text-fg-2">
           Interval (days)
         </label>
         <input
@@ -257,11 +257,11 @@ function ScheduleForm({
           disabled={busy}
           aria-invalid={!intervalValid}
           aria-describedby={intervalHelpId}
-          className="mt-1 w-24 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm"
+          className="mt-1 w-24 rounded-md border border-line-strong px-2.5 py-1.5 text-sm shadow-sm"
         />
         <p
           id={intervalHelpId}
-          className={`mt-1 text-xs ${intervalValid ? 'text-slate-500' : 'text-red-700'}`}
+          className={`mt-1 text-xs ${intervalValid ? 'text-fg-subtle' : 'text-red-700'}`}
         >
           {intervalValid
             ? 'Each eligible domain is scanned about once per interval; jobs are spread across it.'

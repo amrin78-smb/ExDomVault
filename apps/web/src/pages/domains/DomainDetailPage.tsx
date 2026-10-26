@@ -33,7 +33,7 @@ export function DomainDetailPage() {
 
   if (state.status === 'loading') {
     return (
-      <p className="py-8 text-center text-sm text-slate-500" role="status">
+      <p className="py-8 text-center text-sm text-fg-subtle" role="status">
         Loading domain…
       </p>
     );
@@ -56,13 +56,13 @@ export function DomainDetailPage() {
       <BackLink />
       <div className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="break-all font-mono text-xl font-semibold tracking-tight text-slate-900">
+          <h1 className="break-all font-mono text-xl font-semibold tracking-tight text-fg">
             {domain.fqdn}
           </h1>
           {controls}
         </div>
         {domain.unicodeFqdn !== domain.fqdn && (
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-fg-muted">
             Displayed as <span className="font-medium">{domain.unicodeFqdn}</span>
           </p>
         )}
@@ -72,7 +72,7 @@ export function DomainDetailPage() {
             method={domain.verificationMethod}
           />
           <CriticalityLabel criticality={domain.criticality} />
-          <span className="text-xs text-slate-500">Added {formatDate(domain.createdAt)}</span>
+          <span className="text-xs text-fg-subtle">Added {formatDate(domain.createdAt)}</span>
         </div>
         {domain.warnings.includes('mixed_script') && (
           <div
@@ -118,7 +118,7 @@ function BackLink() {
   return (
     <Link
       to="/domains"
-      className="mb-4 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900"
+      className="mb-4 inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
     >
       <ArrowLeft className="size-4" aria-hidden />
       Domains

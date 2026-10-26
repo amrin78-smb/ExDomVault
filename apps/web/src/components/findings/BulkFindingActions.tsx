@@ -69,10 +69,10 @@ export function BulkFindingActions({
     <div
       role="group"
       aria-label="Actions for selected findings"
-      className="mb-4 space-y-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+      className="mb-4 space-y-3 rounded-md border border-line bg-surface px-3 py-2 text-sm shadow-sm"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-slate-600">{ids.length} selected:</span>
+        <span className="text-fg-muted">{ids.length} selected:</span>
         {STATUS_ACTIONS.filter((a) => can(a.permission)).map((a) => (
           <Button
             key={a.to}
@@ -148,15 +148,15 @@ function BulkAssign({
     <form
       onSubmit={submit}
       aria-label={`Assign ${count}`}
-      className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+      className="space-y-3 rounded-md border border-line bg-surface-2 p-3"
     >
       <div>
-        <label htmlFor={`${id}-user`} className="block font-medium text-slate-700">
+        <label htmlFor={`${id}-user`} className="block font-medium text-fg-2">
           Assign {count} to
         </label>
         <select
           id={`${id}-user`}
-          className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm"
+          className="mt-1 rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm shadow-sm"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={users.status === 'loading'}

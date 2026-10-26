@@ -122,7 +122,13 @@ const QUERY_ROUTES: Record<string, string[]> = {
     `q=${'a'.repeat(300)}`,
   ],
   'GET /domains/:id/software': [...PAGE_PROBES, 'status=bogus', `product=${'p'.repeat(41)}`],
-  'GET /assets': [...PAGE_PROBES, 'domainId=not-a-uuid', 'thirdParty=1', 'source=evil'],
+  'GET /assets': [
+    ...PAGE_PROBES,
+    'domainId=not-a-uuid',
+    'thirdParty=1',
+    'source=evil',
+    'role=bogus',
+  ],
   'GET /scans': [...PAGE_PROBES, 'status=bogus', 'domainId=1', `profile=${'p'.repeat(41)}`],
   'GET /findings': [
     ...PAGE_PROBES,
@@ -137,6 +143,11 @@ const QUERY_ROUTES: Record<string, string[]> = {
   'GET /audit-logs': [...PAGE_PROBES, 'action=DROP TABLE', `resourceId=${'a'.repeat(201)}`],
   'GET /reports/findings.csv': ['status=bogus', 'domainId=x', 'sort=evil'],
   'GET /software': [...PAGE_PROBES, 'status=bogus', 'domainId=x'],
+  // Milestone 13.
+  'GET /dashboard': ['range=14', 'range=abc', 'range=-7', 'range=7.5', 'range=1e9'],
+  'GET /ports': [...PAGE_PROBES, 'state=bogus', 'port=0', 'port=65536', 'domainId=x', 'sort=evil'],
+  'GET /certificates': [...PAGE_PROBES, 'status=bogus', 'domainId=x', `q=${'a'.repeat(101)}`],
+  'GET /vulnerabilities': [...PAGE_PROBES, 'kev=yes', 'sort=evil', `q=${'a'.repeat(101)}`],
   // Exports ignore paging parameters; their filters are validated like the list's.
   'GET /exports/domains.csv': [`q=${'a'.repeat(300)}`, 'sort=evil', 'monitoring=yes'],
   'GET /exports/assets.csv': ['domainId=not-a-uuid', 'thirdParty=1', 'source=evil'],
@@ -366,6 +377,18 @@ describe('query strings', () => {
       const res = await raw('GET', `${concrete(pattern)}?pageSize=100`, undefined, {});
       expect([200, 404], key).toContain(res.status);
     }
+  });
+});
+
+// Milestone 13: routes whose query is required (no positive control without one).
+describe('required query strings', () => {
+  it('GET /search rejects missing, short, oversized and non-string q', async () => {
+    for (const probe of ['', 'q=', 'q=a', 'q=%20%20a%20', `q=${'a'.repeat(101)}`, 'q=a&q=b']) {
+      await expect400(await raw('GET', `/search?${probe}`, undefined, {}), `/search?${probe}`, [
+        'validation_failed',
+      ]);
+    }
+    expect((await raw('GET', '/search?q=example', undefined, {})).status).toBe(200);
   });
 });
 

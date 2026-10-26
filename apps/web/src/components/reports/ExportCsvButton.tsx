@@ -114,7 +114,7 @@ export function ExportCsvButton({
         {notice && (
           <p
             role="status"
-            className={`text-xs ${notice.warn ? 'text-amber-800' : 'text-slate-600'}`}
+            className={`text-xs ${notice.warn ? 'text-amber-800' : 'text-fg-muted'}`}
           >
             {notice.text}
           </p>

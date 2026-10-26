@@ -78,8 +78,16 @@ export const assetListQuerySchema = z.object({
   /** `true` = only assets with a hosting hint; `false` = only without. */
   thirdParty: z.enum(['true', 'false']).optional(),
   q: z.string().trim().max(253).optional(),
+  /**
+   * Milestone 13: only assets with this primary role. Roles are computed from evidence at read
+   * time, so the server evaluates up to `ASSET_ROLE_FILTER_LIMIT` matching assets (in sort order)
+   * and pages the result; beyond that the list and `total` are truncated. CSV export ignores it.
+   */
+  role: assetRoleSchema.optional(),
   sort: z.enum(ASSET_SORTS).default('hostname'),
 });
+/** Assets evaluated for the `role` filter of GET /assets. */
+export const ASSET_ROLE_FILTER_LIMIT = 5000;
 export type AssetListQuery = z.infer<typeof assetListQuerySchema>;
 
 export const assetListResponseSchema = paginatedSchema(assetSchema);

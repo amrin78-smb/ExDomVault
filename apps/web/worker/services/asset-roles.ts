@@ -2,6 +2,9 @@ import type { Database } from '@exdomainvault/database';
 import { classifyAssetRole, type AssetRole, type AssetRoleEvidence } from '@exdomainvault/shared';
 import { sql } from 'drizzle-orm';
 
+/** HTTP responses older than this no longer count as "responds to HTTP". */
+const HTTP_WINDOW_MS = 30 * 86_400_000;
+
 interface RoleRow {
   id: string;
   is_mx: boolean;
@@ -23,6 +26,8 @@ interface RoleRow {
 export async function assetRolesFor(
   db: Database,
   assetIds: readonly string[],
+  /** Reference time for the HTTP window (tests pass their clock). */
+  now: Date = new Date(),
 ): Promise<Map<string, AssetRole>> {
   const out = new Map<string, AssetRole>();
   if (assetIds.length === 0) return out;
@@ -65,7 +70,7 @@ export async function assetRolesFor(
         where p.state = 'open' and p.protocol = 'tcp') as open_ports,
       exists (select 1 from http_observations h
                where h.asset_id = t.id and h.result_status = 'success'
-                 and h.observed_at > now() - interval '30 days') as http,
+                 and h.observed_at > ${new Date(now.getTime() - HTTP_WINDOW_MS).toISOString()}::timestamptz) as http,
       t.hosting_kind
     from target t
   `)) as unknown as { rows: RoleRow[] };

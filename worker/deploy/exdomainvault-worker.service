@@ -38,7 +38,8 @@ Restart=on-failure
 RestartSec=30s
 TimeoutStopSec=60s
 
-# State: /var/lib/exdomainvault-worker (health file). The only writable path.
+# State: /var/lib/exdomainvault-worker (health file, geoip/ DB-IP cache). The only writable path;
+# a custom EXDV_GEOIP_DIR outside it needs ReadWritePaths= (or stays read-only and geo is omitted).
 StateDirectory=exdomainvault-worker
 StateDirectoryMode=0700
 UMask=0077

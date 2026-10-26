@@ -17,7 +17,7 @@ export function Pagination({
   return (
     <nav
       aria-label="Pagination"
-      className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm text-slate-600"
+      className="mt-4 flex items-center justify-between border-t border-line-soft pt-3 text-sm text-fg-muted"
     >
       <span>
         {first}–{last} of {total}

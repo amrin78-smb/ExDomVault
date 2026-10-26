@@ -490,6 +490,8 @@ const ipFamily = (canonical: string) => (canonical.includes(':') ? 6 : 4);
  *  - A/AAAA: each address is upserted into `asset_ips` (last seen advanced); every other address of
  *    the same family last seen before the newest answer stops being current (an empty answer leaves
  *    none current);
+ *  - A/AAAA `geo` (Milestone 13): the address's `country_code` is set from the newest answer in
+ *    the batch that geolocated it; an answer without geo for it leaves the stored country as is;
  *  - CNAME: `hosting_hint` is recomputed from the newest answer's targets (`classifyHosting`; an
  *    empty answer clears it). Hostnames without a CNAME observation keep their hint.
  */
@@ -513,7 +515,17 @@ async function applyDnsToAssets(
   const assetIdOf = new Map(known.map((a) => [a.hostname, a.id]));
 
   // Addresses: (asset, ip) → first/last seen; (asset, family) → newest answer time.
-  const ips = new Map<string, { assetId: string; ip: string; first: Date; last: Date }>();
+  const ips = new Map<
+    string,
+    {
+      assetId: string;
+      ip: string;
+      first: Date;
+      last: Date;
+      country: string | null;
+      geoAt: Date | null;
+    }
+  >();
   const answers = new Map<string, { assetId: string; family: number; at: Date }>();
   // CNAME: newest answer per asset.
   const cnames = new Map<string, { at: Date; values: readonly string[] }>();
@@ -530,15 +542,28 @@ async function applyDnsToAssets(
     const key = `${assetId}|${family}`;
     const prev = answers.get(key);
     if (!prev || at > prev.at) answers.set(key, { assetId, family, at });
+    // Geolocation of this answer's addresses (display-only; schema-validated country format).
+    const geo = new Map<string, string>();
+    for (const g of o.geo ?? []) {
+      const gip = canonicalIp(g.ip);
+      if (gip) geo.set(gip, g.country);
+    }
     for (const value of o.values) {
       const ip = canonicalIp(value);
       if (!ip || ipFamily(ip) !== family) continue; // not an address of the queried type
       const k = `${assetId}|${ip}`;
+      const country = geo.get(ip) ?? null;
       const seen = ips.get(k);
-      if (!seen) ips.set(k, { assetId, ip, first: at, last: at });
-      else {
+      if (!seen) {
+        ips.set(k, { assetId, ip, first: at, last: at, country, geoAt: country ? at : null });
+      } else {
         if (at < seen.first) seen.first = at;
         if (at > seen.last) seen.last = at;
+        // The newest answer that geolocated the address wins.
+        if (country && (!seen.geoAt || at >= seen.geoAt)) {
+          seen.country = country;
+          seen.geoAt = at;
+        }
       }
     }
   }
@@ -554,12 +579,15 @@ async function applyDnsToAssets(
           lastSeenAt: r.last,
           isCurrent: true,
           source: 'dns',
+          countryCode: r.country,
         })),
       )
       .onConflictDoUpdate({
         target: [assetIps.assetId, assetIps.ipAddress],
         set: {
           lastSeenAt: sql`greatest(${assetIps.lastSeenAt}, excluded.last_seen_at)`,
+          // A batch without geolocation for the address keeps the country already known.
+          countryCode: sql`coalesce(excluded.country_code, ${assetIps.countryCode})`,
           // Provisional: the statement below keeps only the newest answer's addresses current.
           isCurrent: true,
         },

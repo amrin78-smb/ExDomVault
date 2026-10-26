@@ -34,6 +34,11 @@ Every check belongs to exactly one tier (`policy.tier_of`, `PASSIVE_TIER_CHECKS`
 | web     | `tls_certificate`, `http_availability`, `http_headers`     | Any **public** address an in-scope hostname resolves to (browser-like: one handshake / one GET per hop).                               |
 | network | `tcp_ports`, `service_identification`, `tls_configuration` | Only public addresses **inside the job's admin-approved networks**.                                                                    |
 
+Outside any job, the worker also downloads the DB-IP "IP to Country Lite" file from the fixed URL
+`https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.csv.gz` (at most monthly; redirects never
+followed; see `docs/worker-protocol.md`, "IP geolocation"). The resulting country (`geo` on A/AAAA
+`dns` observations) is display-only and never feeds scope, tier or approval decisions.
+
 Domain verification never authorises the network tier on its own: a verified domain hosted on a CDN or
 cloud provider gets web checks only, unless an administrator approves the specific network
 (`/api/v1/approved-networks`, permission `scan_policies:manage`, admin only).

@@ -57,6 +57,13 @@
       "when": 1792768220729,
       "tag": "0007_software_intel",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792991553841,
+      "tag": "0008_inventory_geo",
+      "breakpoints": true
     }
   ]
 }

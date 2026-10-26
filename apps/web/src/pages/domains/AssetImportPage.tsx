@@ -30,11 +30,11 @@ const OUTCOME_LABELS: Record<AssetImportOutcome, string> = {
 };
 
 const OUTCOME_STYLES: Record<AssetImportOutcome, string> = {
-  new: 'bg-sky-50 text-sky-800 ring-sky-600/20',
-  existing: 'bg-slate-100 text-slate-700 ring-slate-500/20',
-  duplicate: 'bg-slate-100 text-slate-600 ring-slate-500/20',
-  invalid: 'bg-red-50 text-red-800 ring-red-600/20',
-  out_of_domain: 'bg-amber-50 text-amber-800 ring-amber-600/20',
+  new: 'bg-sky-50 text-sky-800 ring-sky-600/20 dark:ring-sky-400/45',
+  existing: 'bg-surface-3 text-fg-2 ring-slate-500/20 dark:ring-slate-500/40',
+  duplicate: 'bg-surface-3 text-fg-muted ring-slate-500/20 dark:ring-slate-500/40',
+  invalid: 'bg-red-50 text-red-800 ring-red-600/20 dark:ring-red-400/45',
+  out_of_domain: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:ring-amber-400/45',
 };
 
 const SUMMARY_KEY: Record<AssetImportOutcome, keyof AssetImportResponse['summary']> = {
@@ -77,7 +77,7 @@ export function AssetImportPage() {
   let body;
   if (session.status === 'loading' || (canWrite && domain.status === 'loading')) {
     body = (
-      <p className="py-8 text-center text-sm text-slate-500" role="status">
+      <p className="py-8 text-center text-sm text-fg-subtle" role="status">
         Loading…
       </p>
     );
@@ -98,7 +98,7 @@ export function AssetImportPage() {
     <>
       <Link
         to={`/domains/${id}`}
-        className="mb-4 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
       >
         <ArrowLeft className="size-4" aria-hidden />
         {domain.status === 'success' ? domain.data.domain.fqdn : 'Domain'}
@@ -198,7 +198,7 @@ function ImportFlow({ domain }: { domain: Domain }) {
   return (
     <div className="space-y-4">
       <Card title="1. Choose a file">
-        <div className="space-y-3 text-sm text-slate-600">
+        <div className="space-y-3 text-sm text-fg-muted">
           <p>Accepted formats:</p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
@@ -215,7 +215,7 @@ function ImportFlow({ domain }: { domain: Domain }) {
             Files are read in your browser; only the hostnames (and CNAME targets) are sent. Up to{' '}
             {ASSET_IMPORT_MAX_ENTRIES} hostnames and 10 MB per file.
           </p>
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-line-strong bg-surface px-3 py-1.5 font-medium text-fg-2 shadow-sm hover:bg-surface-2">
             <FileUp className="size-4" aria-hidden />
             {fileName ?? 'Choose file'}
             <input
@@ -227,7 +227,7 @@ function ImportFlow({ domain }: { domain: Domain }) {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
+            <span className="mb-1 block text-xs font-medium text-fg-subtle">
               Or paste records, a zone file or a list of hostnames
             </span>
             <textarea
@@ -239,7 +239,7 @@ function ImportFlow({ domain }: { domain: Domain }) {
               }}
               rows={6}
               spellCheck={false}
-              className="w-full rounded-md border border-slate-300 p-2 font-mono text-xs shadow-sm"
+              className="w-full rounded-md border border-line-strong p-2 font-mono text-xs shadow-sm"
             />
           </label>
           <Button variant="primary" onClick={onPastePreview} disabled={busy || text.trim() === ''}>
@@ -251,7 +251,7 @@ function ImportFlow({ domain }: { domain: Domain }) {
       {extracted && <ExtractionSummary extracted={extracted} />}
 
       {busy && (
-        <p className="text-sm text-slate-500" role="status">
+        <p className="text-sm text-fg-subtle" role="status">
           Checking hostnames…
         </p>
       )}
@@ -284,7 +284,7 @@ function ExtractionSummary({ extracted }: { extracted: ExtractedHosts }) {
     skipped.empty > 0 && plural(skipped.empty, 'empty name'),
   ].filter((p): p is string => typeof p === 'string');
   return (
-    <p className="text-sm text-slate-700" role="status">
+    <p className="text-sm text-fg-2" role="status">
       Read as {FORMAT_LABELS[format]}: found <strong>{plural(entries.length, 'hostname')}</strong>
       {parts.length > 0 ? `; skipped ${parts.join(', ')}.` : '.'}
       {entries.length === 0 && ' There is nothing to import from this file.'}
@@ -309,19 +309,19 @@ function PreviewCard({
   const rows = filter ? preview.rows.filter((r) => r.outcome === filter) : preview.rows;
   return (
     <Card title="2. Review and confirm">
-      <p className="mb-3 text-sm text-slate-700">
+      <p className="mb-3 text-sm text-fg-2">
         {plural(summary.total, 'hostname')}: <strong>{summary.new} new</strong>, {summary.existing}{' '}
         already assets, {summary.duplicate} duplicates, {summary.invalid} invalid,{' '}
         {summary.outOfDomain} outside this domain.
         {summary.thirdPartyHosted > 0 &&
           ` ${plural(summary.thirdPartyHosted, 'hostname appears', 'hostnames appear')} to be hosted by a third party.`}
       </p>
-      <label className="mb-3 flex items-center gap-2 text-sm text-slate-700">
+      <label className="mb-3 flex items-center gap-2 text-sm text-fg-2">
         Show
         <select
           value={filter}
           onChange={(e) => onFilter(e.target.value as AssetImportOutcome | '')}
-          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 shadow-sm"
+          className="rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm"
         >
           <option value="">All ({summary.total})</option>
           {ASSET_IMPORT_OUTCOMES.map((o) => (
@@ -333,8 +333,8 @@ function PreviewCard({
       </label>
       <div className="max-h-96 overflow-auto">
         <table className="min-w-full text-sm">
-          <thead className="sticky top-0 bg-white">
-            <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <thead className="sticky top-0 bg-surface">
+            <tr className="border-b border-line text-left text-xs font-medium uppercase tracking-wide text-fg-subtle">
               <th scope="col" className="py-2 pr-3">
                 Hostname
               </th>
@@ -346,7 +346,7 @@ function PreviewCard({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line-soft">
             {rows.map((r, i) => (
               <tr key={`${i}:${r.hostname}`}>
                 <td className="break-all py-1.5 pr-3 font-mono text-xs">{r.hostname}</td>
@@ -362,7 +362,7 @@ function PreviewCard({
                   {r.hostingHint ? (
                     <HostingHintChip hint={r.hostingHint} />
                   ) : (
-                    <span className="text-slate-400">—</span>
+                    <span className="text-fg-faint">—</span>
                   )}
                 </td>
               </tr>
@@ -370,14 +370,14 @@ function PreviewCard({
           </tbody>
         </table>
         {rows.length === 0 && (
-          <p className="py-3 text-sm text-slate-500">No hostnames with this result.</p>
+          <p className="py-3 text-sm text-fg-subtle">No hostnames with this result.</p>
         )}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button variant="primary" onClick={onConfirm} disabled={busy || summary.new === 0}>
           Add {plural(summary.new, 'host')} as pending
         </Button>
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-fg-subtle">
           {summary.new === 0
             ? 'There is nothing new to add.'
             : 'They will wait for review: nothing is scanned until approved.'}
@@ -398,7 +398,7 @@ function ResultCard({ result, domainId }: { result: AssetImportResponse; domainI
           `; ${summary.existing} were already assets and were left as they are`}
         .
       </p>
-      <p className="mt-3 text-sm text-slate-600">
+      <p className="mt-3 text-sm text-fg-muted">
         Imported hostnames are not scanned until they are approved on the Assets page. Hostnames
         hosted by a third party (a CDN, cloud or hosting provider) also need that hosting
         acknowledged when you approve them.

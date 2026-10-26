@@ -18,6 +18,8 @@ const rawConfigSchema = z.object({
   DEV_AUTH_NAME: optionalString,
   BOOTSTRAP_ADMIN_EMAILS: optionalString,
   ACTIVE_SCANNING_ENABLED: optionalString,
+  /** Organisation label shown in the UI (optional Worker secret/var; never required). */
+  ORG_NAME: optionalString,
 });
 
 export type AuthConfig =
@@ -36,7 +38,11 @@ export interface AppConfig {
    * "true": active scanning stays disabled until the Milestone 6 scope validator is complete.
    */
   activeScanningEnabled: boolean;
+  /** Organisation label from `ORG_NAME` (trimmed, max ORG_NAME_MAX_LENGTH chars); null when unset. */
+  organisation: string | null;
 }
+
+export const ORG_NAME_MAX_LENGTH = 100;
 
 export class ConfigError extends Error {
   override name = 'ConfigError';
@@ -85,6 +91,16 @@ function parseAuth(raw: z.infer<typeof rawConfigSchema>, environment: AppEnviron
   }
 }
 
+/**
+ * A cosmetic display label: never a reason to fail requests. Control characters are removed, the
+ * value is trimmed and cut to ORG_NAME_MAX_LENGTH characters; empty means unset (null).
+ */
+function parseOrganisation(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const chars = [...value.replace(/\p{Cc}/gu, ' ').trim()];
+  return chars.slice(0, ORG_NAME_MAX_LENGTH).join('').trim() || null;
+}
+
 function parseFlag(name: string, value: string | undefined): boolean {
   if (value === undefined || value === 'false') return false;
   if (value === 'true') return true;
@@ -122,5 +138,6 @@ export function loadConfig(env: Record<string, unknown>): AppConfig {
     auth: parseAuth(raw, raw.APP_ENV),
     bootstrapAdminEmails: parseEmails(raw.BOOTSTRAP_ADMIN_EMAILS),
     activeScanningEnabled: parseFlag('ACTIVE_SCANNING_ENABLED', raw.ACTIVE_SCANNING_ENABLED),
+    organisation: parseOrganisation(raw.ORG_NAME),
   };
 }
