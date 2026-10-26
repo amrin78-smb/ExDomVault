@@ -1,10 +1,15 @@
-import type { Domain, ScanProfile } from '@exdomainvault/shared';
+import {
+  SCAN_JOB_STATUS_LABELS,
+  type Domain,
+  type ScanJob,
+  type ScanProfile,
+} from '@exdomainvault/shared';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { api } from '../../lib/api.ts';
-import { formatDateTime } from '../../lib/format.ts';
+import { formatDate, formatDateTime } from '../../lib/format.ts';
 import { usePermission } from '../../lib/session.ts';
-import { useAsync } from '../../lib/use-async.ts';
+import { useAsync, type AsyncState } from '../../lib/use-async.ts';
 import { isScanPickerProfile, JOB_TYPE_LABELS } from '../scans/labels.ts';
 import { ScanStatusBadge } from '../scans/ScanStatusBadge.tsx';
 import { Button } from '../ui/Button.tsx';
@@ -25,6 +30,20 @@ function unavailableReason(
     return 'authorisation lapsed';
   }
   return null;
+}
+
+const jobLabel = (j: ScanJob) =>
+  j.jobType === 'discovery'
+    ? JOB_TYPE_LABELS.discovery
+    : j.profile.charAt(0).toUpperCase() + j.profile.slice(1);
+
+/** The most recent scan, e.g. "Last: Standard · Succeeded · 25 Oct 2026". */
+function scansSummary(state: AsyncState<{ items: ScanJob[] }>): string | undefined {
+  if (state.status === 'loading') return undefined;
+  if (state.status === 'error') return 'Could not load';
+  const last = state.data.items[0];
+  if (!last) return 'No scans yet';
+  return `Last: ${jobLabel(last)} · ${SCAN_JOB_STATUS_LABELS[last.status]} · ${formatDate(last.createdAt)}`;
 }
 
 /** Recent scans of a domain and a control to request one. Scans run asynchronously. */
@@ -55,7 +74,12 @@ export function DomainScansCard({ domain }: { domain: Domain }) {
   };
 
   return (
-    <Card title="Scans">
+    <Card
+      title="Scans"
+      collapsible="domain.scans"
+      defaultOpen={false}
+      summary={scansSummary(recent)}
+    >
       <div className="space-y-4 text-sm">
         {canRequest && profiles.status === 'success' && (
           <div className="flex flex-wrap items-end gap-2">

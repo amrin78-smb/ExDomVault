@@ -2,10 +2,12 @@
 import type { OpsHealthResponse } from '@exdomainvault/shared';
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HEALTH_REFRESH_MS } from '../../components/settings/SystemHealthSection.tsx';
 import { OPS_PATHS, apiError, ok, renderAt, stubApi } from '../../testing/stub-api.tsx';
 import { feeds } from '../software/test-data.ts';
+
+beforeEach(() => localStorage.clear());
 
 afterEach(() => {
   vi.useRealTimers();
@@ -122,6 +124,10 @@ describe('Settings: system health', () => {
     expect(screen.getByRole('region', { name: 'Database' })).toHaveTextContent(
       'Reachable12 ms round trip',
     );
+    // Feeds and retention are secondary here: collapsed until opened.
+    const feedsToggle = screen.getByRole('button', { name: /^Intelligence feeds/ });
+    expect(feedsToggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(feedsToggle);
     expect(screen.getByRole('listitem', { name: 'endoflife.date' })).toBeInTheDocument();
     const retention = within(screen.getByRole('region', { name: 'Retention' }));
     expect(retention.getByText('1520')).toBeInTheDocument();

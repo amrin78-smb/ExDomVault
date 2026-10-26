@@ -24,6 +24,7 @@ export function FindingComments({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [announcement, setAnnouncement] = useState('');
+  const latest = comments.at(-1);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -45,7 +46,16 @@ export function FindingComments({
   };
 
   return (
-    <Card title="Comments" className="lg:col-span-2">
+    <Card
+      title="Comments"
+      className="lg:col-span-2"
+      collapsible="finding.comments"
+      summary={
+        latest
+          ? `${comments.length} comment${comments.length === 1 ? '' : 's'} · latest ${formatDateTime(latest.createdAt)}`
+          : 'No comments'
+      }
+    >
       {comments.length === 0 ? (
         <p className="text-sm text-slate-500">No comments yet.</p>
       ) : (

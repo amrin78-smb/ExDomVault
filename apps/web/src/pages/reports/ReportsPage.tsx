@@ -14,6 +14,7 @@ import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { TrendChart } from '../../components/reports/TrendChart.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
+import { useCollapseAll } from '../../components/ui/CollapseAllControls.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
 import { LoadError } from '../../components/ui/LoadError.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
@@ -38,11 +39,20 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((day(toIso) - day(fromIso)) / DAY_MS);
 }
 
-/** "12 days", "Today", "Expired 3 days ago" / "Overdue by 3 days" — never colour alone. */
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/** "12 days", "Today", "Expired 3 days ago" / "Overdue by 3 days". */
+function daysLeftText(days: number, kind: 'expiry' | 'review' = 'expiry'): string {
+  const past =
+    kind === 'expiry'
+      ? `Expired ${plural(-days, 'day')} ago`
+      : `Overdue by ${plural(-days, 'day')}`;
+  return days < 0 ? past : days === 0 ? 'Today' : plural(days, 'day');
+}
+
+/** Days left in words with a tone — never colour alone. */
 function DaysLeft({ days, kind = 'expiry' }: { days: number; kind?: 'expiry' | 'review' }) {
-  const plural = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
-  const past = kind === 'expiry' ? `Expired ${plural(-days)} ago` : `Overdue by ${plural(-days)}`;
-  const text = days < 0 ? past : days === 0 ? 'Today' : plural(days);
+  const text = daysLeftText(days, kind);
   const tone =
     days <= 0 ? 'font-medium text-red-800' : days <= 14 ? 'text-amber-800' : 'text-slate-700';
   return <span className={`tabular-nums ${tone}`}>{text}</span>;
@@ -77,6 +87,7 @@ export function ReportsPage() {
 
 function Reports({ canDomains }: { canDomains: boolean }) {
   const [refreshKey, setRefreshKey] = useState(0);
+  const { controls, group } = useCollapseAll();
   const { state, stale, refreshing, retry } = useRefreshableAsync(
     (signal) => api.reports.summary({ signal }),
     [],
@@ -90,6 +101,7 @@ function Reports({ canDomains }: { canDomains: boolean }) {
         description={DESCRIPTION}
         actions={
           <>
+            {state.status === 'success' && canDomains && controls}
             <Button
               onClick={() => setRefreshKey((k) => k + 1)}
               disabled={refreshing || state.status === 'loading'}
@@ -120,7 +132,8 @@ function Reports({ canDomains }: { canDomains: boolean }) {
           />
         </Card>
       )}
-      {state.status === 'success' && <ReportBody data={state.data} canDomains={canDomains} />}
+      {state.status === 'success' &&
+        group(<ReportBody data={state.data} canDomains={canDomains} />)}
     </>
   );
 }
@@ -245,22 +258,50 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
         </div>
       </div>
 
-      <Card title={`Findings created and resolved, last ${data.trendDays} days`}>
+      <Card
+        title={`Findings created and resolved, last ${data.trendDays} days`}
+        collapsible="reports.trend"
+        summary={`${data.trend.reduce((n, d) => n + d.created, 0)} created, ${data.trend.reduce((n, d) => n + d.resolved, 0)} resolved`}
+      >
         <TrendChart trend={data.trend} />
       </Card>
 
       {canDomains ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card title="Top domains by risk">
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <Card
+            title="Top domains by risk"
+            collapsible="reports.topDomains"
+            defaultOpen={false}
+            summary={topDomainsSummary(data.topDomains)}
+          >
             <TopDomains rows={data.topDomains} />
           </Card>
-          <Card title="Open findings by business owner">
+          <Card
+            title="Open findings by business owner"
+            collapsible="reports.owners"
+            defaultOpen={false}
+            summary={
+              data.byBusinessOwner.length === 0
+                ? 'None'
+                : plural(data.byBusinessOwner.length, 'business owner')
+            }
+          >
             <ByOwner rows={data.byBusinessOwner} />
           </Card>
-          <Card title="Expiring registrations">
+          <Card
+            title="Expiring registrations"
+            collapsible="reports.registrations"
+            defaultOpen={false}
+            summary={expirySummary(data.expiringRegistrations, 'registration')}
+          >
             <ExpiringRegistrations rows={data.expiringRegistrations} />
           </Card>
-          <Card title="Expiring certificates">
+          <Card
+            title="Expiring certificates"
+            collapsible="reports.certificates"
+            defaultOpen={false}
+            summary={expirySummary(data.expiringCertificates, 'certificate')}
+          >
             <ExpiringCertificates rows={data.expiringCertificates} />
           </Card>
         </div>
@@ -273,11 +314,35 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
         </Card>
       )}
 
-      <Card title="Accepted risks due for review">
+      <Card
+        title="Accepted risks due for review"
+        collapsible="reports.acceptedRisks"
+        defaultOpen={false}
+        summary={acceptedRisksSummary(data.acceptedRisksDue, data.generatedAt)}
+      >
         <AcceptedRisksDue rows={data.acceptedRisksDue} generatedAt={data.generatedAt} />
       </Card>
     </div>
   );
+}
+
+function topDomainsSummary(rows: Summary['topDomains']): string {
+  const top = rows[0];
+  return top
+    ? `${plural(rows.length, 'domain')} · highest ${top.domain.fqdn} (risk ${top.riskTotal})`
+    : 'None';
+}
+
+function expirySummary(rows: { daysLeft: number }[], noun: string): string {
+  if (rows.length === 0) return 'None';
+  const soonest = Math.min(...rows.map((r) => r.daysLeft));
+  return `${plural(rows.length, noun)} · soonest: ${daysLeftText(soonest).toLowerCase()}`;
+}
+
+function acceptedRisksSummary(rows: Summary['acceptedRisksDue'], generatedAt: string): string {
+  if (rows.length === 0) return 'None';
+  const overdue = rows.filter((r) => daysBetween(generatedAt, r.reviewAt) < 0).length;
+  return `${rows.length} due${overdue > 0 ? `, ${overdue} overdue` : ''}`;
 }
 
 /** Column headers; a trailing `#` marks a numeric (right-aligned) column. */

@@ -23,10 +23,28 @@ function groupByIp(ports: PortSnapshot[]): { ip: string; ports: PortSnapshot[] }
 
 const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : null);
 
+function portsSummary(state: AsyncState<{ ports: PortSnapshot[] }>): string | undefined {
+  if (state.status === 'loading') return undefined;
+  if (state.status === 'error') return 'Could not load';
+  if (state.data.ports.length === 0) return 'None probed';
+  const open = state.data.ports.filter((p) => p.state === 'open');
+  const ips = new Set(open.map((p) => p.ipAddress)).size;
+  if (open.length === 0) {
+    const n = state.data.ports.length;
+    return `${n} probed, none open`;
+  }
+  return `${open.length} open on ${ips} address${ips === 1 ? '' : 'es'}`;
+}
+
 /** Latest state per (address, port) from probes of approved networks. */
 export function PortsCard({ state }: { state: AsyncState<{ ports: PortSnapshot[] }> }) {
   return (
-    <Card title="Ports">
+    <Card
+      title="Ports"
+      collapsible="domain.ports"
+      defaultOpen={false}
+      summary={portsSummary(state)}
+    >
       {state.status === 'loading' && (
         <p className="text-sm text-slate-500" role="status">
           Loading ports…

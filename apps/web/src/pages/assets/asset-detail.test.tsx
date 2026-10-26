@@ -2,7 +2,7 @@
 import type { AssetStatus, Role } from '@exdomainvault/shared';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSET_PATHS,
   apiError,
@@ -13,6 +13,7 @@ import {
 } from '../../testing/stub-api.tsx';
 import { ADMIN, ASSET_ID, CLOUDFRONT, DOMAIN_ID, JOB_ID, asset, detailOf } from './test-data.ts';
 
+beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
 async function openAsset(role: Role, detail = detailOf(), handlers: Record<string, Handler> = {}) {
@@ -51,6 +52,7 @@ describe('Asset detail: display', () => {
     expect(within(rows[0]!).getByText('Current')).toBeInTheDocument();
     expect(within(rows[1]!).getByText('Past')).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole('button', { name: /^Discovery sightings/ }));
     const sightings = within(screen.getByRole('region', { name: 'Discovery sightings' }));
     expect(sightings.getByText('Certificate logs')).toBeInTheDocument();
     expect(sightings.getByText('No')).toBeInTheDocument();
@@ -254,5 +256,48 @@ describe('Asset detail: decision form', () => {
     within(panel).getByRole('button', { name: 'Cancel' }).focus();
     await userEvent.keyboard('{Enter}');
     expect(buttons(panel)).toEqual(['Approve', 'Reject']);
+  });
+});
+
+describe('Asset detail: collapsible cards', () => {
+  const toggle = (title: string) => screen.getByRole('button', { name: new RegExp(`^${title}`) });
+
+  it('keeps addresses open and collapses discovery sightings with a summary', async () => {
+    await openAsset('viewer');
+    expect(toggle('IP addresses')).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle('Discovery sightings')).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle('Discovery sightings')).toHaveTextContent(/1 sighting · latest Oct 20, 2026/);
+    expect(screen.queryByRole('link', { name: /Discovery job of/ })).toBeNull();
+    // Review, owner and overview hold the page's main actions and stay open.
+    for (const name of ['Review', 'Owner', 'Overview']) {
+      expect(
+        within(screen.getByRole('region', { name })).queryByRole('button', { expanded: true }),
+      ).toBeNull();
+    }
+  });
+
+  it('remembers the viewer’s choice per card', async () => {
+    localStorage.setItem('exdv.card.asset.ips', '0');
+    await openAsset('viewer');
+    expect(toggle('IP addresses')).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle('IP addresses')).toHaveTextContent('1 current, 1 past');
+    await userEvent.click(toggle('Discovery sightings'));
+    expect(localStorage.getItem('exdv.card.asset.discovery')).toBe('1');
+    expect(screen.getByRole('link', { name: /Discovery job of/ })).toBeInTheDocument();
+  });
+
+  it('cuts a long address history to ten rows with a show-all toggle', async () => {
+    const ips = Array.from({ length: 12 }, (_, i) => ({
+      ipAddress: `192.0.2.${i + 1}`,
+      firstSeenAt: '2026-10-20T03:00:00.000Z',
+      lastSeenAt: '2026-10-22T03:00:00.000Z',
+      isCurrent: i === 0,
+      source: 'dns' as const,
+    }));
+    await openAsset('viewer', detailOf(asset(), { ips }));
+    const card = within(screen.getByRole('region', { name: 'IP addresses' }));
+    expect(card.getAllByRole('row')).toHaveLength(11);
+    await userEvent.click(card.getByRole('button', { name: 'Show all 12 addresses' }));
+    expect(card.getAllByRole('row')).toHaveLength(13);
   });
 });

@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiError,
   ok,
@@ -12,6 +12,7 @@ import {
 import { NO_CATEGORIES, page } from '../findings/test-data.ts';
 import { REPORT_PATHS, reportSummary } from './test-data.ts';
 
+beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
 const card = (name: string) => screen.findByRole('region', { name });
@@ -39,6 +40,8 @@ describe('Reports page', () => {
     expect(chart).toBeInTheDocument();
     expect(screen.getByRole('table', { name: /created and resolved per UTC day/ })).toBeTruthy();
 
+    // The detailed tables start collapsed; Expand all opens them.
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
     const top = await card('Top domains by risk');
     expect(within(top).getByRole('link', { name: 'example.com' })).toHaveAttribute(
       'href',

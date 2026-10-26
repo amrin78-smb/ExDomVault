@@ -1,4 +1,12 @@
-import type { Finding, FindingSummaryResponse, Permission } from '@exdomainvault/shared';
+import type {
+  Finding,
+  FindingSummaryResponse,
+  Permission,
+  ReportSummaryResponse,
+  ScanJobListResponse,
+  SoftwareSummaryResponse,
+  Worker,
+} from '@exdomainvault/shared';
 import {
   Activity,
   CalendarClock,
@@ -15,6 +23,7 @@ import { SeverityCounts } from '../components/findings/SeverityCounts.tsx';
 import { TrendChart } from '../components/reports/TrendChart.tsx';
 import { ScanStatusBadge } from '../components/scans/ScanStatusBadge.tsx';
 import { Card } from '../components/ui/Card.tsx';
+import { useCollapseAll } from '../components/ui/CollapseAllControls.tsx';
 import { EmptyState } from '../components/ui/EmptyState.tsx';
 import { LoadError } from '../components/ui/LoadError.tsx';
 import { PageHeader } from '../components/ui/PageHeader.tsx';
@@ -50,6 +59,30 @@ function useAsyncIf<T>(
 const loaded = <T,>(s: AsyncState<T | null>): AsyncState<T> =>
   s.status === 'success' && s.data === null ? { status: 'loading' } : (s as AsyncState<T>);
 
+/** A collapsed card's one-line summary, once its data has loaded. */
+const summaryOf = <T,>(s: AsyncState<T>, line: (data: T) => string): string | undefined =>
+  s.status === 'success' ? line(s.data) : undefined;
+
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/** Active findings raised by any of the given rules, highest risk first (at most five). */
+function useRuleFindings(access: Access, ruleIds: string[]): AsyncState<Finding[]> {
+  return loaded(
+    useAsyncIf(access, async (signal): Promise<Finding[]> => {
+      const pages = await Promise.all(
+        ruleIds.map((ruleId) => api.findings.list({ ruleId, pageSize: 5 }, { signal })),
+      );
+      return pages
+        .flatMap((p) => p.items)
+        .sort((a, b) => b.riskScore - a.riskScore)
+        .slice(0, 5);
+    }),
+  );
+}
+
+const CERT_RULES = ['TLS-001', 'TLS-003'];
+const DNS_RULES = ['DNS-001', 'REG-002'];
+
 /**
  * Operational dashboard built only from live API data. Every card loads independently, so one
  * failing endpoint never hides the others. The report summary and the findings summary are each
@@ -71,12 +104,22 @@ export function OverviewPage() {
   const coverage =
     report.status === 'success' && report.data && domains === 'yes' ? report.data.coverage : null;
   const coverageFallback = reports === 'no' || report.status === 'error';
+  // Card data is loaded here (only once access is granted) so collapsed cards can summarise it.
+  const latestScans = loaded(
+    useAsyncIf(scans, (signal) => api.scans.list({ pageSize: 5 }, { signal })),
+  );
+  const workerList = loaded(useAsyncIf(workers, (signal) => api.workers.list({ signal })));
+  const software = loaded(useAsyncIf(findings, (signal) => api.software.summary({ signal })));
+  const certFindings = useRuleFindings(findings, CERT_RULES);
+  const dnsFindings = useRuleFindings(findings, DNS_RULES);
+  const { controls, group } = useCollapseAll();
 
   return (
     <>
       <PageHeader
         title="Overview"
         description="External exposure across monitored domains, open findings and operational health."
+        actions={controls}
       />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -123,81 +166,147 @@ export function OverviewPage() {
         )}
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <Card title="Open findings by severity">
-          <Gate access={findings}>
-            <SeveritySummary state={findingSummary} />
-          </Gate>
-        </Card>
+      {group(
+        <>
+          <div className="mt-6 grid items-start gap-4 lg:grid-cols-3">
+            <Card title="Open findings by severity">
+              <Gate access={findings}>
+                <SeveritySummary state={findingSummary} />
+              </Gate>
+            </Card>
 
-        <Card title="Latest scans">
-          <Gate access={scans}>
-            <LatestScans />
-          </Gate>
-        </Card>
+            <Card
+              title="Latest scans"
+              collapsible="overview.scans"
+              summary={summaryOf(latestScans, scansSummary)}
+            >
+              <Gate access={scans}>
+                <LatestScans state={latestScans} />
+              </Gate>
+            </Card>
 
-        <Card title="Worker health">
-          <Gate access={workers} denied="Worker health is visible to administrators.">
-            <WorkerHealth />
-          </Gate>
-        </Card>
-      </div>
+            <Card
+              title="Worker health"
+              collapsible="overview.workers"
+              summary={summaryOf(workerList, workersSummary)}
+            >
+              <Gate access={workers} denied="Worker health is visible to administrators.">
+                <WorkerHealth state={workerList} />
+              </Gate>
+            </Card>
+          </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <Card title="Findings created and resolved over time" className="lg:col-span-2">
-          <Gate access={reports}>
-            <Loadable state={loaded(report)} title="Could not load the trend">
-              {(data) => (
-                <div className="space-y-2">
-                  <TrendChart trend={data.trend} compact />
-                  <Link to="/reports" className="text-xs text-sky-800 hover:underline">
-                    Open the full report
-                  </Link>
-                </div>
-              )}
-            </Loadable>
-          </Gate>
-        </Card>
+          <div className="mt-6 grid items-start gap-4 lg:grid-cols-3">
+            <Card
+              title="Findings created and resolved over time"
+              className="lg:col-span-2"
+              collapsible="overview.trend"
+              summary={summaryOf(loaded(report), trendSummary)}
+            >
+              <Gate access={reports}>
+                <Loadable state={loaded(report)} title="Could not load the trend">
+                  {(data) => (
+                    <div className="space-y-2">
+                      <TrendChart trend={data.trend} compact />
+                      <Link to="/reports" className="text-xs text-sky-800 hover:underline">
+                        Open the full report
+                      </Link>
+                    </div>
+                  )}
+                </Loadable>
+              </Gate>
+            </Card>
 
-        <Card title="Exposed software">
-          <Gate access={findings}>
-            <ExposedSoftware />
-          </Gate>
-        </Card>
-      </div>
+            <Card
+              title="Exposed software"
+              collapsible="overview.software"
+              summary={summaryOf(software, softwareSummary)}
+            >
+              <Gate access={findings}>
+                <ExposedSoftware state={software} />
+              </Gate>
+            </Card>
+          </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <Card title="Top remediation priorities">
-          <Gate access={findings}>
-            <TopPriorities />
-          </Gate>
-        </Card>
+          <div className="mt-6 grid items-start gap-4 lg:grid-cols-2">
+            <Card title="Top remediation priorities">
+              <Gate access={findings}>
+                <TopPriorities />
+              </Gate>
+            </Card>
 
-        <Card title="Certificates approaching expiry">
-          <Gate access={findings}>
-            <FindingsByRules
-              ruleIds={['TLS-001', 'TLS-003']}
-              icon={CalendarClock}
-              emptyTitle="No certificate expiry findings"
-              emptyText="No certificate has expired or expires within 14 days, based on the latest completed TLS checks."
-            />
-          </Gate>
-        </Card>
+            <Card
+              title="Certificates approaching expiry"
+              collapsible="overview.certificates"
+              summary={summaryOf(certFindings, findingsSummary)}
+            >
+              <Gate access={findings}>
+                <FindingsByRules
+                  state={certFindings}
+                  icon={CalendarClock}
+                  emptyTitle="No certificate expiry findings"
+                  emptyText="No certificate has expired or expires within 14 days, based on the latest completed TLS checks."
+                />
+              </Gate>
+            </Card>
 
-        <Card title="Recently changed DNS records" className="lg:col-span-2">
-          <Gate access={findings}>
-            <FindingsByRules
-              ruleIds={['DNS-001', 'REG-002']}
-              icon={Network}
-              emptyTitle="No unexpected DNS or registration changes"
-              emptyText="Changes to authoritative nameservers or registrar details detected by scans appear here as findings."
-            />
-          </Gate>
-        </Card>
-      </div>
+            <Card
+              title="Recently changed DNS records"
+              className="lg:col-span-2"
+              collapsible="overview.dns"
+              summary={summaryOf(dnsFindings, findingsSummary)}
+            >
+              <Gate access={findings}>
+                <FindingsByRules
+                  state={dnsFindings}
+                  icon={Network}
+                  emptyTitle="No unexpected DNS or registration changes"
+                  emptyText="Changes to authoritative nameservers or registrar details detected by scans appear here as findings."
+                />
+              </Gate>
+            </Card>
+          </div>
+        </>,
+      )}
     </>
   );
 }
+
+function scansSummary(data: ScanJobListResponse): string {
+  const latest = data.items[0];
+  return latest
+    ? `Latest ${formatDateTime(latest.completedAt ?? latest.createdAt)}`
+    : 'No scans have run';
+}
+
+/** A worker is considered stale when it has not polled for 10 minutes. */
+const STALE_MS = 10 * 60 * 1000;
+const isStale = (w: Worker) =>
+  w.lastSeenAt === null || Date.now() - new Date(w.lastSeenAt).getTime() > STALE_MS;
+
+function workersSummary(data: { items: Worker[] }): string {
+  if (data.items.length === 0) return 'No worker registered';
+  const quiet = data.items.filter((w) => w.status !== 'disabled' && isStale(w)).length;
+  return `${plural(data.items.length, 'worker')}${quiet > 0 ? `, ${quiet} not seen recently` : ''}`;
+}
+
+function trendSummary(data: ReportSummaryResponse): string {
+  const created = data.trend.reduce((n, d) => n + d.created, 0);
+  const resolved = data.trend.reduce((n, d) => n + d.resolved, 0);
+  return `${created} created, ${resolved} resolved in ${data.trendDays} days`;
+}
+
+function softwareSummary(data: SoftwareSummaryResponse): string {
+  if (data.products.length === 0) return 'No software recorded yet';
+  const eol = data.products.reduce((n, p) => n + p.eol, 0);
+  const kev = data.products.reduce((n, p) => n + p.knownExploited, 0);
+  return `${eol} end-of-life, ${kev} possibly KEV-affected`;
+}
+
+const findingsSummary = (items: Finding[]) =>
+  items.length === 0
+    ? 'None'
+    : `${items.length === 5 ? 'Top 5' : plural(items.length, 'finding')}, highest risk ${items[0]?.riskScore ?? 0}`;
 
 function Gate({
   access,
@@ -364,8 +473,7 @@ function SeveritySummary({ state }: { state: AsyncState<FindingSummaryResponse> 
   );
 }
 
-function LatestScans() {
-  const state = useAsync((signal) => api.scans.list({ pageSize: 5 }, { signal }), []);
+function LatestScans({ state }: { state: AsyncState<ScanJobListResponse> }) {
   return (
     <Loadable state={state} title="Could not load scans">
       {(data) =>
@@ -394,11 +502,7 @@ function LatestScans() {
   );
 }
 
-/** A worker is considered stale when it has not polled for 10 minutes. */
-const STALE_MS = 10 * 60 * 1000;
-
-function WorkerHealth() {
-  const state = useAsync((signal) => api.workers.list({ signal }), []);
+function WorkerHealth({ state }: { state: AsyncState<{ items: Worker[] }> }) {
   return (
     <Loadable state={state} title="Could not load workers">
       {(data) =>
@@ -409,8 +513,7 @@ function WorkerHealth() {
         ) : (
           <ul className="divide-y divide-slate-100 text-sm">
             {data.items.map((w) => {
-              const stale =
-                w.lastSeenAt === null || Date.now() - new Date(w.lastSeenAt).getTime() > STALE_MS;
+              const stale = isStale(w);
               const label =
                 w.status === 'disabled' ? 'Disabled' : stale ? 'Not seen recently' : 'Polling';
               return (
@@ -452,30 +555,18 @@ function TopPriorities() {
   );
 }
 
-/** Active findings raised by any of the given rules, highest risk first. */
+/** Active findings raised by the card's rules, highest risk first. */
 function FindingsByRules({
-  ruleIds,
+  state,
   icon,
   emptyTitle,
   emptyText,
 }: {
-  ruleIds: string[];
+  state: AsyncState<Finding[]>;
   icon: typeof Activity;
   emptyTitle: string;
   emptyText: string;
 }) {
-  const state = useAsync(
-    async (signal): Promise<Finding[]> => {
-      const pages = await Promise.all(
-        ruleIds.map((ruleId) => api.findings.list({ ruleId, pageSize: 5 }, { signal })),
-      );
-      return pages
-        .flatMap((p) => p.items)
-        .sort((a, b) => b.riskScore - a.riskScore)
-        .slice(0, 5);
-    },
-    [ruleIds.join(',')],
-  );
   return (
     <Loadable state={state} title="Could not load findings">
       {(items) =>
@@ -495,8 +586,7 @@ function FindingsByRules({
  * Software rollup: hosts on end-of-life versions and hosts possibly affected by a known-exploited
  * CVE, summed over products (a host running two flagged products counts twice).
  */
-function ExposedSoftware() {
-  const state = useAsync((signal) => api.software.summary({ signal }), []);
+function ExposedSoftware({ state }: { state: AsyncState<SoftwareSummaryResponse> }) {
   return (
     <Loadable state={state} title="Could not load software">
       {(data) => {

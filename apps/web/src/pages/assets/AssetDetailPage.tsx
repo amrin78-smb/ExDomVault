@@ -1,4 +1,10 @@
-import { allowedAssetActions, ROLE_LABELS, type Asset, type Role } from '@exdomainvault/shared';
+import {
+  allowedAssetActions,
+  ROLE_LABELS,
+  type Asset,
+  type AssetDetailResponse,
+  type Role,
+} from '@exdomainvault/shared';
 import { ArrowLeft } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
@@ -20,6 +26,7 @@ import {
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
+import { useShowAll } from '../../components/ui/ShowAllButton.tsx';
 import { api, ApiClientError } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { usePermission } from '../../lib/session.ts';
@@ -86,7 +93,7 @@ export function AssetDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <DecisionPanel
           key={asset.id}
           asset={asset}
@@ -133,105 +140,147 @@ export function AssetDetailPage() {
           </dl>
         </Card>
 
-        <Card title="IP addresses">
-          {ips.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No addresses recorded yet. Addresses come from successful DNS observations.
-            </p>
-          ) : (
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                  <th scope="col" className="py-2 pr-4">
-                    Address
-                  </th>
-                  <th scope="col" className="py-2 pr-4">
-                    State
-                  </th>
-                  <th scope="col" className="py-2 pr-4">
-                    First seen
-                  </th>
-                  <th scope="col" className="py-2">
-                    Last seen
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {[...ips]
-                  .sort((a, b) => Number(b.isCurrent) - Number(a.isCurrent))
-                  .map((ip) => (
-                    <tr key={`${ip.ipAddress}:${ip.firstSeenAt}`}>
-                      <th scope="row" className="py-2 pr-4 text-left font-mono text-xs font-normal">
-                        {ip.ipAddress}
-                      </th>
-                      <td className="py-2 pr-4">
-                        {ip.isCurrent ? (
-                          <span className="font-medium text-slate-800">Current</span>
-                        ) : (
-                          <span className="text-slate-500">Past</span>
-                        )}
-                      </td>
-                      <td className="py-2 pr-4 text-slate-600">{formatDateTime(ip.firstSeenAt)}</td>
-                      <td className="py-2 text-slate-600">{formatDateTime(ip.lastSeenAt)}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          )}
-        </Card>
+        <IpAddressesCard ips={ips} />
 
-        <Card title="Discovery sightings">
-          {discovery.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No discovery sightings. This hostname was not found by passive discovery.
-            </p>
-          ) : (
-            <>
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                    <th scope="col" className="py-2 pr-4">
-                      Source
-                    </th>
-                    <th scope="col" className="py-2 pr-4">
-                      Observed
-                    </th>
-                    <th scope="col" className="py-2 pr-4">
-                      Wildcard
-                    </th>
-                    <th scope="col" className="py-2">
-                      Scan job
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {discovery.map((d) => (
-                    <tr key={`${d.scanJobId}:${d.observedAt}:${d.source}`}>
-                      <td className="py-2 pr-4">{sourceLabel(d.source)}</td>
-                      <td className="py-2 pr-4 text-slate-600">{formatDateTime(d.observedAt)}</td>
-                      <td className="py-2 pr-4">{d.wildcard ? 'Yes' : 'No'}</td>
-                      <td className="py-2">
-                        <Link
-                          to={`/scans/${d.scanJobId}`}
-                          className="text-sky-800 hover:underline"
-                          aria-label={`Discovery job of ${formatDateTime(d.observedAt)}`}
-                        >
-                          View job
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="mt-3 text-xs text-slate-500">
-                A sighting in a public certificate log proves neither ownership nor that the host is
-                live.
-              </p>
-            </>
-          )}
-        </Card>
+        <DiscoveryCard discovery={discovery} />
       </div>
     </>
+  );
+}
+
+/** How many rows a long history table shows before "Show all". */
+const SHOW_FIRST = 10;
+
+/** Address history, current addresses first. */
+function IpAddressesCard({ ips }: { ips: AssetDetailResponse['ips'] }) {
+  const sorted = [...ips].sort((a, b) => Number(b.isCurrent) - Number(a.isCurrent));
+  const { shown, toggle } = useShowAll(sorted, { limit: SHOW_FIRST, noun: 'addresses' });
+  const current = ips.filter((ip) => ip.isCurrent).length;
+  return (
+    <Card
+      title="IP addresses"
+      collapsible="asset.ips"
+      summary={
+        ips.length === 0 ? 'None recorded' : `${current} current, ${ips.length - current} past`
+      }
+    >
+      {ips.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          No addresses recorded yet. Addresses come from successful DNS observations.
+        </p>
+      ) : (
+        <>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                <th scope="col" className="py-2 pr-4">
+                  Address
+                </th>
+                <th scope="col" className="py-2 pr-4">
+                  State
+                </th>
+                <th scope="col" className="py-2 pr-4">
+                  First seen
+                </th>
+                <th scope="col" className="py-2">
+                  Last seen
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {shown.map((ip) => (
+                <tr key={`${ip.ipAddress}:${ip.firstSeenAt}`}>
+                  <th scope="row" className="py-2 pr-4 text-left font-mono text-xs font-normal">
+                    {ip.ipAddress}
+                  </th>
+                  <td className="py-2 pr-4">
+                    {ip.isCurrent ? (
+                      <span className="font-medium text-slate-800">Current</span>
+                    ) : (
+                      <span className="text-slate-500">Past</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4 text-slate-600">{formatDateTime(ip.firstSeenAt)}</td>
+                  <td className="py-2 text-slate-600">{formatDateTime(ip.lastSeenAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {toggle && <div className="mt-3">{toggle}</div>}
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Passive discovery sightings of this hostname; collapsed by default (provenance detail). */
+function DiscoveryCard({ discovery }: { discovery: AssetDetailResponse['discovery'] }) {
+  const { shown, toggle } = useShowAll(discovery, { limit: SHOW_FIRST, noun: 'sightings' });
+  const latest = discovery.reduce<string | null>(
+    (max, d) => (max === null || d.observedAt > max ? d.observedAt : max),
+    null,
+  );
+  return (
+    <Card
+      title="Discovery sightings"
+      collapsible="asset.discovery"
+      defaultOpen={false}
+      summary={
+        latest
+          ? `${discovery.length} sighting${discovery.length === 1 ? '' : 's'} · latest ${formatDateTime(latest)}`
+          : 'None'
+      }
+    >
+      {discovery.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          No discovery sightings. This hostname was not found by passive discovery.
+        </p>
+      ) : (
+        <>
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                <th scope="col" className="py-2 pr-4">
+                  Source
+                </th>
+                <th scope="col" className="py-2 pr-4">
+                  Observed
+                </th>
+                <th scope="col" className="py-2 pr-4">
+                  Wildcard
+                </th>
+                <th scope="col" className="py-2">
+                  Scan job
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {shown.map((d) => (
+                <tr key={`${d.scanJobId}:${d.observedAt}:${d.source}`}>
+                  <td className="py-2 pr-4">{sourceLabel(d.source)}</td>
+                  <td className="py-2 pr-4 text-slate-600">{formatDateTime(d.observedAt)}</td>
+                  <td className="py-2 pr-4">{d.wildcard ? 'Yes' : 'No'}</td>
+                  <td className="py-2">
+                    <Link
+                      to={`/scans/${d.scanJobId}`}
+                      className="text-sky-800 hover:underline"
+                      aria-label={`Discovery job of ${formatDateTime(d.observedAt)}`}
+                    >
+                      View job
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {toggle && <div className="mt-3">{toggle}</div>}
+          <p className="mt-3 text-xs text-slate-500">
+            A sighting in a public certificate log proves neither ownership nor that the host is
+            live.
+          </p>
+        </>
+      )}
+    </Card>
   );
 }
 

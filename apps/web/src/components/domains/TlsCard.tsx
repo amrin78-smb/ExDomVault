@@ -6,6 +6,7 @@ import { ScheduledScansHint } from '../settings/ScheduledScansHint.tsx';
 import { formatDate, formatDateTime } from '../../lib/format.ts';
 import type { AsyncState } from '../../lib/use-async.ts';
 import { Card } from '../ui/Card.tsx';
+import { useShowAll } from '../ui/ShowAllButton.tsx';
 import { EmptyState } from '../ui/EmptyState.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 
@@ -59,6 +60,24 @@ function sortByHostname(items: TlsSnapshot[]): TlsSnapshot[] {
   );
 }
 
+/** Whole days from `now` until `iso` (negative once past). */
+const daysUntil = (iso: string, now: Date) =>
+  Math.floor((new Date(iso).getTime() - now.getTime()) / DAY_MS);
+
+function tlsSummary(state: AsyncState<{ tls: TlsSnapshot[] }>, now: Date): string | undefined {
+  if (state.status === 'loading') return undefined;
+  if (state.status === 'error') return 'Could not load';
+  const n = state.data.tls.length;
+  if (n === 0) return 'None collected yet';
+  const days = state.data.tls.flatMap((s) => (s.notAfter ? [daysUntil(s.notAfter, now)] : []));
+  const expired = days.filter((d) => d < 0).length;
+  const soon = days.filter((d) => d >= 0 && d <= EXPIRY_WARNING_DAYS).length;
+  const parts = [`${n} certificate${n === 1 ? '' : 's'}`];
+  if (expired > 0) parts.push(`${expired} expired`);
+  if (soon > 0) parts.push(`${soon} expiring soon`);
+  return parts.join(' · ');
+}
+
 /** Latest TLS certificate per (hostname, address, port) from browser-like handshakes. */
 export function TlsCard({
   state,
@@ -68,7 +87,13 @@ export function TlsCard({
   now?: Date;
 }) {
   return (
-    <Card title="TLS certificates" className="lg:col-span-2">
+    <Card
+      title="TLS certificates"
+      className="lg:col-span-2"
+      collapsible="domain.tls"
+      defaultOpen={false}
+      summary={tlsSummary(state, now)}
+    >
       {state.status === 'loading' && (
         <p className="text-sm text-slate-500" role="status">
           Loading certificates…
@@ -85,13 +110,22 @@ export function TlsCard({
             <ScheduledScansHint />
           </EmptyState>
         ) : (
-          <div className="space-y-5">
-            {sortByHostname(state.data.tls).map((s) => (
-              <TlsEntry key={`${s.hostname}|${s.ipAddress}|${s.port}`} snapshot={s} now={now} />
-            ))}
-          </div>
+          <TlsList items={state.data.tls} now={now} />
         ))}
     </Card>
+  );
+}
+
+function TlsList({ items, now }: { items: TlsSnapshot[]; now: Date }) {
+  const sorted = sortByHostname(items);
+  const { shown, toggle } = useShowAll(sorted, { limit: 5, noun: 'certificates' });
+  return (
+    <div className="space-y-5">
+      {shown.map((s) => (
+        <TlsEntry key={`${s.hostname}|${s.ipAddress}|${s.port}`} snapshot={s} now={now} />
+      ))}
+      {toggle}
+    </div>
   );
 }
 
@@ -179,7 +213,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 /** Certificate expiry plus days left: amber within 30 days, red once expired. */
 function CertExpiry({ iso, now }: { iso: string; now: Date }) {
-  const days = Math.floor((new Date(iso).getTime() - now.getTime()) / DAY_MS);
+  const days = daysUntil(iso, now);
   let text: string;
   let tone = 'text-slate-500';
   if (days < 0) {

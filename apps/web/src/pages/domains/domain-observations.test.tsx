@@ -5,7 +5,8 @@ import type {
   RegistrationSnapshot,
 } from '@exdomainvault/shared';
 import { screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDomainCards } from '../../testing/domain-cards.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { ok, renderAt, stubApi, type Handler } from '../../testing/stub-api.tsx';
 
@@ -88,6 +89,7 @@ function stubPage(
 const registrationCard = () => screen.findByRole('region', { name: 'Registration' });
 const dnsCard = () => screen.findByRole('region', { name: 'DNS records' });
 
+beforeEach(openDomainCards);
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Domain registration observations', () => {

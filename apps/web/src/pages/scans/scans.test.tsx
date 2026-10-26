@@ -1,7 +1,8 @@
 import type { Domain, ScanJob, ScanProfile } from '@exdomainvault/shared';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDomainCards } from '../../testing/domain-cards.ts';
 import { ok, renderAt, stubApi } from '../../testing/stub-api.tsx';
 
 const DOMAIN_ID = '0b8e3f9a-4c1d-4e5f-8a7b-1c2d3e4f5a6b';
@@ -118,6 +119,7 @@ const domain: Domain = {
   updatedAt: '2026-10-22T10:00:00.000Z',
 };
 
+beforeEach(openDomainCards);
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Scans', () => {

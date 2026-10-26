@@ -3,7 +3,8 @@
 import type { Asset, Domain, Finding, ScanJob, ScanProfile } from '@exdomainvault/shared';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDomainCards } from '../testing/domain-cards.ts';
 import { ok, renderAt, stubApi } from '../testing/stub-api.tsx';
 import { asset as assetOf, detailOf as assetDetailOf } from './assets/test-data.ts';
 import {
@@ -13,6 +14,7 @@ import {
   page,
 } from './findings/test-data.ts';
 
+beforeEach(openDomainCards);
 afterEach(() => vi.unstubAllGlobals());
 
 const DOMAIN_ID = '0b8e3f9a-4c1d-4e5f-8a7b-1c2d3e4f5a6b';

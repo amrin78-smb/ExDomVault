@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { formatDateTime } from '../../lib/format.ts';
 import type { AsyncState } from '../../lib/use-async.ts';
 import { Card } from '../ui/Card.tsx';
+import { useShowAll } from '../ui/ShowAllButton.tsx';
 import { EmptyState } from '../ui/EmptyState.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 import { RESULT_NOTES } from './observation-status.ts';
@@ -52,7 +53,13 @@ export function DnsRecordsCard({
   state: AsyncState<{ dns: DnsRecordSet[] }>;
 }) {
   return (
-    <Card title="DNS records" className="lg:col-span-2">
+    <Card
+      title="DNS records"
+      className="lg:col-span-2"
+      collapsible="domain.dns"
+      defaultOpen={false}
+      summary={dnsSummary(state)}
+    >
       {state.status === 'loading' && (
         <p className="text-sm text-slate-500" role="status">
           Loading DNS records…
@@ -66,7 +73,18 @@ export function DnsRecordsCard({
   );
 }
 
+function dnsSummary(state: AsyncState<{ dns: DnsRecordSet[] }>): string | undefined {
+  if (state.status === 'loading') return undefined;
+  if (state.status === 'error') return 'Could not load';
+  const n = state.data.dns.length;
+  if (n === 0) return 'None collected yet';
+  const names = new Set(state.data.dns.map((r) => r.hostname)).size;
+  return `${n} record set${n === 1 ? '' : 's'} on ${names} name${names === 1 ? '' : 's'}`;
+}
+
 function DnsRecords({ apex, records }: { apex: string; records: DnsRecordSet[] }) {
+  const groups = groupByHostname(records, apex);
+  const { shown, toggle } = useShowAll(groups, { limit: 5, noun: 'hostnames' });
   if (records.length === 0) {
     return (
       <EmptyState title="No DNS records collected yet" icon={Network}>
@@ -76,7 +94,6 @@ function DnsRecords({ apex, records }: { apex: string; records: DnsRecordSet[] }
     );
   }
   const newest = latest(records);
-  const groups = groupByHostname(records, apex);
 
   return (
     <div className="space-y-5">
@@ -88,7 +105,7 @@ function DnsRecords({ apex, records }: { apex: string; records: DnsRecordSet[] }
           </Link>
         </p>
       )}
-      {groups.map((g) => {
+      {shown.map((g) => {
         const headingId = `dns-${g.hostname}`;
         return (
           <section key={g.hostname} aria-labelledby={headingId}>
@@ -126,6 +143,7 @@ function DnsRecords({ apex, records }: { apex: string; records: DnsRecordSet[] }
           </section>
         );
       })}
+      {toggle}
     </div>
   );
 }

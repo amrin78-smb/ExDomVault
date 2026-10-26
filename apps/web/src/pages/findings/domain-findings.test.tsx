@@ -1,10 +1,12 @@
 // Findings card on the domain page and bulk monitoring on the domain list.
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDomainCards } from '../../testing/domain-cards.ts';
 import { ok, renderAt, stubApi } from '../../testing/stub-api.tsx';
 import { DOMAIN_ID, NO_CATEGORIES, domain, finding, page } from './test-data.ts';
 
+beforeEach(openDomainCards);
 afterEach(() => vi.unstubAllGlobals());
 
 const summary = (bySeverity: Record<string, number>) => ({
@@ -40,13 +42,23 @@ describe('Domain findings card', () => {
     );
   });
 
-  it('sits after Scans, with the Assets card last', async () => {
+  it('shows the non-zero severity counts in the title bar while collapsed', async () => {
+    window.localStorage.setItem('exdv.card.domain.findings', '0');
+    stubDomainPage();
+    renderAt(`/domains/${DOMAIN_ID}`);
+    const card = await screen.findByRole('region', { name: 'Findings' });
+    const header = within(card).getByRole('button', { name: /^Findings/ });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(await within(header).findByText('2 high · 1 low')).toBeVisible();
+  });
+
+  it('comes first, followed by Software', async () => {
     stubDomainPage();
     renderAt(`/domains/${DOMAIN_ID}`);
     await screen.findByRole('region', { name: 'Findings' });
     const names = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
-    expect(names.indexOf('Findings')).toBe(names.indexOf('Scans') + 1);
-    expect(names.at(-1)).toBe('Assets');
+    expect(names[0]).toBe('Findings');
+    expect(names[1]).toBe('Software');
   });
 
   it('explains when a domain has no active findings', async () => {

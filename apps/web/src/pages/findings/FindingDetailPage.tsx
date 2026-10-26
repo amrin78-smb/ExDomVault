@@ -19,8 +19,10 @@ import {
 } from '../../components/findings/labels.ts';
 import { RiskScore } from '../../components/findings/RiskScore.tsx';
 import { Card } from '../../components/ui/Card.tsx';
+import { useCollapseAll } from '../../components/ui/CollapseAllControls.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
+import { useShowAll } from '../../components/ui/ShowAllButton.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { usePermissions } from '../../lib/session.ts';
@@ -63,6 +65,8 @@ function FindingDetail({
 }) {
   const { finding, advisory, history, comments, rule } = detail;
   const can = usePermissions();
+  const { controls, group } = useCollapseAll();
+  const r = finding.riskInputs;
   return (
     <>
       <BackLink />
@@ -119,157 +123,215 @@ function FindingDetail({
 
       <FindingWorkflow finding={finding} onRefresh={onRefresh} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="What we observed" className="lg:col-span-2">
-          <p className="mb-3 text-sm text-slate-700">{finding.description}</p>
-          <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
-            Evidence
-          </h3>
-          <EvidenceView evidence={finding.evidence} />
-        </Card>
+      <div className="mb-2 flex justify-end">{controls}</div>
+      {group(
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <Card title="What we observed" className="lg:col-span-2">
+            <p className="mb-3 text-sm text-slate-700">{finding.description}</p>
+            <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+              Evidence
+            </h3>
+            <EvidenceView evidence={finding.evidence} />
+          </Card>
 
-        <Card title="Why this matters">
-          {advisory ? (
-            <div className="space-y-3 text-sm text-slate-700">
-              <p>{advisory.summary}</p>
-              <div>
-                <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Business impact
-                </h3>
-                <p>{advisory.businessImpact}</p>
+          <Card
+            title="Why this matters"
+            collapsible="finding.advisory"
+            summary={
+              advisory
+                ? plural(advisory.recommendedActions.length, 'recommended action')
+                : 'No advisory'
+            }
+          >
+            {advisory ? (
+              <div className="space-y-3 text-sm text-slate-700">
+                <p>{advisory.summary}</p>
+                <div>
+                  <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Business impact
+                  </h3>
+                  <p>{advisory.businessImpact}</p>
+                </div>
+                {advisory.recommendedActions.length > 0 && (
+                  <div>
+                    <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                      Recommended actions
+                    </h3>
+                    <ol className="list-decimal space-y-1 pl-5">
+                      {advisory.recommendedActions.map((a) => (
+                        <li key={a}>{a}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+                {advisory.references.length > 0 && (
+                  <div>
+                    <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                      References
+                    </h3>
+                    <ul className="space-y-1">
+                      {advisory.references.map((r) => (
+                        <li key={r} className="break-all">
+                          {/^https:\/\//.test(r) ? (
+                            <a
+                              href={r}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sky-800 hover:underline"
+                            >
+                              {r}
+                            </a>
+                          ) : (
+                            r
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
-              {advisory.recommendedActions.length > 0 && (
-                <div>
-                  <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Recommended actions
-                  </h3>
-                  <ol className="list-decimal space-y-1 pl-5">
-                    {advisory.recommendedActions.map((a) => (
-                      <li key={a}>{a}</li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-              {advisory.references.length > 0 && (
-                <div>
-                  <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
-                    References
-                  </h3>
-                  <ul className="space-y-1">
-                    {advisory.references.map((r) => (
-                      <li key={r} className="break-all">
-                        {/^https:\/\//.test(r) ? (
-                          <a
-                            href={r}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sky-800 hover:underline"
-                          >
-                            {r}
-                          </a>
-                        ) : (
-                          r
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">
-              No advisory has been generated for this finding.
-            </p>
-          )}
-        </Card>
-
-        <Card title="Risk score">
-          <RiskExplainer detail={detail} />
-        </Card>
-
-        <Card title="How it is resolved">
-          <div className="space-y-3 text-sm text-slate-700">
-            {rule ? (
-              <>
-                <p>{rule.resolution}</p>
-                <p className="text-xs text-slate-500">
-                  {finding.manualResolution
-                    ? 'This rule reports a change, so a user with triage permission resolves it after reviewing the change. Failed or incomplete scans never resolve findings.'
-                    : 'A finding is only resolved by a later successful scan that confirms the condition is gone. Failed or incomplete scans never resolve findings.'}
-                </p>
-              </>
             ) : (
-              <p className="text-slate-500">
-                The rule that raised this finding is no longer in the catalogue.
+              <p className="text-sm text-slate-500">
+                No advisory has been generated for this finding.
               </p>
             )}
-          </div>
-        </Card>
+          </Card>
 
-        <Card title="Rule">
-          <dl className="space-y-2 text-sm">
-            <Row label="Rule">
-              <span className="font-mono">
-                {finding.ruleId} v{finding.ruleVersion}
-              </span>
-            </Row>
-            {rule && <Row label="Detection">{rule.detection}</Row>}
-            {rule && <Row label="Evidence required">{rule.evidenceRequirements}</Row>}
-            <Row label="First seen">{formatDateTime(finding.firstSeenAt)}</Row>
-            <Row label="Last seen">{formatDateTime(finding.lastSeenAt)}</Row>
-            {finding.resolvedAt && <Row label="Resolved">{formatDateTime(finding.resolvedAt)}</Row>}
-            <Row label="Recurrences">{finding.recurrenceCount}</Row>
-          </dl>
-        </Card>
+          <Card
+            title="Risk score"
+            collapsible="finding.risk"
+            defaultOpen={false}
+            summary={`${finding.riskScore} = ${SEVERITY_LABELS[r.severity]} × ${EXPOSURE_LABELS[r.exposure]} × ${CRITICALITY_LABELS[r.criticality]} domain`}
+          >
+            <RiskExplainer detail={detail} />
+          </Card>
 
-        <Card title="Status history" className="lg:col-span-2">
-          {history.length === 0 ? (
-            <p className="text-sm text-slate-500">No status changes recorded.</p>
-          ) : (
-            <ol className="space-y-3 border-l border-slate-200 pl-4 text-sm">
-              {history.map((h) => (
-                <li key={h.id} className="relative">
-                  <span
-                    className="absolute -left-[1.3rem] top-1.5 size-2 rounded-full bg-slate-400"
-                    aria-hidden
-                  />
-                  <div className="font-medium text-slate-800">
-                    {h.fromStatus
-                      ? `${FINDING_STATUS_LABELS[h.fromStatus]} → ${FINDING_STATUS_LABELS[h.toStatus]}`
-                      : FINDING_STATUS_LABELS[h.toStatus]}
-                  </div>
-                  <div className="text-slate-600">{historyReasonLabel(h.reason, h.changedBy)}</div>
-                  {h.note && (
-                    <blockquote className="mt-0.5 whitespace-pre-wrap border-l-2 border-slate-200 pl-2 text-slate-700">
-                      {h.note}
-                    </blockquote>
-                  )}
-                  <div className="text-xs text-slate-500">
-                    {formatDateTime(h.createdAt)} · {h.changedBy ? h.changedBy.email : 'System'}
-                    {h.scanJobId && (
-                      <>
-                        {' '}
-                        ·{' '}
-                        <Link to={`/scans/${h.scanJobId}`} className="text-sky-800 hover:underline">
-                          scan
-                        </Link>
-                      </>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Card>
+          <Card
+            title="How it is resolved"
+            collapsible="finding.resolution"
+            defaultOpen={false}
+            summary={
+              !rule
+                ? 'Rule not in the catalogue'
+                : finding.manualResolution
+                  ? 'Resolved by a user after review'
+                  : 'Resolved by a later successful scan'
+            }
+          >
+            <div className="space-y-3 text-sm text-slate-700">
+              {rule ? (
+                <>
+                  <p>{rule.resolution}</p>
+                  <p className="text-xs text-slate-500">
+                    {finding.manualResolution
+                      ? 'This rule reports a change, so a user with triage permission resolves it after reviewing the change. Failed or incomplete scans never resolve findings.'
+                      : 'A finding is only resolved by a later successful scan that confirms the condition is gone. Failed or incomplete scans never resolve findings.'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-slate-500">
+                  The rule that raised this finding is no longer in the catalogue.
+                </p>
+              )}
+            </div>
+          </Card>
 
-        <FindingComments
-          findingId={finding.id}
-          comments={comments}
-          canComment={can('findings:triage') || can('findings:remediate')}
-          onAdded={onRefresh}
-        />
-      </div>
+          <Card
+            title="Rule"
+            collapsible="finding.rule"
+            defaultOpen={false}
+            summary={`${finding.ruleId} v${finding.ruleVersion} · last seen ${formatDateTime(finding.lastSeenAt)}`}
+          >
+            <dl className="space-y-2 text-sm">
+              <Row label="Rule">
+                <span className="font-mono">
+                  {finding.ruleId} v{finding.ruleVersion}
+                </span>
+              </Row>
+              {rule && <Row label="Detection">{rule.detection}</Row>}
+              {rule && <Row label="Evidence required">{rule.evidenceRequirements}</Row>}
+              <Row label="First seen">{formatDateTime(finding.firstSeenAt)}</Row>
+              <Row label="Last seen">{formatDateTime(finding.lastSeenAt)}</Row>
+              {finding.resolvedAt && (
+                <Row label="Resolved">{formatDateTime(finding.resolvedAt)}</Row>
+              )}
+              <Row label="Recurrences">{finding.recurrenceCount}</Row>
+            </dl>
+          </Card>
+
+          <StatusHistory history={history} />
+
+          <FindingComments
+            findingId={finding.id}
+            comments={comments}
+            canComment={can('findings:triage') || can('findings:remediate')}
+            onAdded={onRefresh}
+          />
+        </div>,
+      )}
     </>
+  );
+}
+
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/** Status changes, oldest first; a long history shows its latest entries until expanded. */
+function StatusHistory({ history }: { history: FindingDetailResponse['history'] }) {
+  const { shown, toggle } = useShowAll(history, { limit: 5, noun: 'changes', from: 'end' });
+  const latest = history.at(-1);
+  return (
+    <Card
+      title="Status history"
+      className="lg:col-span-2"
+      collapsible="finding.history"
+      defaultOpen={false}
+      summary={
+        latest
+          ? `${plural(history.length, 'change')} · latest ${formatDateTime(latest.createdAt)}`
+          : 'No changes'
+      }
+    >
+      {history.length === 0 ? (
+        <p className="text-sm text-slate-500">No status changes recorded.</p>
+      ) : (
+        <>
+          {toggle && <div className="mb-3">{toggle}</div>}
+          <ol className="space-y-3 border-l border-slate-200 pl-4 text-sm">
+            {shown.map((h) => (
+              <li key={h.id} className="relative">
+                <span
+                  className="absolute -left-[1.3rem] top-1.5 size-2 rounded-full bg-slate-400"
+                  aria-hidden
+                />
+                <div className="font-medium text-slate-800">
+                  {h.fromStatus
+                    ? `${FINDING_STATUS_LABELS[h.fromStatus]} → ${FINDING_STATUS_LABELS[h.toStatus]}`
+                    : FINDING_STATUS_LABELS[h.toStatus]}
+                </div>
+                <div className="text-slate-600">{historyReasonLabel(h.reason, h.changedBy)}</div>
+                {h.note && (
+                  <blockquote className="mt-0.5 whitespace-pre-wrap border-l-2 border-slate-200 pl-2 text-slate-700">
+                    {h.note}
+                  </blockquote>
+                )}
+                <div className="text-xs text-slate-500">
+                  {formatDateTime(h.createdAt)} · {h.changedBy ? h.changedBy.email : 'System'}
+                  {h.scanJobId && (
+                    <>
+                      {' '}
+                      ·{' '}
+                      <Link to={`/scans/${h.scanJobId}`} className="text-sky-800 hover:underline">
+                        scan
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </Card>
   );
 }
 

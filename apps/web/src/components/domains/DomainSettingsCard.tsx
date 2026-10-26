@@ -58,7 +58,16 @@ export function DomainSettingsCard({
   };
 
   return (
-    <Card title="Ownership and monitoring">
+    <Card
+      title="Ownership and monitoring"
+      collapsible="domain.ownership"
+      defaultOpen={false}
+      summary={[
+        CRITICALITY_LABELS[domain.criticality],
+        domain.businessOwner ? `owner: ${domain.businessOwner}` : 'no owner set',
+        `monitoring ${domain.monitoringEnabled ? 'on' : 'off'}`,
+      ].join(' · ')}
+    >
       {canWrite ? (
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">

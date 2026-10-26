@@ -65,8 +65,21 @@ export function DomainAssetsCard({ domain }: { domain: Domain }) {
     for (const a of state.data.items) counts.set(a.status, (counts.get(a.status) ?? 0) + 1);
   }
 
+  function assetsSummary(): string | undefined {
+    if (!canRead) return 'Not available to your role';
+    if (state.status === 'loading') return undefined;
+    if (state.status === 'error') return 'Could not load';
+    const { total } = state.data;
+    const pending = counts.get('pending') ?? 0;
+    const partial = state.data.items.length < total;
+    return [
+      `${total} asset${total === 1 ? '' : 's'}`,
+      ...(pending > 0 ? [`${pending}${partial ? '+' : ''} pending`] : []),
+    ].join(' · ');
+  }
+
   return (
-    <Card title="Assets">
+    <Card title="Assets" collapsible="domain.assets" summary={assetsSummary()}>
       <div className="space-y-4 text-sm">
         {!canRead && (
           <p className="text-slate-500">You do not have access to the asset inventory.</p>

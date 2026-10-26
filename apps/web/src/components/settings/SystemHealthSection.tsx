@@ -16,6 +16,7 @@ import { usePollingKey } from '../../lib/use-polling.ts';
 import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 import { Button } from '../ui/Button.tsx';
 import { Card } from '../ui/Card.tsx';
+import { useCollapseAll } from '../ui/CollapseAllControls.tsx';
 import { LoadError } from '../ui/LoadError.tsx';
 import { StaleDataNotice } from '../ui/StaleDataNotice.tsx';
 import { StatCard } from '../ui/StatCard.tsx';
@@ -56,6 +57,7 @@ export function SystemHealthSection() {
     [],
     tick,
   );
+  const { controls, group } = useCollapseAll();
 
   if (state.status === 'loading') {
     return (
@@ -85,10 +87,13 @@ export function SystemHealthSection() {
           Computed by the server at {formatDateTime(h.generatedAt)}. Refreshes every minute while
           this page is open.
         </p>
-        <Button onClick={retry} disabled={refreshing}>
-          <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden />
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {controls}
+          <Button onClick={retry} disabled={refreshing}>
+            <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        </div>
       </div>
       {stale && (
         <StaleDataNotice
@@ -99,22 +104,44 @@ export function SystemHealthSection() {
         />
       )}
       <OutageBlock outage={h.outage} />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <WorkersCard workers={h.workers} />
-        <QueueCard queue={h.queue} />
-      </div>
-      <ScansCard scans={h.scans} failures={h.failuresByCode} />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <DatabaseCard database={h.database} />
-        <RetentionCard retention={h.retention} />
-      </div>
-      <Card title="Intelligence feeds">
-        <div className="text-sm">
-          <FeedList feeds={h.feeds} />
-        </div>
-      </Card>
+      {group(
+        <>
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <WorkersCard workers={h.workers} />
+            <QueueCard queue={h.queue} />
+          </div>
+          <ScansCard scans={h.scans} failures={h.failuresByCode} />
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <DatabaseCard database={h.database} />
+            <RetentionCard retention={h.retention} />
+          </div>
+          <Card
+            title="Intelligence feeds"
+            collapsible="settings.health.feeds"
+            defaultOpen={false}
+            summary={feedsSummary(h.feeds)}
+          >
+            <div className="text-sm">
+              <FeedList feeds={h.feeds} />
+            </div>
+          </Card>
+        </>,
+      )}
     </div>
   );
+}
+
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+function feedsSummary(feeds: Health['feeds']): string {
+  if (feeds.length === 0) return 'None configured';
+  const failing = feeds.filter((f) => f.lastError).length;
+  const never = feeds.filter((f) => !f.lastError && !f.lastSuccessAt).length;
+  const notes = [
+    failing > 0 && `${failing} failing`,
+    never > 0 && `${never} never synchronised`,
+  ].filter(Boolean);
+  return `${plural(feeds.length, 'feed')}${notes.length > 0 ? `, ${notes.join(', ')}` : ', all up to date'}`;
 }
 
 function OutageBlock({ outage }: { outage: Health['outage'] }) {
@@ -152,7 +179,15 @@ function OutageBlock({ outage }: { outage: Health['outage'] }) {
 
 function WorkersCard({ workers }: { workers: Health['workers'] }) {
   return (
-    <Card title="Workers">
+    <Card
+      title="Workers"
+      collapsible="settings.health.workers"
+      summary={
+        workers.length === 0
+          ? 'None registered'
+          : `${plural(workers.length, 'worker')}, ${workers.filter((w) => w.status === 'online').length} online`
+      }
+    >
       {workers.length === 0 ? (
         <p className="text-sm text-slate-500">No workers registered.</p>
       ) : (
@@ -203,7 +238,11 @@ function WorkersCard({ workers }: { workers: Health['workers'] }) {
 
 function QueueCard({ queue }: { queue: Health['queue'] }) {
   return (
-    <Card title="Queue">
+    <Card
+      title="Queue"
+      collapsible="settings.health.queue"
+      summary={`${queue.queued} queued, ${queue.running} running`}
+    >
       <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="Queued" value={queue.queued} />
@@ -260,7 +299,11 @@ function ScansCard({
     ['Last 7 days', scans.last7d],
   ];
   return (
-    <Card title="Scan outcomes">
+    <Card
+      title="Scan outcomes"
+      collapsible="settings.health.scans"
+      summary={`Last 24 hours: ${scans.last24h.succeeded} succeeded, ${scans.last24h.failed} failed`}
+    >
       <div className="space-y-4">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm" aria-label="Scan outcomes">
@@ -330,7 +373,11 @@ function ScansCard({
 
 function DatabaseCard({ database }: { database: Health['database'] }) {
   return (
-    <Card title="Database">
+    <Card
+      title="Database"
+      collapsible="settings.health.database"
+      summary={database.ok ? 'Reachable' : 'Not responding'}
+    >
       <div className="flex items-center gap-3 text-sm">
         <Database className="size-5 text-slate-400" aria-hidden />
         {database.ok ? (
@@ -354,7 +401,16 @@ function DatabaseCard({ database }: { database: Health['database'] }) {
 
 function RetentionCard({ retention }: { retention: Health['retention'] }) {
   return (
-    <Card title="Retention">
+    <Card
+      title="Retention"
+      collapsible="settings.health.retention"
+      defaultOpen={false}
+      summary={
+        retention.lastRunAt
+          ? `Last cleanup ${formatDateTime(retention.lastRunAt)}`
+          : 'Cleanup not run yet'
+      }
+    >
       <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-xs text-slate-500">Last cleanup</dt>

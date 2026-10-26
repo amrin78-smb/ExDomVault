@@ -2,7 +2,8 @@ import type { Domain, Permission, Role } from '@exdomainvault/shared';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDomainCards } from '../../testing/domain-cards.ts';
 import { DataModeProvider } from '../../lib/DataModeProvider.tsx';
 import { routes } from '../../routes.tsx';
 
@@ -105,6 +106,7 @@ function renderAt(path: string) {
   return router;
 }
 
+beforeEach(openDomainCards);
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Domains list', () => {
@@ -330,7 +332,9 @@ describe('Domain detail', () => {
     expect(await screen.findByText('_exdomainvault-challenge.example.com')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Check now' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Generate new value/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /monitoring/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Turn (on|off) monitoring/ }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText('Platform team')).toBeInTheDocument();
   });
 

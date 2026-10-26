@@ -56,6 +56,27 @@ function CopyField({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** One line for the collapsed card, e.g. "Authorised (admin) · review by 22 Oct 2027". */
+function verificationSummary(domain: Domain, challenge: VerificationChallenge | null): string {
+  const expires = domain.verificationExpiresAt ? formatDate(domain.verificationExpiresAt) : null;
+  switch (domain.verificationStatus) {
+    case 'verified':
+      return domain.verificationMethod === 'admin_attestation'
+        ? `Authorised (admin)${expires ? ` · review by ${expires}` : ''}`
+        : `Verified by DNS${expires ? ` · expires ${expires}` : ''}`;
+    case 'pending':
+      return challenge?.status === 'pending'
+        ? `Pending DNS check · value expires ${formatDate(challenge.expiresAt)}`
+        : 'Pending';
+    case 'revoked':
+      return 'Revoked · active scanning not allowed';
+    default:
+      return challenge?.status === 'expired'
+        ? 'Not verified · last attempt expired'
+        : 'Not verified';
+  }
+}
+
 /**
  * Ownership verification: DNS TXT proof, or an administrator authorisation where the DNS cannot be
  * edited. For DNS, the record value is only available in the response that created
@@ -133,7 +154,12 @@ export function VerificationPanel({
   if (domain.verificationStatus === 'verified') {
     const attested = domain.verificationMethod === 'admin_attestation';
     return (
-      <Card title="Ownership verification">
+      <Card
+        title="Ownership verification"
+        collapsible="domain.verification"
+        defaultOpen={false}
+        summary={verificationSummary(domain, challenge)}
+      >
         <div className="space-y-3 text-sm">
           <p
             className={`flex items-center gap-2 ${attested ? 'text-sky-800' : 'text-emerald-800'}`}
@@ -230,7 +256,12 @@ export function VerificationPanel({
   const recordName = issued?.record.name ?? pending?.recordName;
 
   return (
-    <Card title="Ownership verification">
+    <Card
+      title="Ownership verification"
+      collapsible="domain.verification"
+      defaultOpen={false}
+      summary={verificationSummary(domain, challenge)}
+    >
       <div className="space-y-4 text-sm">
         {!pending && !issued && (
           <p className="text-slate-600">

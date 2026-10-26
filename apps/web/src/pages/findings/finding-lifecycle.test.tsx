@@ -1,11 +1,12 @@
 import type { FindingDetailResponse, Role } from '@exdomainvault/shared';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reviewDateBounds } from '../../components/findings/lifecycle.ts';
 import { ok, renderAt, stubApi, type Handler } from '../../testing/stub-api.tsx';
 import { ANALYST, FINDING_ID, OWNER, assignable, detailOf, finding, page } from './test-data.ts';
 
+beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
 const DETAIL = `GET /api/v1/findings/${FINDING_ID}`;
@@ -491,6 +492,7 @@ describe('Finding detail: comments and history', () => {
         ],
       }),
     );
+    await userEvent.click(screen.getByRole('button', { name: /^Status history/ }));
     const history = screen.getByRole('region', { name: 'Status history' });
     expect(within(history).getByText('First detected by a scan')).toBeInTheDocument();
     expect(within(history).getByText('Changed by analyst@example.com')).toBeInTheDocument();

@@ -44,7 +44,12 @@ export function RegistrationCard({
   now?: Date;
 }) {
   return (
-    <Card title="Registration">
+    <Card
+      title="Registration"
+      collapsible="domain.registration"
+      defaultOpen={false}
+      summary={registrationSummary(domain, state, now)}
+    >
       {state.status === 'loading' && (
         <p className="text-sm text-slate-500" role="status">
           Loading registration…
@@ -61,6 +66,40 @@ export function RegistrationCard({
         ))}
     </Card>
   );
+}
+
+const SUMMARY_STATUS_TEXT = {
+  unknown: 'Not collected yet',
+  redacted: 'Withheld by the registry',
+  unavailable: 'No data obtained',
+} as const;
+
+function registrationSummary(
+  domain: Domain,
+  state: AsyncState<{ registration: RegistrationSnapshot | null }>,
+  now: Date,
+): string | undefined {
+  if (state.status === 'loading') return undefined;
+  if (state.status === 'error') return 'Could not load';
+  const snapshot = state.data.registration;
+  const fields: RegistrationFields = snapshot ?? domain;
+  const status = snapshot ? snapshot.dataStatus : domain.registrationDataStatus;
+  if (!fields.registrar && !fields.expiresAt) {
+    return status === 'available' ? 'No details provided' : SUMMARY_STATUS_TEXT[status];
+  }
+  const parts: string[] = [];
+  if (fields.registrar) parts.push(fields.registrar);
+  if (fields.expiresAt) {
+    const days = Math.floor((new Date(fields.expiresAt).getTime() - now.getTime()) / DAY_MS);
+    const date = formatDate(fields.expiresAt);
+    const plural = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
+    parts.push(
+      days < 0
+        ? `expired ${date} (${plural(-days)} ago)`
+        : `expires ${date} (${days === 0 ? 'today' : `in ${plural(days)}`})`,
+    );
+  }
+  return parts.join(' · ');
 }
 
 function SnapshotView({ snapshot: s, now }: { snapshot: RegistrationSnapshot; now: Date }) {

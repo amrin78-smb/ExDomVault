@@ -1,9 +1,10 @@
-import { screen, within } from '@testing-library/react';
+import { cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ok, renderAt, stubApi } from '../../testing/stub-api.tsx';
 import { DOMAIN_ID, FINDING_ID, detailOf, finding, page } from './test-data.ts';
 
+beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Findings list', () => {
@@ -116,6 +117,7 @@ describe('Finding detail', () => {
     expect(within(observed).getByText('www.shop.example.com')).toBeInTheDocument();
     expect(within(observed).getByText(/"issuer": "Example CA"/)).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole('button', { name: /^Risk score/ }));
     const risk = screen.getByRole('table', { name: 'Risk score calculation' });
     expect(within(risk).getByText('75')).toBeInTheDocument();
     expect(within(risk).getByText('0.85')).toBeInTheDocument();
@@ -168,5 +170,73 @@ describe('Finding detail', () => {
     });
     renderAt(`/findings/${FINDING_ID}`);
     expect(await screen.findByRole('alert')).toHaveTextContent('Finding not found.');
+  });
+});
+
+describe('Finding detail: collapsible cards', () => {
+  const toggle = (title: string) => screen.getByRole('button', { name: new RegExp(`^${title}`) });
+
+  async function open(detail = detailOf()) {
+    stubApi('viewer', { [`GET /api/v1/findings/${FINDING_ID}`]: ok(detail) });
+    renderAt(`/findings/${FINDING_ID}`);
+    await screen.findByRole('heading', { level: 1, name: 'Certificate expires within 14 days' });
+  }
+
+  it('keeps the observation, advisory and comments open and summarises collapsed cards', async () => {
+    await open();
+    // The observation is the page's primary content and cannot be collapsed.
+    expect(
+      within(screen.getByRole('region', { name: 'What we observed' })).queryByRole('button', {
+        expanded: false,
+      }),
+    ).toBeNull();
+    expect(toggle('Why this matters')).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle('Comments')).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle('Risk score')).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle('Risk score')).toHaveTextContent(/60 = High ×/);
+    expect(toggle('How it is resolved')).toHaveTextContent('Resolved by a later successful scan');
+    expect(toggle('Rule')).toHaveTextContent(/TLS-003 v1 · last seen/);
+    expect(toggle('Status history')).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle('Status history')).toHaveTextContent(/2 changes · latest Oct 22, 2026/);
+    expect(screen.queryByRole('table', { name: 'Risk score calculation' })).toBeNull();
+  });
+
+  it('remembers a card opened by the viewer and applies expand/collapse all', async () => {
+    await open();
+    await userEvent.click(toggle('Status history'));
+    expect(toggle('Status history')).toHaveAttribute('aria-expanded', 'true');
+    expect(localStorage.getItem('exdv.card.finding.history')).toBe('1');
+
+    cleanup();
+    vi.unstubAllGlobals();
+    await open();
+    expect(toggle('Status history')).toHaveAttribute('aria-expanded', 'true');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    for (const title of ['Why this matters', 'Risk score', 'Status history', 'Comments']) {
+      expect(toggle(title)).toHaveAttribute('aria-expanded', 'false');
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    expect(screen.getByRole('table', { name: 'Risk score calculation' })).toBeInTheDocument();
+    expect(localStorage.getItem('exdv.card.finding.risk')).toBe('1');
+  });
+
+  it('shows the latest five status changes of a long history until expanded', async () => {
+    const base = detailOf().history[0]!;
+    const history = Array.from({ length: 8 }, (_, i) => ({
+      ...base,
+      id: crypto.randomUUID(),
+      note: `Change ${i + 1}`,
+      createdAt: `2026-10-1${i}T03:00:00.000Z`,
+    }));
+    await open(detailOf({ history }));
+    await userEvent.click(toggle('Status history'));
+    const card = within(screen.getByRole('region', { name: 'Status history' }));
+    expect(card.queryByText('Change 3')).toBeNull();
+    expect(card.getByText('Change 4')).toBeInTheDocument();
+    expect(card.getByText('Change 8')).toBeInTheDocument();
+    await userEvent.click(card.getByRole('button', { name: 'Show all 8 changes' }));
+    expect(card.getByText('Change 1')).toBeInTheDocument();
+    expect(card.getByRole('button', { name: 'Show fewer' })).toBeInTheDocument();
   });
 });

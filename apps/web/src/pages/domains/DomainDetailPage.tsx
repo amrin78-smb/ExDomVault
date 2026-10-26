@@ -14,6 +14,7 @@ import { TlsCard } from '../../components/domains/TlsCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
 import { DomainFindingsCard } from '../../components/findings/DomainFindingsCard.tsx';
 import { DomainSoftwareCard } from '../../components/software/DomainSoftwareCard.tsx';
+import { useCollapseAll } from '../../components/ui/CollapseAllControls.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDate } from '../../lib/format.ts';
@@ -28,6 +29,7 @@ export function DomainDetailPage() {
   const [override, setOverride] = useState<{ id: string; detail: DomainDetailResponse } | null>(
     null,
   );
+  const { controls, group } = useCollapseAll();
 
   if (state.status === 'loading') {
     return (
@@ -53,9 +55,12 @@ export function DomainDetailPage() {
     <>
       <BackLink />
       <div className="mb-6">
-        <h1 className="break-all font-mono text-xl font-semibold tracking-tight text-slate-900">
-          {domain.fqdn}
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="break-all font-mono text-xl font-semibold tracking-tight text-slate-900">
+            {domain.fqdn}
+          </h1>
+          {controls}
+        </div>
         {domain.unicodeFqdn !== domain.fqdn && (
           <p className="mt-1 text-sm text-slate-600">
             Displayed as <span className="font-medium">{domain.unicodeFqdn}</span>
@@ -81,32 +86,30 @@ export function DomainDetailPage() {
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <VerificationPanel domain={domain} challenge={verification} onChanged={apply} />
-        <DomainSettingsCard
-          key={domain.updatedAt}
-          domain={domain}
-          onSaved={(d) => apply({ domain: d, verification })}
-        />
+      {/* Most useful first; most cards start collapsed and remember the viewer's choice. */}
+      {group(
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <DomainFindingsCard domain={domain} />
+          <DomainSoftwareCard domain={domain} />
 
-        <RegistrationCard domain={domain} state={observations} />
+          <DomainAssetsCard domain={domain} />
+          <DomainScansCard domain={domain} />
 
-        <DomainScansCard domain={domain} />
+          <VerificationPanel domain={domain} challenge={verification} onChanged={apply} />
+          <DomainSettingsCard
+            key={domain.updatedAt}
+            domain={domain}
+            onSaved={(d) => apply({ domain: d, verification })}
+          />
 
-        <DomainFindingsCard domain={domain} />
+          <RegistrationCard domain={domain} state={observations} />
+          <PortsCard state={observations} />
 
-        <DnsRecordsCard apex={domain.fqdn} state={observations} />
-
-        <TlsCard state={observations} />
-
-        <HttpCard state={observations} />
-
-        <PortsCard state={observations} />
-
-        <DomainSoftwareCard domain={domain} />
-
-        <DomainAssetsCard domain={domain} />
-      </div>
+          <DnsRecordsCard apex={domain.fqdn} state={observations} />
+          <TlsCard state={observations} />
+          <HttpCard state={observations} />
+        </div>,
+      )}
     </>
   );
 }

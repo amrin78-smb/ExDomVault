@@ -3,6 +3,7 @@ import { Globe } from 'lucide-react';
 import { ScheduledScansHint } from '../settings/ScheduledScansHint.tsx';
 import type { AsyncState } from '../../lib/use-async.ts';
 import { Card } from '../ui/Card.tsx';
+import { useShowAll } from '../ui/ShowAllButton.tsx';
 import { EmptyState } from '../ui/EmptyState.tsx';
 import { ErrorAlert } from '../ui/ErrorAlert.tsx';
 import { FactBadge, ObservedLink, ResultNote } from './TlsCard.tsx';
@@ -54,10 +55,25 @@ function hops(evidence: Record<string, unknown>): Hop[] {
   }));
 }
 
+function httpSummary(state: AsyncState<{ http: HttpSnapshot[] }>): string | undefined {
+  if (state.status === 'loading') return undefined;
+  if (state.status === 'error') return 'Could not load';
+  const n = state.data.http.length;
+  if (n === 0) return 'None collected yet';
+  const hsts = state.data.http.filter((s) => s.hstsEnabled === true).length;
+  return `${n} URL${n === 1 ? '' : 's'} · HSTS on ${hsts}`;
+}
+
 /** Latest HTTP response per starting URL, from browser-like requests with validated redirects. */
 export function HttpCard({ state }: { state: AsyncState<{ http: HttpSnapshot[] }> }) {
   return (
-    <Card title="HTTP" className="lg:col-span-2">
+    <Card
+      title="HTTP"
+      className="lg:col-span-2"
+      collapsible="domain.http"
+      defaultOpen={false}
+      summary={httpSummary(state)}
+    >
       {state.status === 'loading' && (
         <p className="text-sm text-slate-500" role="status">
           Loading HTTP observations…
@@ -74,15 +90,22 @@ export function HttpCard({ state }: { state: AsyncState<{ http: HttpSnapshot[] }
             <ScheduledScansHint />
           </EmptyState>
         ) : (
-          <div className="space-y-6">
-            {[...state.data.http]
-              .sort((a, b) => a.url.localeCompare(b.url))
-              .map((s) => (
-                <HttpEntry key={s.url} snapshot={s} />
-              ))}
-          </div>
+          <HttpList items={state.data.http} />
         ))}
     </Card>
+  );
+}
+
+function HttpList({ items }: { items: HttpSnapshot[] }) {
+  const sorted = [...items].sort((a, b) => a.url.localeCompare(b.url));
+  const { shown, toggle } = useShowAll(sorted, { limit: 5, noun: 'URLs' });
+  return (
+    <div className="space-y-6">
+      {shown.map((s) => (
+        <HttpEntry key={s.url} snapshot={s} />
+      ))}
+      {toggle}
+    </div>
   );
 }
 

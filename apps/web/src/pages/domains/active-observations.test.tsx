@@ -7,7 +7,8 @@ import type {
 } from '@exdomainvault/shared';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDomainCards } from '../../testing/domain-cards.ts';
 import { ok, renderAt, stubApi } from '../../testing/stub-api.tsx';
 
 const DOMAIN_ID = '0b8e3f9a-4c1d-4e5f-8a7b-1c2d3e4f5a6b';
@@ -153,6 +154,7 @@ function profileConfig(active: boolean) {
 
 const card = (name: string) => screen.findByRole('region', { name });
 
+beforeEach(openDomainCards);
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Domain page: TLS certificates', () => {
@@ -325,7 +327,7 @@ describe('Domain page: ports', () => {
 });
 
 describe('Domain page layout and scan tiers', () => {
-  it('orders the cards, with the Assets card last', async () => {
+  it('orders the cards by usefulness: findings and software first, raw observations last', async () => {
     stubPage({});
     renderAt(`/domains/${DOMAIN_ID}`);
     await card('Ports');
@@ -334,17 +336,17 @@ describe('Domain page layout and scan tiers', () => {
       .map((r) => r.getAttribute('aria-label'))
       .filter((n): n is string => n !== null);
     expect(names).toEqual([
+      'Findings',
+      'Software',
+      'Assets',
+      'Scans',
       'Ownership verification',
       'Ownership and monitoring',
       'Registration',
-      'Scans',
-      'Findings',
+      'Ports',
       'DNS records',
       'TLS certificates',
       'HTTP',
-      'Ports',
-      'Software',
-      'Assets',
     ]);
   });
 
@@ -359,5 +361,125 @@ describe('Domain page layout and scan tiers', () => {
     expect(within(scans).getByTestId('tier-note')).toHaveTextContent(
       /like a normal visitor.*only on approved networks/,
     );
+  });
+});
+
+describe('Domain page: collapsible cards', () => {
+  // A first visit: no remembered choices.
+  beforeEach(() => window.localStorage.clear());
+
+  const header = async (title: string) =>
+    within(await card(title)).getByRole('button', { name: new RegExp(`^${title}`) });
+
+  const threeCerts = {
+    tls: [
+      tls(),
+      tls({ hostname: 'www.example.com' }),
+      tls({
+        hostname: 'mail.example.com',
+        subject: 'CN=mail.example.com',
+        notAfter: new Date(Date.now() + 10.5 * DAY_MS).toISOString(),
+      }),
+    ],
+  };
+
+  it('starts detail cards collapsed with a summary, and the key cards open', async () => {
+    stubPage(threeCerts);
+    renderAt(`/domains/${DOMAIN_ID}`);
+    const tlsHeader = await header('TLS certificates');
+    expect(tlsHeader).toHaveAttribute('aria-expanded', 'false');
+    expect(await within(tlsHeader).findByText('3 certificates · 1 expiring soon')).toBeVisible();
+    expect(
+      within(await card('TLS certificates')).getByText('CN=mail.example.com'),
+    ).not.toBeVisible();
+
+    for (const title of ['Findings', 'Software', 'Assets']) {
+      expect(await header(title)).toHaveAttribute('aria-expanded', 'true');
+    }
+    for (const title of ['Scans', 'Ownership verification', 'Ownership and monitoring']) {
+      expect(await header(title)).toHaveAttribute('aria-expanded', 'false');
+    }
+    expect(await header('Ownership verification')).toHaveTextContent('Verified by DNS');
+    expect(await header('Ownership and monitoring')).toHaveTextContent(
+      'Medium · no owner set · monitoring on',
+    );
+    expect(await header('Scans')).toHaveTextContent('No scans yet');
+  });
+
+  it('opens on click and remembers the choice in this browser', async () => {
+    stubPage(threeCerts);
+    renderAt(`/domains/${DOMAIN_ID}`);
+    const tlsHeader = await header('TLS certificates');
+    await within(tlsHeader).findByText(/3 certificates/);
+    await userEvent.click(tlsHeader);
+    expect(tlsHeader).toHaveAttribute('aria-expanded', 'true');
+    expect(window.localStorage.getItem('exdv.card.domain.tls')).toBe('1');
+    expect(within(tlsHeader).queryByText(/3 certificates/)).not.toBeInTheDocument();
+    expect(within(await card('TLS certificates')).getByText('CN=mail.example.com')).toBeVisible();
+
+    await userEvent.click(tlsHeader);
+    expect(tlsHeader).toHaveAttribute('aria-expanded', 'false');
+    expect(window.localStorage.getItem('exdv.card.domain.tls')).toBe('0');
+  });
+
+  it('respects a stored choice when the page is shown again', async () => {
+    window.localStorage.setItem('exdv.card.domain.tls', '1');
+    window.localStorage.setItem('exdv.card.domain.findings', '0');
+    stubPage(threeCerts);
+    renderAt(`/domains/${DOMAIN_ID}`);
+    expect(await header('TLS certificates')).toHaveAttribute('aria-expanded', 'true');
+    expect(await header('Findings')).toHaveAttribute('aria-expanded', 'false');
+    // Cards without a stored choice keep their defaults.
+    expect(await header('HTTP')).toHaveAttribute('aria-expanded', 'false');
+    expect(await header('Software')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('expands and collapses every card at once', async () => {
+    stubPage(threeCerts);
+    renderAt(`/domains/${DOMAIN_ID}`);
+    await card('HTTP');
+    // The title-bar button of each card (entries inside open cards are regions too).
+    const headers = () =>
+      screen
+        .getAllByRole('region')
+        .flatMap((r) => [...r.querySelectorAll(':scope > div > h2 > button[aria-expanded]')]);
+    expect(headers()).toHaveLength(11);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    for (const b of headers()) expect(b).toHaveAttribute('aria-expanded', 'true');
+    expect(window.localStorage.getItem('exdv.card.domain.http')).toBe('1');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    for (const b of headers()) expect(b).toHaveAttribute('aria-expanded', 'false');
+    expect(window.localStorage.getItem('exdv.card.domain.findings')).toBe('0');
+  });
+
+  it('summarises HTTP, ports and registration while collapsed', async () => {
+    stubPage({
+      http: [http(), http({ url: 'https://example.com/', hstsEnabled: true })],
+      ports: [
+        port(),
+        port({ port: 80, service: 'http' }),
+        port({ ipAddress: '203.0.113.11', port: 22, service: 'ssh' }),
+        port({ ipAddress: '203.0.113.11', port: 25, state: 'closed', service: null }),
+      ],
+    });
+    renderAt(`/domains/${DOMAIN_ID}`);
+    expect(await within(await header('HTTP')).findByText('2 URLs · HSTS on 1')).toBeVisible();
+    expect(await header('Ports')).toHaveTextContent('3 open on 2 addresses');
+    expect(await header('Registration')).toHaveTextContent('Not collected yet');
+  });
+
+  it('shows the first five certificates of a long list, with a control for the rest', async () => {
+    window.localStorage.setItem('exdv.card.domain.tls', '1');
+    stubPage({
+      tls: Array.from({ length: 7 }, (_, i) => tls({ hostname: `h${i}.example.com` })),
+    });
+    renderAt(`/domains/${DOMAIN_ID}`);
+    const tlsCard = await card('TLS certificates');
+    expect(await within(tlsCard).findByText('h4.example.com')).toBeInTheDocument();
+    expect(within(tlsCard).queryByText('h5.example.com')).not.toBeInTheDocument();
+    await userEvent.click(within(tlsCard).getByRole('button', { name: 'Show all 7 certificates' }));
+    expect(within(tlsCard).getByText('h6.example.com')).toBeInTheDocument();
   });
 });
