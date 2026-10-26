@@ -17,9 +17,16 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 | 9   | Passive subdomain discovery                 | done   | Deployed 2026-10-23 (`d12f8709`)        |
 | 10  | Frontend integration                        | done   | Deployed 2026-10-23 (`43af2122`)        |
 | 11  | Exposed-software / vulnerability monitoring | done   | Deployed 2026-10-23 (`cb709106`)        |
-| 12  | Production hardening                        | done   | Built; not yet deployed                 |
+| 12  | Production hardening                        | done   | Deployed 2026-10-24 (`de3fb4a9`)        |
+| 13  | UI redesign and inventory views             | done   | Deployed 2026-10-26 (`b922bd30`)        |
 
 ## Decisions log
+
+- 2026-10-26 — **Milestone 13 UI redesign (owner request, mockup-driven):** dark theme by default with a light toggle (`exdv.theme`, applied in `main.tsx` — CSP forbids inline scripts), semantic colour tokens in `index.css` (neutral classes codemodded; status palettes remapped under `.dark`), self-hosted Inter, Recharts for charts, d3-geo + world-atlas map (lazy chunk). New shell: top bar with Ctrl+K search, notification bell (ops alerts + open critical findings), user menu; organisation label from the `ORG_NAME` Worker secret.
+- 2026-10-26 — **Asset roles** are derived only from evidence (`classifyAssetRole`: MX/NS targets, open role ports, HTTP answered, third-party hosting), never from names; `unclassified` otherwise. Computed at query time (`services/asset-roles.ts`), not stored.
+- 2026-10-26 — **IP geolocation:** the worker downloads DB-IP Lite country CSV monthly (fixed URL, no redirects, size caps, atomic replace; ~13 MB RSS) and adds `geo` to A/AAAA DNS observations; the server stores `asset_ips.country_code` (migration 0008). Display-only, never used for scope or severity. CC BY 4.0 attribution shown wherever the data is displayed.
+- 2026-10-26 — **Dashboard/search permissions:** both routes accept any role holding one of `domains:read`/`assets:read`/`findings:read`; each section/group then requires its own list permission, so asset owners see only their own assets (domain counts and scans hidden).
+- 2026-10-26 — **Open-findings series** on the dashboard count a finding as open between first_seen_at and its current resolved_at (a resolved-then-reopened finding is approximated).
 
 - 2026-10-26 — **Host import** (owner request; CT discovery misses hosts behind wildcard certificates): `POST /domains/:id/assets/import` (`domains:write` = admin only) adds hostnames from a zone export (XLSX/CSV records, BIND zone file, or plain list) as `pending` assets, source `import`. Files are parsed in the browser (own minimal XLSX reader, no dependency; 10 MB file / 50 MB inflated / 20 000 rows caps); the server re-validates every name (syntax, exact label boundary, no `_`/`*` labels), never approves, changes existing assets, enables monitoring or queues jobs. Only A/AAAA/CNAME rows count; CNAME targets from the file feed `classifyHosting` (refreshed from live DNS once monitored; the worker still refuses out-of-scope CNAME targets). `dryRun` preview; one `asset.imported` audit row with counts. Body cap 4 MB for this route.
 
@@ -143,6 +150,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 _Things only the owner can do (Cloudflare account, Neon project, Access app, secrets). Add exact steps as they arise._
 
+- [ ] Upgrade the worker on this host for IP geolocation (Milestone 13): `sudo bash worker/deploy/install.sh && sudo systemctl restart exdomainvault-worker`, then `journalctl -u exdomainvault-worker -o cat | grep geoip` should show `geoip_downloaded` / `geoip_loaded`.
 - [x] ~~Install Python venv support on the scan host~~ — done 2026-10-22; `npm run worker:install` / `worker:lint` / `worker:test` verified locally (18 pass).
 - [x] ~~First production deploy~~ — done 2026-10-22: production migrated, `exdomainvault_app` + grants, Hyperdrive, Access, bootstrap admin signed in (details in `docs/deployment.md`).
 - [ ] Optional: replace the shared `demo-allowlist` Access policy with a dedicated ExDomainVault policy.
@@ -194,6 +202,16 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 ## Session log
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
+
+### Milestone 13 — UI redesign and inventory views — 2026-10-26
+
+**Built (fanned out to 7 agents after committed contracts):** design system + shell; overview rebuilt from the owner's mockup (6 stat cards with deltas/sparklines, severity donut, findings trend, asset types, top remediation, latest scans, certificate expiry, region map, recently discovered assets, top software, Run scan dialog, 7/30/90-day range); new pages Subdomains, Open Ports, Certificates, Vulnerabilities, Attack Surface (world map, hosting providers, exposed services, countries); asset role column/filter/chip; endpoints `/dashboard`, `/search`, `/ports`, `/certificates`, `/vulnerabilities`, `/attack-surface`, `assetType` + `role` filters on `/assets`; migration 0008; worker DB-IP geolocation.
+
+**Checks:** lint, typecheck, db:check, rules:docs:check pass; `npm test` 109 files / 3023 tests pass; build pass (main bundle 1.23 MB / 348 kB gzip, map chunk 143 kB); worker:lint pass; worker:test 1581 pass. Migration verified on Neon `dev` first. Local visual check (dev server, dev branch) of overview and attack surface; fixed a clipped status pill. DB-IP download URL and CSV format verified live; loader tested on the real file (710 816 ranges).
+
+**Production (owner-approved):** migrated to 0008 (recovery point 2026-10-26T05:51:00Z), `ORG_NAME` secret set, deployed `b922bd30-b684-48ca-b528-0b784012285a`. 5 min of live logs: cron and worker API all 200; one discovery job retried after a transient crt.sh failure and succeeded.
+
+**Limitations:** country data appears only after the worker is upgraded on the host and has re-scanned (daily); no CSV export for ports/certificates/vulnerabilities; `kevDueDate` not stored; the main JS bundle should be split (route-level lazy loading) later; dashboard open-finding history is approximate for reopened findings.
 
 ### Collapsible pages — 2026-10-26
 

@@ -19,7 +19,7 @@ Related: [operations.md](operations.md) (daily running, alerts, retention),
 | Access team domain | `fragrant-grass-4d8f.cloudflareaccess.com`                                                                                                       |
 | Hyperdrive         | `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) → Neon `production` direct endpoint, **query caching disabled**                          |
 | Database role      | `exdomainvault_app` (least privilege, see below)                                                                                                 |
-| Neon `production`  | migrated through `0007_software_intel` (8 migrations)                                                                                            |
+| Neon `production`  | migrated through `0008_inventory_geo` (9 migrations)                                                                                             |
 | Neon plan          | **Free**: history (point-in-time restore) window 6 hours, 1 manual snapshot, no scheduled snapshots — see [backup-restore.md](backup-restore.md) |
 | Worker secrets     | `BOOTSTRAP_ADMIN_EMAILS`, `NVD_API_KEY`                                                                                                          |
 | Deployed version   | `36d3d0c3-4604-45e1-90e9-b7903b20916c` (scheduled active scans, 2026-10-23); Cron `*/5 * * * *`                                                  |
