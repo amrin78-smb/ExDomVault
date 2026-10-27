@@ -206,6 +206,14 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
 
+### Session-expiry banner and attack-surface drill-down — 2026-10-27
+
+**Built:** the API client no longer follows redirects; an Access login redirect (or an HTML page where JSON was expected) becomes `session_expired` and shows a "Sign in again" banner (reload through Access). Attack surface drill-down: map countries/bubbles, region legend, countries table and tiles link to `/assets` filtered by the new `country` / `continent` query parameters (current addresses only, same definition as the counts); overview region card too.
+
+**Checks:** lint, typecheck pass; `npm test` 111 files / 3076 tests pass; build pass.
+
+**Production (owner-approved):** deployed `d43ee6cd-1dc8-4b2c-bbfe-5538f0c59954` (local DB binding confirmed in the built config).
+
 ### Database moved to the scan host — 2026-10-26
 
 **Done:** cloudflared 2026.10.3 + tunnel service; roles/db via `scripts/local-db/setup-host.sh`; migrations 0000–0008 on PostgreSQL 16; data copied (`scripts/local-db/copy-from-neon.sh`, all tables matched) with the worker stopped; Hyperdrive `exdomainvault-local`; deployed `a88f7b82-dfdf-4378-9129-189ebb0d9e0a`; daily backups (`scripts/local-db/backup.sh`, first dump 3.5 MB). Verified: live requests and cron all `ok` against the local DB, worker heartbeats and jobs recorded locally.
