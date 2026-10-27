@@ -209,6 +209,35 @@ describe('GET /assets', () => {
     expect(cdn.wildcardOnly).toBe(true);
   });
 
+  it('filters by country and continent of current addresses only', async () => {
+    const w = await seed();
+    await t.db
+      .update(assetIps)
+      .set({ countryCode: 'TH' })
+      .where(eq(assetIps.ipAddress, '192.0.2.10'));
+    await t.db
+      .update(assetIps)
+      .set({ countryCode: 'US' })
+      .where(eq(assetIps.ipAddress, '192.0.2.9')); // not current: never matches
+    await t.db.insert(assetIps).values({
+      assetId: w.id['mail.example.net']!,
+      ipAddress: '198.51.100.7',
+      isCurrent: true,
+      source: 'dns',
+      countryCode: 'DE',
+    });
+    const names = async (q: string) => (await list('viewer', q)).items.map((a) => a.hostname);
+    expect(await names('?country=TH')).toEqual(['www.example.com']);
+    expect(await names('?country=th')).toEqual(['www.example.com']);
+    expect(await names('?country=US')).toEqual([]);
+    expect(await names('?continent=Asia')).toEqual(['www.example.com']);
+    expect(await names('?continent=Europe')).toEqual(['mail.example.net']);
+    expect(await names('?continent=Oceania')).toEqual([]);
+    expect(await names('?continent=Europe&status=approved')).toEqual([]);
+    expect((await call('viewer', 'GET', '/assets?country=XYZ')).status).toBe(400);
+    expect((await call('viewer', 'GET', '/assets?continent=Atlantis')).status).toBe(400);
+  });
+
   it('filters, searches, sorts and paginates', async () => {
     const w = await seed();
     const names = async (q: string) => (await list('viewer', q)).items.map((a) => a.hostname);

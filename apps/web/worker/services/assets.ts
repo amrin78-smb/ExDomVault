@@ -2,6 +2,7 @@ import { schema, type Database } from '@exdomainvault/database';
 import { fingerprint } from '@exdomainvault/rules';
 import {
   ASSET_ROLE_FILTER_LIMIT,
+  COUNTRY_CONTINENT,
   allowedAssetActions,
   hostingHintSchema,
   type Asset,
@@ -175,6 +176,22 @@ export function assetListWhere(
   if (q.thirdParty === 'true') filters.push(isNotNull(assets.hostingHint));
   if (q.thirdParty === 'false') filters.push(isNull(assets.hostingHint));
   if (q.q) filters.push(ilike(assets.hostname, `%${escapeLike(q.q.toLowerCase())}%`));
+  const countries = q.country
+    ? [q.country]
+    : q.continent
+      ? [...COUNTRY_CONTINENT].filter(([, c]) => c === q.continent).map(([code]) => code)
+      : null;
+  if (countries) {
+    filters.push(
+      countries.length === 0
+        ? sql`false`
+        : sql`exists (select 1 from asset_ips ai where ai.asset_id = ${assets.id} and ai.is_current
+                and ai.country_code in (${sql.join(
+                  countries.map((c) => sql`${c}`),
+                  sql`, `,
+                )}))`,
+    );
+  }
   return filters.length > 0 ? and(...filters) : undefined;
 }
 

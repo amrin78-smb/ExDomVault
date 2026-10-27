@@ -33,6 +33,7 @@ import { LoadError } from '../../components/ui/LoadError.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
+import { countryName } from '../../components/map/country-names.ts';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
 import { usePermission } from '../../lib/session.ts';
@@ -73,6 +74,8 @@ export function AssetsPage() {
     source: params.get('source') ?? undefined,
     thirdParty: params.get('thirdParty') ?? undefined,
     role: params.get('role') ?? undefined,
+    country: params.get('country') ?? undefined,
+    continent: params.get('continent') ?? undefined,
     q: params.get('q') ?? undefined,
     sort: params.get('sort') ?? undefined,
   };
@@ -88,7 +91,9 @@ export function AssetsPage() {
         : Promise.resolve({ items: [], page: 1, pageSize: 100, total: 0 }),
     [canReadDomains],
   );
-  const filtered = ['domainId', 'source', 'thirdParty', 'role', 'q'].some((k) => params.get(k));
+  const filtered = ['domainId', 'source', 'thirdParty', 'role', 'country', 'continent', 'q'].some(
+    (k) => params.get(k),
+  );
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -254,6 +259,20 @@ export function AssetsPage() {
               ))}
             </select>
           </label>
+          {params.get('country') && (
+            <FilterChip
+              label={`Country: ${countryName(params.get('country') ?? '')}`}
+              clearLabel="Clear country filter"
+              onClear={() => setParam('country', '')}
+            />
+          )}
+          {params.get('continent') && (
+            <FilterChip
+              label={`Region: ${params.get('continent')}`}
+              clearLabel="Clear region filter"
+              onClear={() => setParam('continent', '')}
+            />
+          )}
           {params.get('q') && (
             <span className="inline-flex items-center gap-1 self-center rounded-full bg-surface-3 py-0.5 pl-2.5 pr-1 text-xs text-fg-2">
               Search: {params.get('q')}
@@ -488,6 +507,31 @@ function IpSummary({ ips }: { ips: string[] }) {
         </span>
       ))}
       {more > 0 && <span className="block font-sans text-fg-subtle">+{more} more</span>}
+    </span>
+  );
+}
+
+/** An active filter that has no control of its own (set from the attack-surface map). */
+function FilterChip({
+  label,
+  clearLabel,
+  onClear,
+}: {
+  label: string;
+  clearLabel: string;
+  onClear: () => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 self-center rounded-full bg-surface-3 py-0.5 pl-2.5 pr-1 text-xs text-fg-2">
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={clearLabel}
+        className="rounded-full p-0.5 hover:bg-line"
+      >
+        <X className="size-3" aria-hidden />
+      </button>
     </span>
   );
 }

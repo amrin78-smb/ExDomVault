@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { assetRoleSchema } from '../domain/asset-roles.ts';
+import { CONTINENTS } from './inventory.ts';
 import { paginatedSchema } from './pagination.ts';
 
 /**
@@ -86,6 +87,17 @@ export const assetListQuerySchema = z.object({
    * and pages the result; beyond that the list and `total` are truncated. CSV export ignores it.
    */
   role: assetRoleSchema.optional(),
+  /**
+   * Only assets with a CURRENT address geolocated to this ISO 3166 alpha-2 country, or to any
+   * country of this continent (same definition as the attack-surface country counts).
+   */
+  country: z
+    .string()
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .pipe(z.string().regex(/^[A-Z]{2}$/))
+    .optional(),
+  continent: z.enum(CONTINENTS).optional(),
   sort: z.enum(ASSET_SORTS).default('hostname'),
 });
 /** Assets evaluated for the `role` filter of GET /assets. */

@@ -2,7 +2,7 @@ import { DBIP_ATTRIBUTION } from '@exdomainvault/shared';
 import { geoCentroid, geoGraticule10, geoNaturalEarth1, geoPath } from 'd3-geo';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
-import { useId, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { feature } from 'topojson-client';
 import type { GeometryCollection } from 'topojson-specification';
 import topology from 'world-atlas/countries-110m.json';
@@ -99,11 +99,21 @@ export function WorldMap({
   compact = false,
   attribution,
   label = 'World map of assets by country',
+  onSelectCountry,
 }: WorldMapProps) {
   const filterId = `glow-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 });
   const [hover, setHover] = useState<string | null>(null);
   const drag = useRef<{ id: number; x: number; y: number; view: View } | null>(null);
+  // A pan that moved the map must not also count as a click on the country under the pointer.
+  const dragged = useRef(false);
+  const select = (code: string) => {
+    if (dragged.current) {
+      dragged.current = false;
+      return;
+    }
+    onSelectCountry?.(code);
+  };
   const svgRef = useRef<SVGSVGElement>(null);
 
   const byCode = useMemo(() => new Map(data.map((c) => [c.country, c])), [data]);
@@ -130,11 +140,13 @@ export function WorldMap({
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
     if (compact || view.k === 1) return;
     drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, view };
+    dragged.current = false;
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
+    if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > 4) dragged.current = true;
     const rect = svgRef.current?.getBoundingClientRect();
     const scale = rect && rect.width > 0 ? W / rect.width : 1;
     setView(
@@ -210,11 +222,22 @@ export function WorldMap({
                   {...(c
                     ? {
                         tabIndex: 0,
-                        role: 'img',
+                        role: onSelectCountry ? 'button' : 'img',
                         'aria-label': `${name}: ${plural(c.assets, 'asset')}, ${plural(c.ips, 'IP')}`,
                         onMouseEnter: () => setHover(c.country),
                         onFocus: () => setHover(c.country),
                         onBlur: () => setHover(null),
+                        ...(onSelectCountry
+                          ? {
+                              onClick: () => select(c.country),
+                              onKeyDown: (e: KeyboardEvent) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  onSelectCountry(c.country);
+                                }
+                              },
+                            }
+                          : {}),
                       }
                     : { 'aria-hidden': true })}
                 />
@@ -239,6 +262,7 @@ export function WorldMap({
                   strokeWidth={0.8}
                   vectorEffect="non-scaling-stroke"
                   onMouseEnter={() => setHover(c.country)}
+                  onClick={onSelectCountry ? () => select(c.country) : undefined}
                 />
               </g>
             ))}
@@ -258,6 +282,9 @@ export function WorldMap({
             <div className="mt-0.5 tabular-nums text-fg-muted">
               {plural(hovered.assets, 'asset')} · {plural(hovered.ips, 'IP')}
             </div>
+            {onSelectCountry && (
+              <div className="mt-0.5 text-[11px] text-highlight">Click to view assets</div>
+            )}
           </div>
         )}
 

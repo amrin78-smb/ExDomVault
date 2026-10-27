@@ -89,7 +89,7 @@ describe('Attack surface page', () => {
 
   it('draws the map with tooltips and zoom, and shows the DB-IP attribution', async () => {
     await open();
-    const germany = await screen.findByRole('img', { name: 'Germany: 3 assets, 6 IPs' });
+    const germany = await screen.findByRole('button', { name: 'Germany: 3 assets, 6 IPs' });
     fireEvent.mouseEnter(germany);
     expect(screen.getByRole('tooltip')).toHaveTextContent('Germany3 assets · 6 IPs');
     const link = screen.getByRole('link', { name: DBIP_ATTRIBUTION });
@@ -152,5 +152,40 @@ describe('Attack surface page', () => {
     renderAt('/attack-surface');
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the attack surface');
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+});
+
+describe('drill-down links', () => {
+  it('links tiles, regions and countries to the matching filtered asset list', async () => {
+    await open();
+    expect(screen.getByRole('link', { name: /Approved assets/ })).toHaveAttribute(
+      'href',
+      '/assets?status=approved',
+    );
+    expect(screen.getByRole('link', { name: /Third-party hosted/ })).toHaveAttribute(
+      'href',
+      '/assets?status=approved&thirdParty=true',
+    );
+    expect(screen.getByRole('link', { name: /Open ports/ })).toHaveAttribute('href', '/ports');
+    const regions = screen.getByRole('list', { name: 'Assets by region' });
+    expect(within(regions).getByRole('link', { name: /North America/ })).toHaveAttribute(
+      'href',
+      '/assets?status=approved&continent=North%20America',
+    );
+    expect(screen.getByRole('link', { name: 'Germany' })).toHaveAttribute(
+      'href',
+      '/assets?status=approved&country=DE',
+    );
+  });
+
+  it('opens the assets of a country clicked on the map', async () => {
+    const calls = stubApi('viewer', { [PATH]: ok(surface()) });
+    renderAt('/attack-surface');
+    const germany = await screen.findByRole('button', { name: /^Germany: 3 assets/ });
+    fireEvent.click(germany);
+    expect(await screen.findByText('Country: Germany')).toBeInTheDocument();
+    const assetCall = calls.find((c) => c.path.startsWith('/api/v1/assets?'));
+    expect(assetCall?.path).toContain('country=DE');
+    expect(assetCall?.path).toContain('status=approved');
   });
 });

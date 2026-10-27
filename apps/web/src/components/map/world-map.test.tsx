@@ -67,3 +67,20 @@ describe('WorldMap', () => {
     expect(screen.getByRole('link', { name: DBIP_ATTRIBUTION })).toBeInTheDocument();
   });
 });
+
+describe('WorldMap country selection', () => {
+  it('reports clicks and Enter on countries with data, not on a drag', () => {
+    const picked: string[] = [];
+    render(<WorldMap countries={COUNTRIES} onSelectCountry={(c) => picked.push(c)} />);
+    const de = screen.getByRole('button', { name: /^Germany: 2 assets/ });
+    fireEvent.click(de);
+    fireEvent.keyDown(de, { key: 'Enter' });
+    expect(picked).toEqual(['DE', 'DE']);
+  });
+
+  it('keeps countries as images when nothing can be selected', () => {
+    render(<WorldMap countries={COUNTRIES} />);
+    expect(screen.queryByRole('button', { name: /^Germany/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /^Germany/ })).toBeInTheDocument();
+  });
+});

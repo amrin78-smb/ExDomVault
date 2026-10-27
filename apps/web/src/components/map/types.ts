@@ -18,4 +18,6 @@ export interface WorldMapProps {
   attribution?: string;
   /** Accessible name of the map. */
   label?: string;
+  /** Called with the alpha-2 code when a country with data (shape or bubble) is clicked/activated. */
+  onSelectCountry?: (country: string) => void;
 }

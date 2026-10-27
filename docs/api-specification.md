@@ -773,7 +773,10 @@ the asset's domain and hostname).
 
 Query (`assetListQuerySchema`): `page` (≥1), `pageSize` (1–100, default 25), `status`, `domainId`,
 `source`, `thirdParty` (`true` = has a hosting hint, `false` = none), `q` (substring of the hostname,
-case-insensitive, LIKE wildcards literal), `sort` (`hostname` default, `-lastSeenAt`, `-firstSeenAt`).
+case-insensitive, LIKE wildcards literal), `sort` (`hostname` default, `-lastSeenAt`, `-firstSeenAt`),
+`country` (ISO alpha-2, case-insensitive) or `continent` (`CONTINENTS`): only assets with a CURRENT
+address geolocated there — the same definition as the attack-surface country counts, so the map and
+region legend drill down to exactly the counted assets.
 Returns the standard page envelope `{ items, page, pageSize, total }`.
 
 Milestone 13: every asset carries `role` — its primary role from collected evidence

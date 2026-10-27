@@ -5,7 +5,7 @@ import {
 } from '@exdomainvault/shared';
 import { Globe2 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { HOSTING_KIND_LABELS } from '../../components/assets/labels.ts';
 import { LazyWorldMap } from '../../components/map/LazyWorldMap.tsx';
 import { countryName, flagEmoji } from '../../components/map/country-names.ts';
@@ -73,13 +73,24 @@ function AttackSurface({ data }: { data: AttackSurfaceResponse }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Approved assets" value={totals.approvedAssets} hint="In scan scope" />
+        <StatCard
+          label="Approved assets"
+          value={totals.approvedAssets}
+          hint="In scan scope"
+          to="/assets?status=approved"
+        />
         <StatCard label="Current IPs" value={totals.currentIps} hint="From the latest DNS" />
-        <StatCard label="Open ports" value={totals.openPorts} hint="On approved networks" />
+        <StatCard
+          label="Open ports"
+          value={totals.openPorts}
+          hint="On approved networks"
+          to="/ports"
+        />
         <StatCard
           label="Third-party hosted"
           value={totals.thirdPartyHosted}
           hint="CDN, cloud or SaaS detected"
+          to="/assets?status=approved&thirdParty=true"
         />
       </div>
 
@@ -95,7 +106,13 @@ function AttackSurface({ data }: { data: AttackSurfaceResponse }) {
   );
 }
 
+/** Approved assets with a current address in the country (the same set the counts describe). */
+const assetsInCountry = (code: string) => `/assets?status=approved&country=${code}`;
+const assetsInContinent = (continent: string) =>
+  `/assets?status=approved&continent=${encodeURIComponent(continent)}`;
+
 function CountryMapCard({ data }: { data: AttackSurfaceResponse }) {
+  const navigate = useNavigate();
   const geolocatedIps = data.continents.reduce((n, c) => n + c.ips, 0);
   return (
     <Card title="Assets by country">
@@ -106,7 +123,11 @@ function CountryMapCard({ data }: { data: AttackSurfaceResponse }) {
         </EmptyState>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
-          <LazyWorldMap countries={data.countries} attribution={data.geoAttribution ?? undefined} />
+          <LazyWorldMap
+            countries={data.countries}
+            attribution={data.geoAttribution ?? undefined}
+            onSelectCountry={(code) => void navigate(assetsInCountry(code))}
+          />
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wider text-fg-subtle">
               Assets by region
@@ -115,18 +136,23 @@ function CountryMapCard({ data }: { data: AttackSurfaceResponse }) {
             <ul className="mt-3 space-y-3" aria-label="Assets by region">
               {data.continents.map((c) => (
                 <li key={c.continent}>
-                  <div className="flex items-baseline justify-between gap-2 text-sm">
-                    <span className="text-fg-2">{c.continent}</span>
-                    <span className="tabular-nums text-fg">{pct(c.ips, geolocatedIps)}%</span>
-                  </div>
-                  <ProportionBar
-                    percent={pct(c.ips, geolocatedIps)}
-                    className="mt-1 h-1.5 w-full rounded-full bg-line"
-                    fillClassName="fill-accent"
-                  />
-                  <div className="mt-0.5 text-xs tabular-nums text-fg-subtle">
-                    {plural(c.assets, 'asset')} · {plural(c.ips, 'IP')}
-                  </div>
+                  <Link
+                    to={assetsInContinent(c.continent)}
+                    className="-mx-2 block rounded-md px-2 py-1 hover:bg-surface-2"
+                  >
+                    <div className="flex items-baseline justify-between gap-2 text-sm">
+                      <span className="text-fg-2">{c.continent}</span>
+                      <span className="tabular-nums text-fg">{pct(c.ips, geolocatedIps)}%</span>
+                    </div>
+                    <ProportionBar
+                      percent={pct(c.ips, geolocatedIps)}
+                      className="mt-1 h-1.5 w-full rounded-full bg-line"
+                      fillClassName="fill-accent"
+                    />
+                    <div className="mt-0.5 text-xs tabular-nums text-fg-subtle">
+                      {plural(c.assets, 'asset')} · {plural(c.ips, 'IP')}
+                    </div>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -301,7 +327,12 @@ function CountriesCard({ countries }: { countries: AttackSurfaceResponse['countr
                     <span aria-hidden className="mr-2">
                       {flagEmoji(c.country)}
                     </span>
-                    {countryName(c.country)}
+                    <Link
+                      to={assetsInCountry(c.country)}
+                      className="hover:text-highlight hover:underline"
+                    >
+                      {countryName(c.country)}
+                    </Link>
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-fg">{c.assets}</td>
                   <td className="py-2 text-right tabular-nums text-fg">{c.ips}</td>

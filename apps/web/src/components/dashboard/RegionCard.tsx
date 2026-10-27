@@ -1,7 +1,7 @@
-import type { AttackSurfaceResponse } from '@exdomainvault/shared';
+import { CONTINENTS, type AttackSurfaceResponse } from '@exdomainvault/shared';
 import { continentRows } from './format.ts';
 import { ArrowRight } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import type { AsyncState } from '../../lib/use-async.ts';
 import { percentOf } from '../charts/palette.ts';
 import { Card } from '../ui/Card.tsx';
@@ -16,6 +16,7 @@ export function RegionCard({
   state: AsyncState<AttackSurfaceResponse>;
   onRetry: () => void;
 }) {
+  const navigate = useNavigate();
   return (
     <Card
       title="Attack surface by region"
@@ -50,12 +51,24 @@ export function RegionCard({
                     height={150}
                     attribution={d.geoAttribution ?? undefined}
                     label="Current IP addresses of approved assets by country"
+                    onSelectCountry={(code) =>
+                      void navigate(`/assets?status=approved&country=${code}`)
+                    }
                   />
                 </div>
                 <ul className="space-y-1.5 text-sm" aria-label="IP addresses by continent">
                   {rows.map((r) => (
                     <li key={r.label} className="flex items-center justify-between gap-2">
-                      <span className="text-fg-2">{r.label}</span>
+                      {(CONTINENTS as readonly string[]).includes(r.label) ? (
+                        <Link
+                          to={`/assets?status=approved&continent=${encodeURIComponent(r.label)}`}
+                          className="text-fg-2 hover:text-highlight hover:underline"
+                        >
+                          {r.label}
+                        </Link>
+                      ) : (
+                        <span className="text-fg-2">{r.label}</span>
+                      )}
                       <span className="tabular-nums">
                         <span className="font-medium text-fg" data-testid={`region-${r.label}`}>
                           {r.ips.toLocaleString()}
