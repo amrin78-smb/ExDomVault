@@ -4,6 +4,7 @@ import { OpsAlertsProvider } from '../../lib/OpsAlertsProvider.tsx';
 import { SessionProvider } from '../../lib/SessionProvider.tsx';
 import { DevDataBanner } from '../ui/DevDataBanner.tsx';
 import { OpsAlertBanner } from './OpsAlertBanner.tsx';
+import { SessionExpiredBanner } from './SessionExpiredBanner.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { TopBar } from './TopBar.tsx';
 
@@ -23,6 +24,7 @@ export function AppShell() {
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <TopBar />
+            <SessionExpiredBanner />
             {fixtures && <DevDataBanner />}
             <OpsAlertBanner />
             <main id="main" className="flex-1 px-6 py-6 lg:px-8">

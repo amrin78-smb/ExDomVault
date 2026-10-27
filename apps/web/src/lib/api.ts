@@ -1,3 +1,4 @@
+import { notifySessionExpired } from './session-expiry.ts';
 import {
   attackSurfaceResponseSchema,
   type AttackSurfaceResponse,
@@ -202,10 +203,17 @@ export async function getJson<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, { ...init, headers: { Accept: 'application/json', ...init?.headers } });
+    res = await fetch(path, {
+      ...init,
+      headers: { Accept: 'application/json', ...init?.headers },
+      // An expired Cloudflare Access session answers with a redirect to the login page; following
+      // it cross-origin fails as a vague network error, so it is detected instead.
+      redirect: 'manual',
+    });
   } catch {
     throw new ApiClientError('The API could not be reached.', 0, 'network_error');
   }
+  if (isAccessLoginResponse(res)) throw sessionExpired(res.status);
 
   const body: unknown = await res.json().catch(() => null);
 
@@ -278,6 +286,19 @@ export function countCsvRows(text: string): number {
   return Math.max(0, records - 1);
 }
 
+const SESSION_EXPIRED_MESSAGE = 'Your sign-in has expired. Sign in again to continue.';
+
+/** A redirect, or an HTML page where JSON/CSV was expected: the Access login took over. */
+function isAccessLoginResponse(res: Response): boolean {
+  if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) return true;
+  return res.ok && (res.headers.get('Content-Type') ?? '').includes('text/html');
+}
+
+function sessionExpired(status: number): ApiClientError {
+  notifySessionExpired();
+  return new ApiClientError(SESSION_EXPIRED_MESSAGE, status, 'session_expired');
+}
+
 const EXPIRED_SESSION_MESSAGE =
   'The export did not return a CSV file. Your sign-in may have expired: reload the page to sign in again.';
 
@@ -301,6 +322,7 @@ async function downloadCsv(
     throw new ApiClientError('The API could not be reached.', 0, 'network_error');
   }
   if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+    notifySessionExpired();
     throw new ApiClientError(EXPIRED_SESSION_MESSAGE, res.status, 'session_expired');
   }
   if (!res.ok) throw errorFromResponse(res, await res.json().catch(() => null));
