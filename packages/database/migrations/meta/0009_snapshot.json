@@ -89,12 +89,8 @@
           "name": "notification_preferences_user_id_users_id_fk",
           "tableFrom": "notification_preferences",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -365,12 +361,8 @@
           "name": "domain_verifications_domain_id_domains_id_fk",
           "tableFrom": "domain_verifications",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -378,12 +370,8 @@
           "name": "domain_verifications_created_by_users_id_fk",
           "tableFrom": "domain_verifications",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -544,12 +532,8 @@
           "name": "domains_created_by_users_id_fk",
           "tableFrom": "domains",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -677,12 +661,8 @@
           "name": "asset_ips_asset_id_assets_id_fk",
           "tableFrom": "asset_ips",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -908,12 +888,8 @@
           "name": "assets_domain_id_domains_id_fk",
           "tableFrom": "assets",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -921,12 +897,8 @@
           "name": "assets_owner_user_id_users_id_fk",
           "tableFrom": "assets",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -934,12 +906,8 @@
           "name": "assets_approved_by_users_id_fk",
           "tableFrom": "assets",
           "tableTo": "users",
-          "columnsFrom": [
-            "approved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["approved_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -947,12 +915,8 @@
           "name": "assets_decided_by_users_id_fk",
           "tableFrom": "assets",
           "tableTo": "users",
-          "columnsFrom": [
-            "decided_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["decided_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1012,12 +976,8 @@
           "name": "application_settings_updated_by_users_id_fk",
           "tableFrom": "application_settings",
           "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1124,12 +1084,8 @@
           "name": "approved_networks_created_by_users_id_fk",
           "tableFrom": "approved_networks",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1137,12 +1093,8 @@
           "name": "approved_networks_revoked_by_users_id_fk",
           "tableFrom": "approved_networks",
           "tableTo": "users",
-          "columnsFrom": [
-            "revoked_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["revoked_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1244,12 +1196,8 @@
           "name": "domain_score_snapshots_domain_id_domains_id_fk",
           "tableFrom": "domain_score_snapshots",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1549,12 +1497,8 @@
           "name": "worker_credentials_worker_id_worker_registry_id_fk",
           "tableFrom": "worker_credentials",
           "tableTo": "worker_registry",
-          "columnsFrom": [
-            "worker_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["worker_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1562,12 +1506,8 @@
           "name": "worker_credentials_created_by_users_id_fk",
           "tableFrom": "worker_credentials",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1732,12 +1672,8 @@
           "name": "worker_request_nonces_credential_id_worker_credentials_id_fk",
           "tableFrom": "worker_request_nonces",
           "tableTo": "worker_credentials",
-          "columnsFrom": [
-            "credential_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["credential_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1745,10 +1681,7 @@
       "compositePrimaryKeys": {
         "worker_request_nonces_credential_id_nonce_pk": {
           "name": "worker_request_nonces_credential_id_nonce_pk",
-          "columns": [
-            "credential_id",
-            "nonce"
-          ]
+          "columns": ["credential_id", "nonce"]
         }
       },
       "uniqueConstraints": {},
@@ -1834,12 +1767,8 @@
           "name": "scan_job_results_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "scan_job_results",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1847,12 +1776,8 @@
           "name": "scan_job_results_worker_id_worker_registry_id_fk",
           "tableFrom": "scan_job_results",
           "tableTo": "worker_registry",
-          "columnsFrom": [
-            "worker_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["worker_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1947,12 +1872,8 @@
           "name": "scan_job_targets_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "scan_job_targets",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1960,12 +1881,8 @@
           "name": "scan_job_targets_asset_id_assets_id_fk",
           "tableFrom": "scan_job_targets",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1975,11 +1892,7 @@
         "scan_job_targets_key": {
           "name": "scan_job_targets_key",
           "nullsNotDistinct": true,
-          "columns": [
-            "scan_job_id",
-            "target_hostname",
-            "target_ip"
-          ]
+          "columns": ["scan_job_id", "target_hostname", "target_ip"]
         }
       },
       "policies": {},
@@ -2257,12 +2170,8 @@
           "name": "scan_jobs_profile_scan_profiles_key_fk",
           "tableFrom": "scan_jobs",
           "tableTo": "scan_profiles",
-          "columnsFrom": [
-            "profile"
-          ],
-          "columnsTo": [
-            "key"
-          ],
+          "columnsFrom": ["profile"],
+          "columnsTo": ["key"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2270,12 +2179,8 @@
           "name": "scan_jobs_domain_id_domains_id_fk",
           "tableFrom": "scan_jobs",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2283,12 +2188,8 @@
           "name": "scan_jobs_requested_by_users_id_fk",
           "tableFrom": "scan_jobs",
           "tableTo": "users",
-          "columnsFrom": [
-            "requested_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requested_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2296,12 +2197,8 @@
           "name": "scan_jobs_worker_id_worker_registry_id_fk",
           "tableFrom": "scan_jobs",
           "tableTo": "worker_registry",
-          "columnsFrom": [
-            "worker_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["worker_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2472,12 +2369,8 @@
           "name": "discovery_observations_asset_id_assets_id_fk",
           "tableFrom": "discovery_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2485,12 +2378,8 @@
           "name": "discovery_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "discovery_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2498,12 +2387,8 @@
           "name": "discovery_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "discovery_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2511,12 +2396,8 @@
           "name": "discovery_observations_domain_id_domains_id_fk",
           "tableFrom": "discovery_observations",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2678,12 +2559,8 @@
           "name": "dns_observations_asset_id_assets_id_fk",
           "tableFrom": "dns_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2691,12 +2568,8 @@
           "name": "dns_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "dns_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2704,12 +2577,8 @@
           "name": "dns_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "dns_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2883,12 +2752,8 @@
           "name": "http_observations_asset_id_assets_id_fk",
           "tableFrom": "http_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2896,12 +2761,8 @@
           "name": "http_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "http_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2909,12 +2770,8 @@
           "name": "http_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "http_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -3109,12 +2966,8 @@
           "name": "lookalike_observations_asset_id_assets_id_fk",
           "tableFrom": "lookalike_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3122,12 +2975,8 @@
           "name": "lookalike_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "lookalike_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3135,12 +2984,8 @@
           "name": "lookalike_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "lookalike_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3148,12 +2993,8 @@
           "name": "lookalike_observations_domain_id_domains_id_fk",
           "tableFrom": "lookalike_observations",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3379,12 +3220,8 @@
           "name": "network_observations_asset_id_assets_id_fk",
           "tableFrom": "network_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3392,12 +3229,8 @@
           "name": "network_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "network_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3405,12 +3238,8 @@
           "name": "network_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "network_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3418,12 +3247,8 @@
           "name": "network_observations_domain_id_domains_id_fk",
           "tableFrom": "network_observations",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3624,12 +3449,8 @@
           "name": "port_observations_asset_id_assets_id_fk",
           "tableFrom": "port_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3637,12 +3458,8 @@
           "name": "port_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "port_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3650,12 +3467,8 @@
           "name": "port_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "port_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -3830,12 +3643,8 @@
           "name": "registration_observations_asset_id_assets_id_fk",
           "tableFrom": "registration_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3843,12 +3652,8 @@
           "name": "registration_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "registration_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3856,12 +3661,8 @@
           "name": "registration_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "registration_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -3869,12 +3670,8 @@
           "name": "registration_observations_domain_id_domains_id_fk",
           "tableFrom": "registration_observations",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4105,12 +3902,8 @@
           "name": "tls_observations_asset_id_assets_id_fk",
           "tableFrom": "tls_observations",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4118,12 +3911,8 @@
           "name": "tls_observations_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "tls_observations",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4131,12 +3920,8 @@
           "name": "tls_observations_scan_job_target_id_scan_job_targets_id_fk",
           "tableFrom": "tls_observations",
           "tableTo": "scan_job_targets",
-          "columnsFrom": [
-            "scan_job_target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_target_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -4232,12 +4017,8 @@
           "name": "advisories_finding_id_findings_id_fk",
           "tableFrom": "advisories",
           "tableTo": "findings",
-          "columnsFrom": [
-            "finding_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["finding_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4313,12 +4094,8 @@
           "name": "finding_comments_finding_id_findings_id_fk",
           "tableFrom": "finding_comments",
           "tableTo": "findings",
-          "columnsFrom": [
-            "finding_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["finding_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4326,12 +4103,8 @@
           "name": "finding_comments_author_user_id_users_id_fk",
           "tableFrom": "finding_comments",
           "tableTo": "users",
-          "columnsFrom": [
-            "author_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["author_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -4438,12 +4211,8 @@
           "name": "finding_status_history_finding_id_findings_id_fk",
           "tableFrom": "finding_status_history",
           "tableTo": "findings",
-          "columnsFrom": [
-            "finding_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["finding_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4451,12 +4220,8 @@
           "name": "finding_status_history_changed_by_users_id_fk",
           "tableFrom": "finding_status_history",
           "tableTo": "users",
-          "columnsFrom": [
-            "changed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["changed_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4464,12 +4229,8 @@
           "name": "finding_status_history_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "finding_status_history",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -4787,12 +4548,8 @@
           "name": "findings_domain_id_domains_id_fk",
           "tableFrom": "findings",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4800,12 +4557,8 @@
           "name": "findings_asset_id_assets_id_fk",
           "tableFrom": "findings",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4813,12 +4566,8 @@
           "name": "findings_assigned_to_users_id_fk",
           "tableFrom": "findings",
           "tableTo": "users",
-          "columnsFrom": [
-            "assigned_to"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_to"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -4826,12 +4575,8 @@
           "name": "findings_accepted_risk_approved_by_users_id_fk",
           "tableFrom": "findings",
           "tableTo": "users",
-          "columnsFrom": [
-            "accepted_risk_approved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["accepted_risk_approved_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -4984,12 +4729,8 @@
           "name": "audit_logs_actor_user_id_users_id_fk",
           "tableFrom": "audit_logs",
           "tableTo": "users",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -5312,12 +5053,8 @@
           "name": "software_inventory_domain_id_domains_id_fk",
           "tableFrom": "software_inventory",
           "tableTo": "domains",
-          "columnsFrom": [
-            "domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5325,12 +5062,8 @@
           "name": "software_inventory_asset_id_assets_id_fk",
           "tableFrom": "software_inventory",
           "tableTo": "assets",
-          "columnsFrom": [
-            "asset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -5338,12 +5071,8 @@
           "name": "software_inventory_last_scan_job_id_scan_jobs_id_fk",
           "tableFrom": "software_inventory",
           "tableTo": "scan_jobs",
-          "columnsFrom": [
-            "last_scan_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["last_scan_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -5516,188 +5245,97 @@
     "public.actor_type": {
       "name": "actor_type",
       "schema": "public",
-      "values": [
-        "user",
-        "worker",
-        "system"
-      ]
+      "values": ["user", "worker", "system"]
     },
     "public.asset_approval_status": {
       "name": "asset_approval_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "approved",
-        "rejected",
-        "suspended"
-      ]
+      "values": ["pending", "approved", "rejected", "suspended"]
     },
     "public.asset_type": {
       "name": "asset_type",
       "schema": "public",
-      "values": [
-        "apex",
-        "subdomain"
-      ]
+      "values": ["apex", "subdomain"]
     },
     "public.auth_provider": {
       "name": "auth_provider",
       "schema": "public",
-      "values": [
-        "cloudflare_access",
-        "dev"
-      ]
+      "values": ["cloudflare_access", "dev"]
     },
     "public.challenge_status": {
       "name": "challenge_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "verified",
-        "expired",
-        "failed",
-        "superseded",
-        "revoked"
-      ]
+      "values": ["pending", "verified", "expired", "failed", "superseded", "revoked"]
     },
     "public.confidence": {
       "name": "confidence",
       "schema": "public",
-      "values": [
-        "low",
-        "medium",
-        "high"
-      ]
+      "values": ["low", "medium", "high"]
     },
     "public.criticality": {
       "name": "criticality",
       "schema": "public",
-      "values": [
-        "low",
-        "medium",
-        "high",
-        "critical"
-      ]
+      "values": ["low", "medium", "high", "critical"]
     },
     "public.discovery_source": {
       "name": "discovery_source",
       "schema": "public",
-      "values": [
-        "manual",
-        "import",
-        "certificate_transparency",
-        "dns"
-      ]
+      "values": ["manual", "import", "certificate_transparency", "dns"]
     },
     "public.domain_verification_status": {
       "name": "domain_verification_status",
       "schema": "public",
-      "values": [
-        "unverified",
-        "pending",
-        "verified",
-        "revoked"
-      ]
+      "values": ["unverified", "pending", "verified", "revoked"]
     },
     "public.finding_status": {
       "name": "finding_status",
       "schema": "public",
-      "values": [
-        "open",
-        "acknowledged",
-        "remediation_in_progress",
-        "resolved",
-        "accepted_risk"
-      ]
+      "values": ["open", "acknowledged", "remediation_in_progress", "resolved", "accepted_risk"]
     },
     "public.observation_result": {
       "name": "observation_result",
       "schema": "public",
-      "values": [
-        "success",
-        "partial",
-        "error",
-        "timeout",
-        "skipped"
-      ]
+      "values": ["success", "partial", "error", "timeout", "skipped"]
     },
     "public.registration_data_status": {
       "name": "registration_data_status",
       "schema": "public",
-      "values": [
-        "unknown",
-        "available",
-        "redacted",
-        "unavailable"
-      ]
+      "values": ["unknown", "available", "redacted", "unavailable"]
     },
     "public.scan_job_status": {
       "name": "scan_job_status",
       "schema": "public",
-      "values": [
-        "queued",
-        "claimed",
-        "running",
-        "succeeded",
-        "failed",
-        "cancelled"
-      ]
+      "values": ["queued", "claimed", "running", "succeeded", "failed", "cancelled"]
     },
     "public.scan_job_type": {
       "name": "scan_job_type",
       "schema": "public",
-      "values": [
-        "scan",
-        "discovery"
-      ]
+      "values": ["scan", "discovery"]
     },
     "public.scan_target_status": {
       "name": "scan_target_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "running",
-        "succeeded",
-        "failed",
-        "skipped"
-      ]
+      "values": ["pending", "running", "succeeded", "failed", "skipped"]
     },
     "public.severity": {
       "name": "severity",
       "schema": "public",
-      "values": [
-        "informational",
-        "low",
-        "medium",
-        "high",
-        "critical"
-      ]
+      "values": ["informational", "low", "medium", "high", "critical"]
     },
     "public.user_role": {
       "name": "user_role",
       "schema": "public",
-      "values": [
-        "admin",
-        "analyst",
-        "asset_owner",
-        "viewer"
-      ]
+      "values": ["admin", "analyst", "asset_owner", "viewer"]
     },
     "public.verification_method": {
       "name": "verification_method",
       "schema": "public",
-      "values": [
-        "dns_txt",
-        "admin_attestation"
-      ]
+      "values": ["dns_txt", "admin_attestation"]
     },
     "public.worker_status": {
       "name": "worker_status",
       "schema": "public",
-      "values": [
-        "active",
-        "disabled"
-      ]
+      "values": ["active", "disabled"]
     }
   },
   "schemas": {},
