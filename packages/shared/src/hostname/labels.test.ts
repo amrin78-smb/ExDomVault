@@ -29,6 +29,15 @@ describe('isValidHostname', () => {
     expect(isValidHostname('_25._tcp.mx.example.com', { allowServiceLabels: true })).toBe(true);
     // Not leading, a bare underscore, or the service label as the domain itself.
     expect(isValidHostname('www._dmarc.example.com', { allowServiceLabels: true })).toBe(false);
+    // DKIM / BIMI selector names (Milestone 15).
+    expect(isValidHostname('selector1._domainkey.example.com', { allowServiceLabels: true })).toBe(
+      true,
+    );
+    expect(isValidHostname('default._bimi.example.com', { allowServiceLabels: true })).toBe(true);
+    expect(isValidHostname('selector1._domainkey.example.com')).toBe(false);
+    expect(isValidHostname('a.b._domainkey.example.com', { allowServiceLabels: true })).toBe(false);
+    expect(isValidHostname('s1._domainkey.com', { allowServiceLabels: true })).toBe(false);
+    expect(isValidHostname('-x._domainkey.example.com', { allowServiceLabels: true })).toBe(false);
     expect(isValidHostname('_.example.com', { allowServiceLabels: true })).toBe(false);
     expect(isValidHostname('_dmarc.com', { allowServiceLabels: true })).toBe(false);
     expect(isValidHostname('_-x.example.com', { allowServiceLabels: true })).toBe(false);

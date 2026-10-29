@@ -8,7 +8,7 @@ export const ASSET_SOURCE_LABELS: Record<string, string> = {
   manual: 'Added manually',
   import: 'Imported',
   certificate_transparency: 'Certificate logs',
-  dns: 'DNS',
+  dns: 'DNS (reverse lookup)',
 };
 
 export const sourceLabel = (source: string) => ASSET_SOURCE_LABELS[source] ?? source;

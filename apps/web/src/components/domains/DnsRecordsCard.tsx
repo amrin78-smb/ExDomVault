@@ -44,14 +44,28 @@ function latest(records: DnsRecordSet[]): DnsRecordSet | undefined {
   );
 }
 
+/**
+ * DKIM / BIMI selector probes (`<selector>._domainkey.<apex>`) that found nothing: the worker
+ * queries a list of common selector names, so empty answers are noise here. Published keys and
+ * failed lookups stay visible; the E-mail security card summarises the probes.
+ */
+const isEmptySelectorProbe = (r: DnsRecordSet) =>
+  r.resultStatus === 'success' &&
+  r.values.length === 0 &&
+  /^[^.]+\._(domainkey|bimi)\./.test(r.hostname);
+
 /** Latest DNS record set per (hostname, type) as reported by scans. Evidence only. */
 export function DnsRecordsCard({
   apex,
-  state,
+  state: rawState,
 }: {
   apex: string;
   state: AsyncState<{ dns: DnsRecordSet[] }>;
 }) {
+  const state: AsyncState<{ dns: DnsRecordSet[] }> =
+    rawState.status === 'success'
+      ? { ...rawState, data: { dns: rawState.data.dns.filter((r) => !isEmptySelectorProbe(r)) } }
+      : rawState;
   return (
     <Card
       title="DNS records"

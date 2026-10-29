@@ -15,6 +15,10 @@ build-backend = "setuptools.build_meta"
 # Only the application package; tests/ and deploy/ are not part of the distribution.
 packages = ["app"]
 
+[tool.setuptools.package-data]
+# Subdomain-takeover HTTP signatures (mirror of packages/rules/src/takeover-fingerprints.ts).
+app = ["takeover_fingerprints.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

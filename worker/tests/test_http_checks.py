@@ -309,3 +309,98 @@ def test_target_budget_and_stop_signal_are_passed_to_http_get(monkeypatch):
     ((deadline, should_stop),) = seen
     assert before + 29 < deadline <= time.monotonic() + 30
     assert should_stop() is True
+
+
+# -- subdomain-takeover signatures (Milestone 15, DNS-008) -----------------------------------------
+
+GH_UNCLAIMED = (
+    b"<!DOCTYPE html><html><head><title>Site not found &middot; GitHub Pages</title></head>"
+    b"<body><h1>404</h1><p><strong>There isn't a GitHub Pages site here.</strong></p></body></html>"
+)
+
+
+def body_hop(url, body, status=404, decision="final", headers=None):
+    return net.HttpHop(
+        url=url, address=V4, status=status, headers=headers or {}, decision=decision, body=body
+    )
+
+
+def test_signature_table_is_valid_and_mirrors_known_providers():
+    sigs = http_checks.takeover_signatures()
+    keys = {key for key, _statuses, _needles in sigs}
+    assert {"github_pages", "aws_s3", "heroku", "netlify", "shopify"} <= keys
+    # Providers can-i-take-over-xyz lists as "not vulnerable" are deliberately absent.
+    assert not keys & {"zendesk", "fastly", "unbounce", "kinsta", "fly_io"}
+    for _key, statuses, needles in sigs:
+        assert needles and all(n.strip() for n in needles)
+        assert all(100 <= s <= 599 for s in statuses)
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "provider"),
+    [
+        (404, GH_UNCLAIMED, "github_pages"),
+        (404, b"<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist"
+              b"</Message></Error>", "aws_s3"),
+        (404, b"<iframe src='//www.herokucdn.com/error-pages/no-such-app.html'>No such app",
+         "heroku"),
+        (200, b"<p>Sorry, this shop is currently unavailable.</p>", "shopify"),
+        (404, b"Not Found - Request ID: 01ABCDEF", "netlify"),
+    ],
+)  # fmt: skip
+def test_signature_match(status, body, provider):
+    assert http_checks.match_takeover_signature(status, body)["provider"] == provider
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (200, GH_UNCLAIMED),  # status must match where the signature lists statuses
+        (404, b"<h1>Not Found</h1>"),
+        (404, b""),
+        (None, GH_UNCLAIMED),
+        (404, b"Do you want to register this domain?"),  # every substring is required
+    ],
+)
+def test_signature_no_match(status, body):
+    assert http_checks.match_takeover_signature(status, body) is None
+
+
+def test_signature_only_searches_the_bounded_body():
+    padded = b"x" * net.MAX_BODY_BYTES + GH_UNCLAIMED
+    assert http_checks.match_takeover_signature(404, padded) is None
+
+
+def test_signature_recorded_without_the_body():
+    o = build(result(body_hop("https://docs.example.com/", GH_UNCLAIMED)), False)
+    assert_http_schema(o)
+    assert o["evidence"]["takeoverSignature"] == {
+        "provider": "github_pages",
+        "signature": "There isn't a GitHub Pages site here.",
+    }
+    dumped = json.dumps(o)
+    assert "Site not found" not in dumped and "DOCTYPE" not in dumped
+
+
+def test_signature_ignored_for_another_hosts_response_or_refused_hop():
+    # The unclaimed page came from a different (in-domain) host after a redirect: not evidence for
+    # the requested host.
+    redirected = result(
+        hop("https://docs.example.com/", status=301, decision="followed",
+            headers={"location": "https://www.example.com/"}),
+        body_hop("https://www.example.com/", GH_UNCLAIMED),
+    )  # fmt: skip
+    assert "takeoverSignature" not in build(redirected)["evidence"]
+    clean = build(result(body_hop("https://docs.example.com/", b"<h1>Welcome</h1>", status=200)))
+    assert "takeoverSignature" not in clean["evidence"]
+
+
+def test_signature_detection_makes_no_extra_requests(gets):
+    calls, responses = gets
+    responses["https://www.example.com/"] = result(
+        body_hop("https://www.example.com/", GH_UNCLAIMED)
+    )
+    responses["http://www.example.com/"] = result(body_hop("http://www.example.com/", GH_UNCLAIMED))
+    out = run(include_headers=False)
+    assert [c[0] for c in calls] == ["https://www.example.com/", "http://www.example.com/"]
+    assert [o["evidence"]["takeoverSignature"]["provider"] for o in out] == ["github_pages"] * 2

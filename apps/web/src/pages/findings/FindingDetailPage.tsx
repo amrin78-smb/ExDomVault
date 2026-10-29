@@ -25,6 +25,7 @@ import { SeverityBadge } from '../../components/ui/SeverityBadge.tsx';
 import { useShowAll } from '../../components/ui/ShowAllButton.tsx';
 import { api } from '../../lib/api.ts';
 import { formatDateTime } from '../../lib/format.ts';
+import { DueBadge } from '../../components/findings/DueBadge.tsx';
 import { usePermissions } from '../../lib/session.ts';
 import { useAsync } from '../../lib/use-async.ts';
 
@@ -255,6 +256,13 @@ function FindingDetail({
               {finding.resolvedAt && (
                 <Row label="Resolved">{formatDateTime(finding.resolvedAt)}</Row>
               )}
+              <Row label="Remediation due">
+                {finding.dueAt ? (
+                  <DueBadge finding={finding} withDate />
+                ) : (
+                  <span className="text-fg-subtle">No SLA for this severity</span>
+                )}
+              </Row>
               <Row label="Recurrences">{finding.recurrenceCount}</Row>
             </dl>
           </Card>

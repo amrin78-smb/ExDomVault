@@ -2,15 +2,22 @@
 (beyond what recursive resolution does on the resolver's side).
 
 Per target: ``A``, ``AAAA``, ``CNAME``. At the job's apex additionally ``MX``, ``NS``, ``TXT``,
-``CAA``, ``SOA``, ``DS``, ``DNSKEY`` and ``TXT`` at ``_dmarc.<apex>``. Results are normalised to
-``dns`` observations (``docs/worker-protocol.md``):
+``CAA``, ``SOA``, ``DS``, ``DNSKEY``, ``TXT`` at ``_dmarc.<apex>`` and (Milestone 15) ``TXT`` at
+``<selector>._domainkey.<apex>`` for each of :data:`DKIM_SELECTORS`. When the apex ``MX`` lookup
+of the same run lists a real exchanger (not a null MX ``0 .``) also ``TXT`` at
+``_mta-sts.<apex>``, ``_smtp._tls.<apex>`` and ``default._bimi.<apex>``
+(:data:`MAIL_QUERY_PREFIXES`). Only DNS records are read: the MTA-STS policy file is never
+fetched. Results are normalised to ``dns`` observations (``docs/worker-protocol.md``):
 
 - ``hostname``: lowercase, no trailing dot.
 - ``values``: dnspython presentation format, sorted, at most 100. Record data that is only domain
   names (``CNAME``, ``NS``, ``MX``, ``SOA``) is lowercased so resolver case randomisation never
   looks like a change; absolute names keep their trailing dot as presentation format requires
   (e.g. a null MX is ``0 .``).
-- NXDOMAIN / NODATA: ``success`` with ``values: []`` and ``evidence.rcode``.
+- NXDOMAIN / NODATA: ``success`` with ``values: []`` and ``evidence.rcode``. For an aliased name the
+  rcode is the chain's terminal status (a CNAME whose target does not exist is ``NXDOMAIN``), and
+  ``evidence.canonicalName`` names the chain's end when it differs from the queried name — also for
+  NXDOMAIN answers (subdomain-takeover evidence, rule DNS-008).
 - Resolver timeout: ``timeout``; other resolver failures: ``error`` with the exception class only.
 - ``geo`` (Milestone 13, A/AAAA only): ``[{ip, country}]`` for values the offline DB-IP database
   (``app.geoip``) places in a country, in ``values`` order; omitted when empty. Display-only, never
@@ -34,6 +41,17 @@ GeoLookup = Callable[[str], str | None]
 
 TARGET_RECORD_TYPES: tuple[str, ...] = ("A", "AAAA", "CNAME")
 APEX_RECORD_TYPES: tuple[str, ...] = ("MX", "NS", "TXT", "CAA", "SOA", "DS", "DNSKEY")
+#: Common DKIM selectors (selectors cannot be enumerated through DNS). Google Workspace, Microsoft
+#: 365 (selector1/2), Mailchimp/Mandrill (k1-k3, mandrill), SendGrid (s1/s2), Mailjet, Proton,
+#: Fastmail (fm1), Zoho and generic names. Dated selectors (e.g. Mimecast ``mimecast20190104``) and
+#: per-tenant tokens (Amazon SES) cannot be guessed. A CNAME-delegated selector is followed by the
+#: resolver (``evidence.canonicalName`` records the delegation target).
+DKIM_SELECTORS: tuple[str, ...] = (
+    "google", "selector1", "selector2", "k1", "k2", "k3", "s1", "s2",
+    "default", "dkim", "mail", "smtp", "mandrill", "mailjet", "protonmail", "fm1", "zoho",
+)  # fmt: skip
+#: TXT names queried beneath the apex only when it receives mail (real MX).
+MAIL_QUERY_PREFIXES: tuple[str, ...] = ("_mta-sts", "_smtp._tls", "default._bimi")
 _LOWERCASE_TYPES = frozenset({"CNAME", "NS", "MX", "SOA"})
 MAX_VALUES = 100
 MAX_VALUE_LENGTH = 4096
@@ -152,6 +170,16 @@ def geo_entries(
     return out
 
 
+def _nxdomain_canonical(exc: dns.resolver.NXDOMAIN) -> str | None:
+    """The CNAME chain's end recorded in a dnspython NXDOMAIN (lowercase, no trailing dot), or None
+    when the exception carries no responses (or anything about them is unusable)."""
+    try:
+        name = _strip_dot(exc.canonical_name.to_text()).lower()
+    except Exception:
+        return None
+    return name if 0 < len(name) <= 253 else None
+
+
 def query_to_observation(
     resolver: DnsResolver,
     target_id: str,
@@ -163,10 +191,14 @@ def query_to_observation(
     """Runs one query and maps the outcome to a ``dns`` observation (never raises DNS errors)."""
     try:
         answer = resolver.query(hostname, rdtype, lifetime)
-    except dns.resolver.NXDOMAIN:
+    except dns.resolver.NXDOMAIN as exc:
+        nx_evidence: dict[str, Any] = {"rcode": "NXDOMAIN"}
+        canonical = _nxdomain_canonical(exc)
+        if canonical and canonical != hostname:
+            nx_evidence["canonicalName"] = canonical
         return _observation(
             target_id, hostname, rdtype, status="success", ttl=None, values=[],
-            evidence={"rcode": "NXDOMAIN"},
+            evidence=nx_evidence,
         )  # fmt: skip
     except dns.resolver.NoAnswer:
         return _observation(
@@ -210,12 +242,35 @@ def query_to_observation(
     return observation
 
 
-def planned_queries(hostname: str, is_apex: bool) -> list[tuple[str, str]]:
+def planned_queries(
+    hostname: str, is_apex: bool, *, receives_mail: bool = False
+) -> list[tuple[str, str]]:
+    """Queries for one target. ``receives_mail`` (decided from the apex MX answer of the same run)
+    adds the receiving-side mail names; :func:`check_dns` runs those last."""
     queries = [(hostname, rdtype) for rdtype in TARGET_RECORD_TYPES]
     if is_apex:
         queries += [(hostname, rdtype) for rdtype in APEX_RECORD_TYPES]
         queries.append((f"_dmarc.{hostname}", "TXT"))
+        queries += [(f"{sel}._domainkey.{hostname}", "TXT") for sel in DKIM_SELECTORS]
+        if receives_mail:
+            queries += mail_queries(hostname)
     return queries
+
+
+def mail_queries(hostname: str) -> list[tuple[str, str]]:
+    return [(f"{prefix}.{hostname}", "TXT") for prefix in MAIL_QUERY_PREFIXES]
+
+
+def receives_mail(mx_observation: dict[str, Any] | None) -> bool:
+    """True when a successful MX observation lists at least one real exchanger (``10 mx.``), i.e.
+    not empty and not only a null MX (``0 .``, RFC 7505)."""
+    if not mx_observation or mx_observation.get("resultStatus") != "success":
+        return False
+    for value in mx_observation.get("values", []):
+        parts = str(value).split()
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1] != ".":
+            return True
+    return False
 
 
 def check_dns(
@@ -232,7 +287,15 @@ def check_dns(
     Raises ``CheckStopped`` / ``TargetTimeout`` between queries; observations already appended
     remain valid evidence.
     """
-    for name, rdtype in planned_queries(hostname, is_apex):
+    queries = planned_queries(hostname, is_apex)
+    index = 0
+    while index < len(queries):
+        name, rdtype = queries[index]
+        index += 1
         ctx.before_network_call()
         lifetime = max(0.1, min(ctx.read_seconds, ctx.remaining()))
-        sink(query_to_observation(resolver, target_id, name, rdtype, lifetime, geo))
+        observation = query_to_observation(resolver, target_id, name, rdtype, lifetime, geo)
+        sink(observation)
+        # The receiving-side mail names are queried only when this run's apex MX shows mail.
+        if is_apex and name == hostname and rdtype == "MX" and receives_mail(observation):
+            queries += mail_queries(hostname)

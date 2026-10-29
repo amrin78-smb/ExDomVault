@@ -377,8 +377,26 @@ describe('GET /reports/summary', () => {
       },
     ]);
     expect(s.byBusinessOwner).toEqual([
-      { businessOwner: 'Payments', domains: 2, openFindings: 5, highOrCritical: 3 },
-      { businessOwner: null, domains: 1, openFindings: 0, highOrCritical: 0 },
+      {
+        businessOwner: 'Payments',
+        domains: 2,
+        openFindings: 5,
+        highOrCritical: 3,
+        overdue: 0,
+        averageScore: null,
+        grade: null,
+        grades: { A: 0, B: 0, C: 0, D: 0, F: 0 },
+      },
+      {
+        businessOwner: null,
+        domains: 1,
+        openFindings: 0,
+        highOrCritical: 0,
+        overdue: 0,
+        averageScore: null,
+        grade: null,
+        grades: { A: 0, B: 0, C: 0, D: 0, F: 0 },
+      },
     ]);
     expect(s.expiringRegistrations).toEqual([
       { domain: { id: w.b, fqdn: 'example.net' }, expiresAt: at(-2).toISOString(), daysLeft: -2 },

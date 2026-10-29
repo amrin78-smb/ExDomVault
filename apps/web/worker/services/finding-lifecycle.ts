@@ -31,6 +31,7 @@ import {
   type FindingRow,
 } from './findings.ts';
 import { createScan, listProfiles, type ScanPolicy } from './scans.ts';
+import { refreshDueDates } from './sla.ts';
 
 const { findingComments, findingStatusHistory, findings, scanJobs, users } = schema;
 
@@ -174,6 +175,13 @@ async function applyStatus(
       createdAt: now,
     })),
   );
+  // Leaving accepted risk for a working status restarts the SLA clock (api/sla.ts).
+  if (change.to !== 'resolved' && change.to !== 'accepted_risk') {
+    await refreshDueDates(
+      tx,
+      rows.filter((r) => r.status === 'accepted_risk').map((r) => r.id),
+    );
+  }
   await writeAuditMany(
     tx,
     rows.map((r): AuditEntry => ({
@@ -555,6 +563,11 @@ export async function expireAcceptedRisks(db: Database, now: Date): Promise<numb
         note: f.acceptedRiskReason,
         createdAt: now,
       })),
+    );
+    // The lapsed acceptance restarts the SLA clock (api/sla.ts).
+    await refreshDueDates(
+      tx,
+      due.map((f) => f.id),
     );
     await writeAuditMany(
       tx,

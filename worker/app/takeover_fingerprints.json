@@ -1,0 +1,252 @@
+{
+  "source": "https://github.com/EdOverflow/can-i-take-over-xyz",
+  "providers": [
+    {
+      "key": "aws_s3",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "NoSuchBucket",
+            "The specified bucket does not exist"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "github_pages",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "There isn't a GitHub Pages site here."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "heroku",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "No such app"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "bitbucket",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "Repository not found"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "ghost",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "Failed to resolve DNS path for this host"
+          ]
+        },
+        {
+          "statuses": [],
+          "bodyContains": [
+            "Site unavailable."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "help_scout",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "No settings were found for this company:"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "help_juice",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "We could not find what you're looking for."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "pantheon",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "404 error unknown site!"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "readme",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "The creators of this project are still working on making everything perfect!"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "readthedocs",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "The link you have followed or the URL that you entered does not exist."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "shopify",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "Sorry, this shop is currently unavailable."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "netlify",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "Not Found - Request ID:"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "webflow",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "The page you are looking for doesn't exist or has been moved."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "wordpress",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "Do you want to register",
+            ".wordpress.com"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "surge",
+      "signatures": [
+        {
+          "statuses": [
+            404
+          ],
+          "bodyContains": [
+            "project not found"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "tumblr",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "Whatever you were looking for doesn't currently exist at this address"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "strikingly",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "PAGE NOT FOUND."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "ngrok",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "Tunnel ",
+            ".ngrok.io not found"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "jetbrains_youtrack",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "is not a registered InCloud YouTrack"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "canny",
+      "signatures": [
+        {
+          "statuses": [],
+          "bodyContains": [
+            "There is no such company. Did you enter the right URL?"
+          ]
+        }
+      ]
+    }
+  ]
+}

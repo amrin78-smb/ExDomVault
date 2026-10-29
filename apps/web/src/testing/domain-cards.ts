@@ -9,6 +9,7 @@ export const DOMAIN_CARD_KEYS = [
   'registration',
   'ports',
   'dns',
+  'email',
   'tls',
   'http',
 ] as const;

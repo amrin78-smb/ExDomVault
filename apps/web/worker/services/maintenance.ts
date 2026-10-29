@@ -7,7 +7,11 @@ import { evaluatePendingJobs } from './evaluation.ts';
 import { expireAcceptedRisks } from './finding-lifecycle.ts';
 import { intelMaintenanceSteps, type IntelDeps } from './intel-feeds.ts';
 import { reapExpiredLeases } from './job-lifecycle.ts';
+import { generateDueMonthlyReport } from './monthly-reports.ts';
+import { snapshotSecurityScores } from './security-score.ts';
+import { backfillDueDates } from './sla.ts';
 import { checkWorkerOutage } from './ops.ts';
+import { scheduleBrandMonitoring } from './lookalikes.ts';
 import { runRetention } from './retention.ts';
 import { scheduleActiveScans } from './scan-schedule.ts';
 import { buildSnapshot, listProfiles } from './scans.ts';
@@ -270,6 +274,8 @@ export async function runMaintenance(
     ['nonces_pruned', () => pruneNonces(db, now)],
     ['passive_jobs_scheduled', () => schedulePassiveMonitoring(db, now)],
     ['discovery_jobs_scheduled', () => scheduleDiscovery(db, now)],
+    // Milestone 15: weekly lookalike-domain checks for domains with brand monitoring on.
+    ['brand_jobs_scheduled', () => scheduleBrandMonitoring(db, now)],
     // Scheduled active scans: only when an administrator enabled the schedule AND the server
     // switch is on; each job gets the same scope checks as a user-requested active scan.
     [
@@ -287,6 +293,11 @@ export async function runMaintenance(
     ['evaluate_pending_jobs', () => evaluatePendingJobs(db, now, { logger })],
     // Accepted risks past their review date return to `open` (audited, history kept).
     ['accepted_risks_expired', () => expireAcceptedRisks(db, now)],
+    // Milestone 14: remediation SLA due dates for findings without one (idempotent backfill),
+    // today's security score snapshots (at most hourly), last month's executive report (once).
+    ['sla_due_dates_backfilled', () => backfillDueDates(db)],
+    ['security_scores_snapshotted', () => snapshotSecurityScores(db, now)],
+    ['monthly_report_generated', () => generateDueMonthlyReport(db, now)],
     // Persistent worker outage: logs worker_outage_started / worker_outage_ended once per transition.
     ['worker_outage_check', () => checkWorkerOutage(db, now, logger)],
     // Retention (RETENTION_POLICY): bounded batches, at most hourly unless a backlog remains.

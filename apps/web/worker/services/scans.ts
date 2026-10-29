@@ -1,5 +1,6 @@
 import { schema, type Database } from '@exdomainvault/database';
 import {
+  BRAND_PROFILE_KEY,
   DISCOVERY_PROFILE_KEY,
   SCAN_TARGET_STATUSES,
   scanProfileConfigSchema,
@@ -214,6 +215,15 @@ export async function createScan(
     ]);
   }
   const profile = await getProfile(db, input.profile);
+  if (input.profile === BRAND_PROFILE_KEY || profile.config.checks.includes('lookalike')) {
+    // Brand jobs carry a server-generated candidate list (services/lookalikes.ts).
+    throw new ApiError(400, 'validation_failed', 'The scan profile is invalid.', [
+      {
+        path: 'profile',
+        message: 'Lookalike checks are not a scan profile; use POST /domains/:id/lookalikes/check.',
+      },
+    ]);
+  }
   if (
     jobType === 'discovery' &&
     (profile.config.active || !profile.config.checks.includes('discovery'))

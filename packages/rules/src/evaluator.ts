@@ -53,6 +53,7 @@ const KIND_FIELD: Record<ObservationKind, keyof ObservationSet> = {
   http: 'http',
   port: 'ports',
   discovery: 'discovery',
+  lookalike: 'lookalike',
 };
 
 function hasSuccessfulEvidence(set: ObservationSet, kind: ObservationKind): boolean {

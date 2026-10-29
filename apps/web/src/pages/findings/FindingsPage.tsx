@@ -18,6 +18,7 @@ import { CATEGORY_LABELS, SORT_LABELS, userLabel } from '../../components/findin
 import { Pagination } from '../../components/findings/Pagination.tsx';
 import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { RiskScore } from '../../components/findings/RiskScore.tsx';
+import { DueBadge } from '../../components/findings/DueBadge.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { EmptyState } from '../../components/ui/EmptyState.tsx';
@@ -38,6 +39,7 @@ const FILTER_KEYS = [
   'domainId',
   'ruleId',
   'q',
+  'overdue',
 ] as const;
 const QUERY_KEYS = ['page', 'pageSize', ...FILTER_KEYS, 'sort'] as const;
 
@@ -186,6 +188,18 @@ export function FindingsPage() {
             </select>
           </label>
           <label className="text-xs text-fg-muted">
+            <span className="mb-1 block">Remediation SLA</span>
+            <select
+              className={selectClass}
+              value={params.get('overdue') ?? ''}
+              onChange={(e) => setParam('overdue', e.target.value)}
+            >
+              <option value="">Any due date</option>
+              <option value="true">Overdue</option>
+              <option value="false">Not overdue</option>
+            </select>
+          </label>
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Sort</span>
             <select
               className={selectClass}
@@ -309,6 +323,9 @@ export function FindingsPage() {
                       Status
                     </th>
                     <th scope="col" className="py-2 pr-4">
+                      Due
+                    </th>
+                    <th scope="col" className="py-2 pr-4">
                       Assignee
                     </th>
                     <th scope="col" className="py-2">
@@ -352,6 +369,9 @@ export function FindingsPage() {
                       </td>
                       <td className="py-2.5 pr-4">
                         <FindingStatusBadge status={f.status} />
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <DueBadge finding={f} />
                       </td>
                       <td className="py-2.5 pr-4 text-fg-2">
                         {f.assignee ? (

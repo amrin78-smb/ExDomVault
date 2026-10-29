@@ -46,7 +46,7 @@ export function findingRoutes(deps: FindingRouteDeps = {}) {
       .get('/', requirePermission('findings:read'), async (c) => {
         const query = parseQuery(c, findingListQuerySchema);
         const db = await c.get('db')();
-        return c.json(await listFindings(db, c.get('user'), query, rules));
+        return c.json(await listFindings(db, c.get('user'), query, rules, now()));
       })
       .get('/summary', requirePermission('findings:read'), async (c) => {
         const { domainId } = parseQuery(c, summaryQuerySchema);
@@ -75,7 +75,7 @@ export function findingRoutes(deps: FindingRouteDeps = {}) {
       .get('/:id', requirePermission('findings:read'), async (c) => {
         const id = uuidParam(c, 'id');
         const db = await c.get('db')();
-        return c.json(await getFindingDetail(db, c.get('user'), id, rules));
+        return c.json(await getFindingDetail(db, c.get('user'), id, rules, now()));
       })
       .patch('/:id', requirePermission('findings:read'), async (c) => {
         const id = uuidParam(c, 'id');

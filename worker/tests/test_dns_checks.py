@@ -3,7 +3,15 @@ import dns.resolver
 import pytest
 
 from app.checks import CheckContext, CheckStopped, RateLimiter, TargetTimeout
-from app.dns_checks import DnsAnswer, check_dns, normalise_values, query_to_observation
+from app.dns_checks import (
+    DKIM_SELECTORS,
+    DnsAnswer,
+    check_dns,
+    normalise_values,
+    planned_queries,
+    query_to_observation,
+    receives_mail,
+)
 
 TARGET = "3a1d4c1e-6b7f-4f4e-9d2e-8a9b0c1d2e3f"
 
@@ -159,7 +167,8 @@ def test_apex_plan_and_subdomain_plan():
         ("example.com", "DS"),
         ("example.com", "DNSKEY"),
         ("_dmarc.example.com", "TXT"),
-    ]
+        *[(f"{sel}._domainkey.example.com", "TXT") for sel in DKIM_SELECTORS],
+    ]  # the default answer is not a valid MX, so no receiving-side mail names
     out.clear()
     check_dns(resolver, TARGET, "www.example.com", False, ctx(), out.append)
     assert [o["recordType"] for o in out] == ["A", "AAAA", "CNAME"]
@@ -206,3 +215,129 @@ def test_dnspython_resolver_uses_configured_nameservers_without_network():
     assert r._resolver.timeout == 2.0
     assert r._resolver.cache is None
     assert dns.exception.Timeout  # imported for type mapping
+
+
+# -- Milestone 15: e-mail security names and takeover evidence ----------------------------------
+
+MAIL_NAMES = [
+    ("_mta-sts.example.com", "TXT"),
+    ("_smtp._tls.example.com", "TXT"),
+    ("default._bimi.example.com", "TXT"),
+]
+
+
+def run_apex(table):
+    resolver = FakeResolver(table)
+    out: list[dict] = []
+    check_dns(resolver, TARGET, "example.com", True, ctx(), out.append)
+    return resolver, out
+
+
+def test_mail_names_are_queried_only_when_mx_lists_a_real_exchanger():
+    resolver, out = run_apex(
+        {("example.com", "MX"): DnsAnswer(300, ["10 mx1.example.com."], "example.com")}
+    )
+    queried = [(q[0], q[1]) for q in resolver.queries]
+    assert queried[-3:] == MAIL_NAMES
+    assert queried == planned_queries("example.com", True, receives_mail=True)
+    assert [(o["hostname"], o["recordType"]) for o in out] == queried
+
+
+@pytest.mark.parametrize(
+    "mx",
+    [
+        DnsAnswer(300, ["0 ."], "example.com"),  # null MX (RFC 7505): no mail
+        None,  # NODATA
+        dns.resolver.NXDOMAIN,
+        dns.exception.Timeout,  # unknown: do not guess
+    ],
+)
+def test_no_mail_names_without_a_real_mx(mx):
+    resolver, _out = run_apex({("example.com", "MX"): mx})
+    queried = {(q[0], q[1]) for q in resolver.queries}
+    assert not queried & set(MAIL_NAMES)
+    # DKIM selectors are always queried at the apex (sending does not require an MX).
+    assert ("google._domainkey.example.com", "TXT") in queried
+    assert ("selector1._domainkey.example.com", "TXT") in queried
+
+
+def test_subdomains_get_no_mail_or_dkim_queries():
+    assert planned_queries("www.example.com", False, receives_mail=True) == [
+        ("www.example.com", "A"),
+        ("www.example.com", "AAAA"),
+        ("www.example.com", "CNAME"),
+    ]
+
+
+def test_receives_mail():
+    ok = {"resultStatus": "success", "values": ["10 mx.example.com."]}
+    assert receives_mail(ok)
+    assert not receives_mail({"resultStatus": "success", "values": ["0 ."]})
+    assert not receives_mail({"resultStatus": "success", "values": []})
+    assert not receives_mail({"resultStatus": "timeout", "values": []})
+    assert not receives_mail({"resultStatus": "success", "values": ["garbage"]})
+    assert not receives_mail(None)
+
+
+def test_dkim_selector_names_pass_the_observation_contract():
+    import re
+
+    label = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
+    for sel in DKIM_SELECTORS:
+        assert label.match(sel), sel
+
+
+def test_dkim_cname_delegation_is_followed_and_recorded():
+    name = "selector1._domainkey.example.com"
+    target = "selector1-example-com._domainkey.tenant.onmicrosoft.test"
+    resolver = FakeResolver(
+        {(name, "TXT"): DnsAnswer(3600, ['"v=DKIM1; k=rsa; p=MIIBIjAN"'], target)}
+    )
+    obs = query_to_observation(resolver, TARGET, name, "TXT", 5.0)
+    assert obs["hostname"] == name
+    assert obs["values"] == ['"v=DKIM1; k=rsa; p=MIIBIjAN"']
+    assert obs["evidence"] == {"rcode": "NOERROR", "canonicalName": target}
+
+
+def nxdomain_via_cname(qname: str, target: str) -> dns.resolver.NXDOMAIN:
+    """A dnspython NXDOMAIN as the stub resolver raises it for qname -> CNAME target -> NXDOMAIN."""
+    import dns.message
+    import dns.name
+    import dns.rcode
+    import dns.rdata
+    import dns.rdataclass
+    import dns.rdatatype
+
+    q = dns.name.from_text(qname)
+    response = dns.message.make_response(dns.message.make_query(q, "A"))
+    response.set_rcode(dns.rcode.NXDOMAIN)
+    rrset = response.find_rrset(
+        response.answer, q, dns.rdataclass.IN, dns.rdatatype.CNAME, create=True
+    )
+    rrset.add(dns.rdata.from_text("IN", "CNAME", target + "."), 300)
+    return dns.resolver.NXDOMAIN(qnames=[q], responses={q: response})
+
+
+def test_nxdomain_records_the_chain_end_as_canonical_name():
+    host = "shop.example.com"
+    exc = nxdomain_via_cname(host, "Old-Shop.AzureWebsites.net")
+    resolver = FakeResolver({(host, "A"): exc})
+    obs = query_to_observation(resolver, TARGET, host, "A", 5.0)
+    assert obs["resultStatus"] == "success"
+    assert obs["values"] == []
+    assert obs["evidence"] == {"rcode": "NXDOMAIN", "canonicalName": "old-shop.azurewebsites.net"}
+
+
+def test_nxdomain_without_a_chain_has_no_canonical_name():
+    host = "gone.example.com"
+    import dns.message
+    import dns.name
+    import dns.rcode
+
+    q = dns.name.from_text(host)
+    response = dns.message.make_response(dns.message.make_query(q, "A"))
+    response.set_rcode(dns.rcode.NXDOMAIN)
+    plain = dns.resolver.NXDOMAIN(qnames=[q], responses={q: response})
+    for exc in (plain, dns.resolver.NXDOMAIN()):  # unparametrised: canonical_name raises
+        obs = query_to_observation(FakeResolver({(host, "A"): exc}), TARGET, host, "A", 5.0)
+        assert obs["evidence"] == {"rcode": "NXDOMAIN"}

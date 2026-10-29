@@ -245,8 +245,11 @@ class HttpHop:
     #: Short machine-oriented detail for ``error`` hops (``timeout``, ``connection_refused``,
     #: ``certificate_verify_failed: ...``, ``dns_timeout``, ``nxdomain``, ``header_too_large``...).
     error: str | None = None
-    #: Body bytes read (bounded by ``max_body_bytes``); the body itself is discarded.
+    #: Body bytes read (bounded by ``max_body_bytes``).
     body_bytes: int = 0
+    #: The body bytes read (≤ ``max_body_bytes``), kept only for in-process matching of
+    #: subdomain-takeover signatures (``app.http_checks``); never logged, never uploaded.
+    body: bytes = field(default=b"", repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -367,19 +370,25 @@ def _parse_head(head: bytes) -> tuple[int, dict[str, str]]:
     return status, headers
 
 
-def _read_body(sock: socket.socket, initial: bytes, limit: int, deadline: float) -> int:
-    """Reads and discards at most ``limit`` body bytes; returns how many were read. Read errors
-    after the header block are ignored (the status and headers are already evidence)."""
-    count = min(len(initial), limit)
+def _read_body(
+    sock: socket.socket, initial: bytes, limit: int, deadline: float
+) -> tuple[int, bytes]:
+    """Reads at most ``limit`` body bytes; returns (count, the bytes read). Read errors after the
+    header block are ignored (the status and headers are already evidence). The bytes stay in
+    memory for in-process signature matching only; they are never logged or uploaded."""
+    parts = [initial[:limit]]
+    count = len(parts[0])
     try:
         while count < limit:
             chunk = _recv_some(sock, deadline, min(16384, limit - count))
             if not chunk:
                 break
+            chunk = chunk[: limit - count]
+            parts.append(chunk)
             count += len(chunk)
     except (OSError, ValueError):
         pass
-    return min(count, limit)
+    return count, b"".join(parts)
 
 
 def _error_detail(exc: BaseException) -> str:
@@ -416,7 +425,7 @@ def _exchange(
     max_body_bytes: int,
     tier: Tier,
     deadline: float,
-) -> tuple[int, dict[str, str], int]:
+) -> tuple[int, dict[str, str], int, bytes]:
     connect_timeout = _bounded_timeout(timeout, deadline)
     sock: socket.socket = connect_tcp(
         policy, address, target.port, timeout=connect_timeout, tier=tier
@@ -438,8 +447,8 @@ def _exchange(
         sock.sendall(request)
         head, rest = _read_head(sock, deadline)
         status, headers = _parse_head(head)
-        body = _read_body(sock, rest, max_body_bytes, deadline)
-        return status, headers, body
+        count, body = _read_body(sock, rest, max_body_bytes, deadline)
+        return status, headers, count, body
     finally:
         sock.close()
 
@@ -520,7 +529,7 @@ def http_get(
         address = resolved.addresses[0]
         visited.add(current)
         try:
-            status, headers, body = _exchange(
+            status, headers, body_count, body = _exchange(
                 policy, parsed, address, timeout=seconds, max_body_bytes=body_limit, tier=tier,
                 deadline=min(overall, time.monotonic() + 2 * seconds),
             )  # fmt: skip
@@ -535,9 +544,11 @@ def http_get(
 
         location = headers.get("location")
         if status not in REDIRECT_STATUSES or not location:
-            hops.append(HttpHop(current, address, status, headers, FINAL, body_bytes=body))
+            hops.append(
+                HttpHop(current, address, status, headers, FINAL, body_bytes=body_count, body=body)
+            )
             return HttpResult(hops=tuple(hops))
-        hops.append(HttpHop(current, address, status, headers, FOLLOWED, body_bytes=body))
+        hops.append(HttpHop(current, address, status, headers, FOLLOWED, body_bytes=body_count))
         try:
             next_url = urljoin(current, location.strip())
         except ValueError:

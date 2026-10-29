@@ -100,7 +100,7 @@ describe('Subdomains page', () => {
     expect(first.getByText('Approved')).toBeInTheDocument();
     expect(first.getByText('Web server')).toBeInTheDocument();
     expect(first.getByText('192.0.2.10')).toBeInTheDocument();
-    expect(within(rows[2]!).getByText('DNS')).toBeInTheDocument();
+    expect(within(rows[2]!).getByText('DNS (reverse lookup)')).toBeInTheDocument();
     expect(within(rows[2]!).getByText('Amazon CloudFront')).toBeInTheDocument();
     expect(within(rows[2]!).getByText('None resolved')).toBeInTheDocument();
     expect(within(rows[3]!).getByText('Import')).toBeInTheDocument();

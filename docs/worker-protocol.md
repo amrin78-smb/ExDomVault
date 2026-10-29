@@ -126,7 +126,14 @@ Common fields: `kind`, `targetId`, `observedAt` (ISO UTC), `checkerVersion`, `re
   `10 mx.example.com.`, null MX `0 .`); CNAME/NS/MX/SOA values are lowercased (resolvers may randomise
   case), TXT/CAA/DS/DNSKEY keep their case. NODATA is `success`, `values: []`,
   `evidence: { rcode: "NOERROR", noData: true }`. Queried per target: A, AAAA, CNAME; at the apex also
-  MX, NS, TXT, CAA, SOA, DS, DNSKEY and `_dmarc.<apex>` TXT.
+  MX, NS, TXT, CAA, SOA, DS, DNSKEY and `_dmarc.<apex>` TXT, then (Milestone 15) TXT at
+  `<selector>._domainkey.<apex>` for each common DKIM selector (`dns_checks.DKIM_SELECTORS`), and —
+  only when that run's apex MX lists a real exchanger (not empty, not a null MX `0 .`) — TXT at
+  `_mta-sts.<apex>`, `_smtp._tls.<apex>` and `default._bimi.<apex>`. Query names may therefore be
+  `<selector>._domainkey.<domain>` / `<selector>._bimi.<domain>` (one LDH label before the service
+  label). For an aliased name, `evidence.rcode` is the chain's terminal status and
+  `evidence.canonicalName` names the chain's end when it differs from the query name — for NOERROR and
+  (from Milestone 15) NXDOMAIN answers; a CNAME-delegated DKIM selector therefore records its target.
   Optional `geo` (Milestone 13, see [IP geolocation](#ip-geolocation-milestone-13)): A/AAAA only,
   `[{ ip, country }]` for each value the worker's offline database places in a country (`country` =
   ISO 3166-1 alpha-2, uppercase; `ip` exactly as in `values`, same order; ≤ 100 entries). The field is
@@ -226,6 +233,156 @@ target. They are sent through the normal `ResultUploader`: batches of at most 50
 ≤ 900 KB), each with its own stable `resultId`; the target update and `complete: true` go in the last
 batch.
 
+## Wider discovery (Milestone 15)
+
+Migration `0009` makes the `discovery` profile version 2: `checks: ["discovery", "network"]`. Both
+checks are passive and run only for the apex target, `discovery` first.
+
+### Second Certificate Transparency provider: Cert Spotter
+
+`CertSpotterProvider` (`worker/app/discovery.py`) runs after `CrtShProvider`:
+`GET https://api.certspotter.com/v1/issuances?domain=<domain>&include_subdomains=true&expand=dns_names&expand=issuer`
+(free unauthenticated tier; fixed URL, the domain being the validated registrable job domain), then the
+same URL with `&after=<id of the last issuance of the previous page>` until an empty page. Same request
+hygiene as crt.sh (HTTPS, verified, no redirects, no environment proxies, identifying User-Agent,
+profile timeouts clipped to the budget); at most 10 pages of at most 8 MB each; at least 2 s between
+requests per worker process; HTTP 429 with `Retry-After` ≤ 60 s is waited for once. Each issuance's
+`dns_names` are kept when its `not_after` lies within the last 365 days or in the future; the issuer is
+`issuer.friendly_name` (or `issuer.name`). A cursor that is not `[0-9A-Za-z_-]{1,64}` stops paging. A
+failure on the first page is transient (timeout, connection error, 408/425/429/5xx) or permanent
+(other status, redirect, non-JSON, not an array) exactly as for crt.sh; on a later page it only
+truncates the run. **The API shape is implemented from SSLMate's published documentation and was not
+verified against the live service in this milestone**; tests use recorded-shape fixtures.
+
+**Merging providers** (`run_discovery` with a list): names from all providers that returned data are
+merged before the candidate pipeline. Candidate `evidence.provider` is the first provider (configured
+order: crt.sh, then certspotter) that reported the name, and `evidence.providers` lists all of them when
+more than one did. One failing provider does **not** fail the run: the run is `partial` (one `partial`
+apex observation with `evidence.failedProviders: [{ provider, errorClass, transient? }]`), and the other
+provider's candidates are reported. Only when no provider produced data: if any failure was transient
+the job fails retryably (`discovery_provider_unavailable`); otherwise one `error` apex observation per
+provider and the apex target fails with `discovery_provider_error`.
+
+### Network ownership: the `network` check
+
+`worker/app/network_checks.py`. Inputs come with the claimed job (computed by the server at claim
+time, only for a discovery job whose snapshot profile lists `network`):
+
+```json
+"network": { "orgNames": ["Thai Union"], "addresses": ["49.231.0.10", "2400:aa00::10"] }
+```
+
+`addresses`: distinct current public addresses of the domain's **approved** assets (`asset_ips`,
+`is_current`), sorted, at most 256. `orgNames`: the `discovery_org_names` setting. The worker ignores
+anything malformed (and drops prohibited addresses), so a bad payload can only make it do less.
+
+1. **RDAP.** Registry base from the IANA IP bootstrap files (`https://data.iana.org/rdap/ipv4.json`,
+   `ipv6.json`, cached 24 h, longest prefix wins). Only these RDAP hosts are ever contacted:
+   `rdap.apnic.net`, `rdap.arin.net`, `rdap.db.ripe.net`, `rdap.lacnic.net`, `rdap.afrinic.net`
+   (HTTPS, port 443, certificate verified, no environment proxies, `User-Agent:
+ExDomainVault-worker/<version> (passive network ownership)`). `GET <base>ip/<address>`, `Accept:
+application/rdap+json`, 1 MB cap, at most 2 redirects and only to another of those hosts, at least
+   1 s between requests to one registry (process-wide), HTTP 429 retried once when `Retry-After` ≤
+   30 s. Per run: at most 100 `/ip` queries; an address inside a network already fetched is not
+   queried again. The check has its own `targetSeconds` budget (after discovery used the target's).
+2. **Parsing.** `startAddress`/`endAddress`, `cidr0_cidrs` (else the range summarised to CIDRs; ≤ 32),
+   `handle`, `name`, `country` (two letters), organisation = first `fn`/`org` of an entity with role
+   `registrant`, else the network's first description remark (APNIC/RIPE `descr`), else an
+   `administrative` entity. All registrant/administrative names and description lines (≤ 10) go to
+   `evidence.entityNames`.
+3. **Matching** (`org_name_matches`, mirrored by `orgNameMatches` in `packages/shared`): NFKC,
+   lowercase, every run of characters other than ASCII letters/digits → one space; a configured name
+   with its spaces removed must equal a run of consecutive words of the candidate joined together.
+   `Thai Union` matches `Thai Union Group PCL`, `THAI-UNION Europe B.V.`, `THAIUNION-TH`; not `Thai
+Unionist`, `Thailand Union` or `THAIUNIONGROUP`. Candidates: organisation, network name,
+   `entityNames`.
+4. **Reverse DNS** of matched networks only: IPv4 networks of at most 1024 addresses (a /22) get one
+   PTR query per address through the configured resolvers, on the job's rate limiter
+   (`ratePerSecond`), at most 2048 PTR queries per run, within the budget. Larger networks, IPv6 and
+   unknown ranges are skipped (`evidence.reverseDns: { status: "skipped", reason: "too_large" | "ipv6" |
+"range_unknown" | "not_matched" }`); otherwise `{ status: "complete" | "query_cap" | "time_cap",
+size, queried, errors, namesInDomain, namesOutsideDomain }`. PTR names are normalised like CT
+   candidates; only names within **the job's own domain** (exact label boundary) are reported — names
+   of other monitored domains are only counted (they will be found when that domain's own addresses
+   are looked up). Reported names are then resolved (A, AAAA, CNAME) like CT candidates.
+
+Observations (apex `targetId`):
+
+- `network` per distinct network: `ipAddress` (first job address in it), `startAddress`,
+  `endAddress`, `cidrs`, `registry` (`apnic|arin|ripe|lacnic|afrinic`), `handle`, `networkName`,
+  `orgName`, `country`, `matchedOrg`, `evidence: { addresses (job addresses inside, ≤ 64),
+entityNames?, reverseDns }`. A failed lookup is one `error`/`timeout` observation with only
+  `ipAddress` set and `evidence: { errorClass, http? }` (`no_rdap_service`, `not_found`,
+  `http_error`, `rate_limited`, `redirect_refused`, `response_too_large`, `invalid_json`, ...).
+- `discovery` with `source: "reverse_dns"`, `evidence: { provider: "ptr", addresses, network }` for
+  each PTR name, plus their `dns` observations.
+
+Server: a `network` observation is accepted only from a discovery job whose snapshot profile lists
+`network`, on the apex target, with a public `ipAddress` inside `[startAddress, endAddress]` (both or
+neither), and well-formed CIDRs. `matched_org` is **re-computed** against the current organisation
+names (the worker's value is ignored). Reverse-DNS names are stored as `pending` assets with
+`discovery_source = 'dns'` (Certificate Transparency wins when both sources report a new name in one
+batch); they are never approved automatically. A worker without an RDAP client fails only this check
+(`network_unavailable`).
+
+## Lookalike domains (Milestone 15)
+
+Profile `brand` (seeded by migration `0009`): `active: false`, `checks: ["lookalike"]`,
+`ratePerSecond: 10`, `concurrency: 8`, `targetSeconds: 1800`, `maxTargets: 1`, one target (the
+domain apex, `assetId` null), `scan_jobs.job_type = 'scan'`. Jobs are created only by the server: the
+weekly cron step `brand_jobs_scheduled` (domains with `brand_monitoring = true`, staggered over the
+week, priority 260) or `POST /domains/:id/lookalikes/check`; `POST /domains/:id/scans` refuses the
+profile. The worker claims it only when `EXDV_PROFILES` lists `brand` (default
+`passive,discovery,brand`). Implementation: `worker/app/lookalike_checks.py`.
+
+**Candidates come from the server.** `generateLookalikes` (`packages/shared/src/domain/lookalike.ts`,
+generator version 1) runs when the job is created; the list is frozen into the scope snapshot and
+returned with the claim:
+
+```json
+"snapshot": { "...": "...", "lookalike": { "generatorVersion": 1,
+  "candidates": [{ "candidate": "thaiunlon.com", "technique": "homoglyph" }, "..."] } }
+```
+
+Techniques: `omission`, `repetition`, `transposition`, `replacement` (QWERTY neighbours),
+`insertion`, `homoglyph` (ASCII look-alikes: `l`↔`1`/`i`, `o`↔`0`, `rn`↔`m`, `vv`↔`w`, `cl`↔`d`, …),
+`hyphenation`, `bitsquatting` (LDH results only), `vowel_swap`, `tld_swap` (41 curated TLDs/ccTLDs:
+`com net org co io info biz asia co.th in.th th com.my sg com.sg com.au co.uk de fr es it nl us ca cn
+com.cn jp kr vn com.vn id co.id ph com.ph xyz online site shop store app dev cloud`) and `subdomain_dot`
+(`thai.union.com`). Only the registrable label is varied; the domain itself, every monitored domain and
+names beneath them are excluded; at most 1500 candidates (`thaiunion.com` yields 259). IDN (punycode)
+homoglyphs are not generated. The worker refuses a missing or malformed list (target `failed`,
+`lookalike_candidates_invalid`), including any name within the job's own domain.
+
+**Resolution (public resolvers only — the candidates are never contacted).** Per candidate, every
+query waits for a rate-limit slot and respects the target deadline:
+
+1. `NS` at the candidate. NXDOMAIN → not registered. NOERROR without NS → `SOA`: an answer means a
+   zone apex (registered), otherwise not registered (a TLD wildcard never counts as a registration).
+2. `subdomain_dot` candidates are names beneath somebody else's domain: they exist when `A`, `AAAA`
+   or `MX` answers (no NS/SOA query; NXDOMAIN on `A` stops).
+3. Registered → `A`, `AAAA`, `MX` for the records (a failed lookup makes the observation `partial`).
+4. SERVFAIL / refused / other resolver failure on the deciding query → `resultStatus: "error"`, a
+   resolver timeout → `"timeout"`, both with `registered: false` and `evidence: { query, error }`.
+   A failure is never reported as "not registered".
+
+**Observation** (only registered candidates and failures; unregistered ones produce none):
+
+- `lookalike`: `candidate`, `technique` (both exactly as in the snapshot), `registered`, `records: {
+A?, AAAA?, MX?, NS? }` (presentation format, NS/MX lowercased, sorted, ≤ 20 values of ≤ 512 chars
+  each), `evidence: { queries, soa?, errors? }`.
+
+**Completeness.** A run that checked every candidate completes the apex target `succeeded`, even with
+no observations or with some candidate failures. Exhausting `targetSeconds` fails the target
+(`target_timeout`, observations so far uploaded); a stop/cancel reports nothing more; if every
+candidate failed the target fails with `lookalike_resolution_failed`. The server treats "absent from a
+job whose target succeeded" as "checked and not registered" and anything else as "not checked".
+
+**Server validation.** A `lookalike` observation is accepted only from a job whose profile lists
+`lookalike` and whose snapshot carries the list, for the apex target, for a candidate in that list with
+the listed technique, never within the job's domain, and never equal to or beneath ANY monitored domain
+(checked at ingestion; the whole submission is refused with 400). Rows go to `lookalike_observations`.
+
 ## Active checks (Milestone 6)
 
 Tiers (owner decision): **web** checks (`tls_certificate`, `http_availability`, `http_headers`) may
@@ -273,7 +430,11 @@ Additional observation kinds (all with the common fields):
   with `http_headers` also `securityHeaders` (`strict-transport-security`, `content-security-policy`,
   `x-content-type-options`, `x-frame-options`, `referrer-policy`, `permissions-policy` → value or
   null), `server` and `xPoweredBy` (version disclosure; values ≤ 512 printable ASCII chars). Never
-  cookies or bodies. A refused redirect makes the observation `partial`.
+  cookies or bodies. A refused redirect makes the observation `partial`. Optional
+  `takeoverSignature: { provider, signature }` (Milestone 15, rule DNS-008): the final response for the
+  requested host matched a provider's "unclaimed resource" signature (`provider` = key in
+  `worker/app/takeover_fingerprints.json`, `signature` = the matched text, ≤ 200 printable ASCII
+  chars). Matched in memory on the ≤ 64 KB body the GET already read; the body itself is never sent.
 - `port`: `ipAddress`, `port` (must be in the profile's `tcpPorts`), `protocol: "tcp"`,
   `state` (`open|closed|filtered`), `service`. Evidence: `{ method: "nmap-sT", reason?, product?,
 version?, serviceMethod? }`. `tls_configuration` is accepted in profiles but not run yet (no
@@ -282,7 +443,8 @@ version?, serviceMethod? }`. `tls_configuration` is accepted in profiles but not
 
 Hostnames in observations are validated syntactically (`packages/shared/src/hostname/labels.ts`
 `isValidHostname`): lowercase LDH A-labels of 1–63 characters, at least two labels, no empty labels;
-`dns` query names may additionally start with `_` service labels (`_dmarc.example.com`). Evidence is
+`dns` query names may additionally start with `_` service labels (`_dmarc.example.com`), or be a
+selector name `<label>._domainkey.<domain>` / `<label>._bimi.<domain>`. Evidence is
 limited to 16 KB measured in UTF-8 bytes.
 
 The server re-validates: hostnames within the domain (and, for `tls`/`http`, equal to the target's
@@ -310,6 +472,7 @@ Target-level codes (`targets[].errorCode`):
 | `egress_ip_unknown`                                                                                                                                                                                  | Worker self-protection: the public egress IPv4 could not be detected and `EXDV_DENY_NETWORKS` is empty, so web/network checks fail closed.  |
 | `out_of_scope_host`, `cname_out_of_scope`, `cname_chain_invalid`, `no_allowed_address`, `prohibited_address`, `deny_listed`, `network_not_approved`, `check_not_allowed`, `active_scanning_disabled` | Scope validator refusals (`worker/app/policy.py`).                                                                                          |
 | `discovery_provider_error`, `discovery_unavailable`                                                                                                                                                  | Discovery: the provider returned unusable data (one `error` observation carries `errorClass`); no provider configured in this worker build. |
+| `lookalike_candidates_invalid`, `lookalike_resolution_failed`                                                                                                                                        | Lookalike check: the snapshot's candidate list is missing or malformed; every candidate failed to resolve (resolver outage).                |
 | `target_timeout`, `http_error`, `http_timeout`, `nmap_unavailable`, `nmap_timeout`, `nmap_failed`, `nmap_output_too_large`, `nmap_output_invalid`, `nmap_no_results`                                 | Check failures.                                                                                                                             |
 | `not_reported`                                                                                                                                                                                       | Server: the target was not reported before `complete: true`.                                                                                |
 
@@ -335,7 +498,7 @@ name again itself, so this is a pre-check, not pinning; the systemd `IPAddressDe
 | `EXDV_ACCESS_CLIENT_SECRET`    | no       | Cloudflare Access service token secret                                                                                                                                                                                                                                                                                |
 | `EXDV_ENVIRONMENT`             | no       | `production` (default) or `development`                                                                                                                                                                                                                                                                               |
 | `EXDV_POLL_INTERVAL_SECONDS`   | no       | idle poll interval, 5–3600, default 30                                                                                                                                                                                                                                                                                |
-| `EXDV_PROFILES`                | no       | comma-separated profiles to claim, default `passive,discovery` (e.g. `passive,discovery,quick`)                                                                                                                                                                                                                       |
+| `EXDV_PROFILES`                | no       | comma-separated profiles to claim, default `passive,discovery,brand` (e.g. `passive,discovery,brand,quick`)                                                                                                                                                                                                           |
 | `EXDV_ACTIVE_SCANNING_ENABLED` | no       | `true` to run active (target-connecting) checks; default `false`. Only `true`/`false` accepted (anything else stops start-up). Read at start-up. The server's `ACTIVE_SCANNING_ENABLED` must also be `true`.                                                                                                          |
 | `EXDV_DENY_NETWORKS`           | no       | Extra networks never contacted, on top of the prohibited ranges: comma-separated canonical CIDRs (host bits zero) or single addresses, ≤ 100; a malformed entry stops start-up. Put the home's public IPv4 (`/32`) and IPv6 prefix (`/64`) here. **IPv6-only hosts must set it** (egress detection only counts IPv4). |
 | `EXDV_NMAP_PATH`               | no       | absolute path without whitespace, default `/usr/bin/nmap`; network checks fail (`nmap_unavailable`) if it is not an executable file                                                                                                                                                                                   |

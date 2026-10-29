@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate, fingerprint } from '../evaluator.ts';
-import { APEX, asPrevious, context, dns, dnsFailed, input } from '../fixtures/builders.ts';
+import { APEX, asPrevious, context, dns, dnsFailed, http, input } from '../fixtures/builders.ts';
 import type { DnsRecordSetObservation } from '../types.ts';
 import {
   analyseSpf,
@@ -12,6 +12,7 @@ import {
   dns005,
   dns006,
   dns007,
+  dns008,
   dnsRules,
   isWithinDomain,
   takeoverProneService,
@@ -557,5 +558,169 @@ describe('DNS rules through the evaluator', () => {
       expect(r.requiresChecks).toEqual(['dns']);
       expect(r.evidenceRequirements && r.detection && r.resolution).toBeTruthy();
     }
+  });
+});
+
+describe('DNS-008 subdomain takeover risk confirmed by provider response', () => {
+  const host = `shop.${APEX}`;
+  const nx = (canonicalName?: string) => ({
+    rcode: 'NXDOMAIN',
+    ...(canonicalName ? { canonicalName } : {}),
+  });
+  const aliased = (target: string, a: DnsRecordSetObservation, aaaa: DnsRecordSetObservation) => [
+    dns(host, 'CNAME', [`${target}.`]),
+    a,
+    aaaa,
+  ];
+  const nxChain = (target: string) =>
+    aliased(
+      target,
+      dns(host, 'A', [], { evidence: nx(target) }),
+      dns(host, 'AAAA', [], { evidence: nx(target) }),
+    );
+  const resolving = (target: string) =>
+    aliased(
+      target,
+      dns(host, 'A', ['192.0.2.50'], { evidence: { rcode: 'NOERROR', canonicalName: target } }),
+      dns(host, 'AAAA', [], { evidence: { rcode: 'NOERROR', noData: true } }),
+    );
+  const signature = (provider: string, h = host, statusCode = 404) =>
+    http(
+      { url: `https://${h}/`, finalUrl: `https://${h}/`, statusCode },
+      { evidence: { hops: [], takeoverSignature: { provider, signature: 'unclaimed' } } },
+    );
+  const plainHttp = (h = host) => http({ url: `https://${h}/`, finalUrl: `https://${h}/` });
+  const checkedTakeover = [{ hostname: host, component: 'takeover' }];
+
+  it('raises (medium confidence) for an NXDOMAIN chain at a provider that releases names', () => {
+    const out = dns008.evaluate(input({ dns: nxChain('old-shop.azurewebsites.net') }));
+    expect(out.checked).toEqual([]);
+    expect(out.findings).toHaveLength(1);
+    expect(out.findings[0]).toMatchObject({
+      hostname: host,
+      component: 'takeover',
+      severity: 'high',
+      confidence: 'medium',
+      exposure: 'web',
+      evidence: {
+        provider: 'azure',
+        evidenceTypes: ['dns_nxdomain'],
+        cnameChain: ['old-shop.azurewebsites.net'],
+        httpSignature: null,
+      },
+    });
+    expect(out.findings[0]!.description).toMatch(/No takeover was attempted/);
+  });
+
+  it('records the chain end from the NXDOMAIN canonical name for multi-hop chains', () => {
+    const out = dns008.evaluate(
+      input({
+        dns: aliased(
+          'shop.cdn-partner.test',
+          dns(host, 'A', [], { evidence: nx('legacy.cloudapp.net') }),
+          dns(host, 'AAAA', [], { evidence: nx('legacy.cloudapp.net') }),
+        ),
+      }),
+    );
+    expect(out.findings[0]?.evidence.cnameChain).toEqual([
+      'shop.cdn-partner.test',
+      'legacy.cloudapp.net',
+    ]);
+  });
+
+  it('does not raise for NXDOMAIN at providers whose names cannot simply be re-registered', () => {
+    const out = dns008.evaluate(input({ dns: nxChain('abc123.herokudns.com') }));
+    expect(out.findings).toEqual([]);
+  });
+
+  it('resolves when the provider name exists again (DNS-only provider)', () => {
+    const out = dns008.evaluate(input({ dns: resolving('shop.azurewebsites.net') }));
+    expect(out).toEqual({ findings: [], checked: checkedTakeover });
+  });
+
+  it('raises with high confidence on a matching HTTP signature for the CNAME provider', () => {
+    const out = dns008.evaluate(
+      input(
+        { dns: resolving('example-org.github.io'), http: [signature('github_pages')] },
+        {},
+        { checks: ['dns', 'http_availability'] },
+      ),
+    );
+    expect(out.findings[0]).toMatchObject({
+      confidence: 'high',
+      severity: 'high',
+      evidence: {
+        provider: 'github_pages',
+        evidenceTypes: ['http_signature'],
+        httpSignature: { key: 'github_pages', statusCode: 404 },
+      },
+    });
+  });
+
+  it('ignores a signature from a different provider than the CNAME target', () => {
+    const out = dns008.evaluate(
+      input({ dns: resolving('my-app.herokuapp.com'), http: [signature('github_pages')] }),
+    );
+    expect(out).toEqual({ findings: [], checked: checkedTakeover });
+  });
+
+  it('accepts a signature without a CNAME only for providers used via A records (medium)', () => {
+    const noCname = [dns(host, 'CNAME', []), dns(host, 'A', ['192.0.2.153'])];
+    const gh = dns008.evaluate(input({ dns: noCname, http: [signature('github_pages')] }));
+    expect(gh.findings[0]).toMatchObject({ confidence: 'medium', evidence: { cnameChain: [] } });
+    const heroku = dns008.evaluate(input({ dns: noCname, http: [signature('heroku')] }));
+    expect(heroku).toEqual({ findings: [], checked: checkedTakeover });
+  });
+
+  it('ignores unknown provider keys and signatures for other hosts', () => {
+    const out = dns008.evaluate(
+      input({
+        dns: [dns(host, 'CNAME', [])],
+        http: [signature('made_up'), signature('github_pages', `www.${APEX}`), plainHttp()],
+      }),
+    );
+    expect(out.findings).toEqual([]);
+  });
+
+  it('never resolves on incomplete evidence', () => {
+    const none = { findings: [], checked: [] };
+    // HTTP-confirmable provider, no HTTP response in this job (e.g. a passive scan).
+    expect(dns008.evaluate(input({ dns: resolving('example-org.github.io') }))).toEqual(none);
+    // A/AAAA failed.
+    expect(
+      dns008.evaluate(
+        input({
+          dns: aliased('x.azurewebsites.net', dnsFailed(host, 'A'), dnsFailed(host, 'AAAA')),
+        }),
+      ),
+    ).toEqual(none);
+    // CNAME lookup failed.
+    expect(
+      dns008.evaluate(input({ dns: [dnsFailed(host, 'CNAME')], http: [plainHttp()] })),
+    ).toEqual(none);
+    // No CNAME, but the HTTP attempt got no response.
+    expect(
+      dns008.evaluate(
+        input({
+          dns: [dns(host, 'CNAME', [])],
+          http: [http({ url: `https://${host}/`, statusCode: null }, { status: 'error' })],
+        }),
+      ),
+    ).toEqual(none);
+  });
+
+  it('a host without CNAME and with a clean HTTP response is checked (resolves)', () => {
+    const out = dns008.evaluate(input({ dns: [dns(host, 'CNAME', [])], http: [plainHttp()] }));
+    expect(out).toEqual({ findings: [], checked: checkedTakeover });
+  });
+
+  it('is registered and keeps DNS-002 as the independent weaker signal', () => {
+    expect(dnsRules.map((r) => r.id)).toContain('DNS-008');
+    const both = dnsRules
+      .filter((r) => r.id === 'DNS-002' || r.id === 'DNS-008')
+      .map(
+        (r) => r.evaluate(input({ dns: nxChain('old-shop.azurewebsites.net') })).findings.length,
+      );
+    expect(both).toEqual([1, 1]);
   });
 });

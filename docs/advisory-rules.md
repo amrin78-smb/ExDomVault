@@ -83,6 +83,12 @@ exposure rules). Exceptions are handled as accepted risk.
 | [DNS-005](#dns-005--dnssec-not-enabled)                                                     | 1       | dns          | DNSSEC not enabled                                                 | low              | high               |
 | [DNS-006](#dns-006--no-caa-record)                                                          | 1       | dns          | No CAA record                                                      | informational    | high               |
 | [DNS-007](#dns-007--monitoring-only-dmarc-policy)                                           | 1       | email        | Monitoring-only DMARC policy                                       | low              | high               |
+| [DNS-008](#dns-008--subdomain-takeover-risk-confirmed-by-provider-response)                 | 1       | dns          | Subdomain takeover risk confirmed by provider response             | high             | high               |
+| [EMAIL-001](#email-001--no-mta-sts-policy-for-a-mail-domain)                                | 1       | email        | No MTA-STS policy for a mail domain                                | low              | high               |
+| [EMAIL-002](#email-002--mta-sts-record-malformed)                                           | 1       | email        | MTA-STS record malformed                                           | low              | high               |
+| [EMAIL-003](#email-003--no-tls-reporting-tls-rpt-for-a-mail-domain)                         | 1       | email        | No TLS reporting (TLS-RPT) for a mail domain                       | informational    | high               |
+| [EMAIL-004](#email-004--no-dkim-key-found-at-common-selectors)                              | 1       | email        | No DKIM key found at common selectors                              | informational    | low                |
+| [EMAIL-005](#email-005--weak-or-revoked-dkim-key)                                           | 1       | email        | Weak or revoked DKIM key                                           | medium           | high               |
 | [EXP-001](#exp-001--newly-exposed-tcp-port)                                                 | 1       | exposure     | Newly exposed TCP port                                             | low              | high               |
 | [EXP-002](#exp-002--public-administrative-service-violating-the-exposure-policy)            | 1       | exposure     | Public administrative service violating the exposure policy        | high             | medium             |
 | [HTTP-001](#http-001--website-served-without-https)                                         | 1       | http         | Website served without HTTPS                                       | medium           | high               |
@@ -90,6 +96,7 @@ exposure rules). Exceptions are handled as accepted risk.
 | [HTTP-003](#http-003--hsts-not-enabled)                                                     | 1       | http         | HSTS not enabled                                                   | low              | high               |
 | [HTTP-004](#http-004--recommended-security-headers-missing)                                 | 1       | http         | Recommended security headers missing                               | informational    | high               |
 | [HTTP-005](#http-005--software-version-disclosed-in-http-headers)                           | 1       | http         | Software version disclosed in HTTP headers                         | informational    | high               |
+| [LOOK-001](#look-001--lookalike-domain-registered)                                          | 1       | asset        | Lookalike domain registered                                        | medium           | medium             |
 | [REG-001](#reg-001--domain-registration-expiry-within-30-days)                              | 1       | registration | Domain registration expiry within 30 days                          | high             | high               |
 | [REG-002](#reg-002--unexpected-registrar-or-nameserver-change)                              | 1       | registration | Unexpected registrar or nameserver change                          | medium           | medium             |
 | [SOFT-001](#soft-001--end-of-life-software-exposed)                                         | 1       | software     | End-of-life software exposed                                       | medium           | medium             |
@@ -401,6 +408,201 @@ References:
 - <https://www.m3aawg.org/sites/default/files/m3aawg_parked_domains_bp-2015-12.pdf>
 - <https://www.rfc-editor.org/rfc/rfc7505>
 
+### DNS-008 — Subdomain takeover risk confirmed by provider response
+
+| Field                      | Value |
+| -------------------------- | ----- |
+| Version                    | 1     |
+| Category                   | `dns` |
+| Default severity           | high  |
+| Default confidence         | high  |
+| Observation kinds required | `dns` |
+| Profile checks (any of)    | `dns` |
+
+**Evidence required.** Successful CNAME lookup for the hostname. DNS evidence: successful A and AAAA lookups (the resolver follows the chain; the worker records the chain end as canonicalName, also for NXDOMAIN). HTTP evidence: an http_availability response for the hostname carrying evidence.takeoverSignature (matched by the worker on the body it already reads; no extra request). Fingerprints: packages/rules/src/takeover-fingerprints.ts, curated from can-i-take-over-xyz (Vulnerable / Edge case entries only).
+
+**Detection.** Either (a) the CNAME chain leaves the monitored domain for a provider whose fingerprint says a dangling NXDOMAIN name can be re-registered by anyone (Azure, Elastic Beanstalk), neither A nor AAAA returns an address, and the answer was NXDOMAIN — confidence medium; or (b) the HTTP response for the hostname matches that same provider's "unclaimed resource" signature while the CNAME chain points at the provider — confidence high (medium when the provider is used without a CNAME, e.g. GitHub Pages apex A records). Severity is always high. Nothing is claimed or registered. DNS-002 (the weaker, unconfirmed signal) is still reported independently. Note: the scope validator refuses web checks for CNAME chains that leave the domain, so path (b) with a CNAME only applies if that policy changes; today the HTTP path applies to hosts without a CNAME.
+
+**Resolution.** A complete successful DNS check (CNAME plus A/AAAA) no longer shows the NXDOMAIN evidence and, where the provider is only confirmable over HTTP (or the host has no CNAME), a successful HTTP response for the host in the same job shows no signature. Failed or incomplete checks never resolve.
+
+**Sample advisory** (for `shop.example.com`): _Remove or re-claim the dangling record for shop.example.com_
+
+shop.example.com points at Microsoft Azure where the referenced resource appears to be unclaimed. This is the classic precondition for a subdomain takeover. Whoever claims the resource can serve arbitrary content (phishing, malware) under your hostname, read cookies scoped to the parent domain, and obtain trusted certificates for it.
+
+Recommended actions:
+
+- Treat this as urgent: confirm with the owner whether the service is still in use.
+- If it is not, delete the DNS record for shop.example.com now (and any records that point at it).
+- If it is, re-create or re-claim the resource on Microsoft Azure under your organisation's account immediately, and use the provider's domain verification feature where available.
+- Check whether the hostname already serves unexpected content; if so, handle it as a security incident.
+- Add DNS cleanup to the decommissioning checklist for cloud and SaaS resources.
+
+References:
+
+- <https://learn.microsoft.com/en-us/azure/security/fundamentals/subdomain-takeover>
+- <https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/10-Test_for_Subdomain_Takeover>
+- <https://github.com/EdOverflow/can-i-take-over-xyz>
+
+### EMAIL-001 — No MTA-STS policy for a mail domain
+
+| Field                      | Value   |
+| -------------------------- | ------- |
+| Version                    | 1       |
+| Category                   | `email` |
+| Default severity           | low     |
+| Default confidence         | high    |
+| Observation kinds required | `dns`   |
+| Profile checks (any of)    | `dns`   |
+
+**Evidence required.** Successful apex MX lookup listing a real exchanger and a successful TXT lookup at _mta-sts.<apex> (NXDOMAIN/NODATA count as "no record"). Only the DNS record is checked; the HTTPS policy file is never fetched.
+
+**Detection.** The domain receives mail (MX present, not a null MX) but no TXT record at _mta-sts.<apex> begins with v=STSv1. Malformed or duplicate records are EMAIL-002.
+
+**Resolution.** A v=STSv1 record is published at _mta-sts.<apex>, or the apex MX lookup shows the domain no longer receives mail.
+
+**Sample advisory** (for `example.com`): _Publish an MTA-STS policy for example.com_
+
+MTA-STS lets a receiving domain require authenticated TLS for inbound SMTP, so senders refuse to deliver over downgraded or spoofed connections. Inbound mail can be read or redirected by an attacker able to tamper with the network path or DNS responses seen by sending servers.
+
+Recommended actions:
+
+- Host the policy at https://mta-sts.example.com/.well-known/mta-sts.txt listing your MX hosts, starting with "mode: testing".
+- Publish TXT "v=STSv1; id=<version>" at _mta-sts.example.com (change id whenever the policy changes).
+- Publish a TLS-RPT record to receive failure reports, then move the policy to "mode: enforce".
+- Make sure every MX host presents a valid certificate for its name.
+
+References:
+
+- <https://www.rfc-editor.org/rfc/rfc8461>
+- <https://www.rfc-editor.org/rfc/rfc8460>
+- <https://www.ncsc.gov.uk/collection/email-security-and-anti-spoofing>
+
+### EMAIL-002 — MTA-STS record malformed
+
+| Field                      | Value   |
+| -------------------------- | ------- |
+| Version                    | 1       |
+| Category                   | `email` |
+| Default severity           | low     |
+| Default confidence         | high    |
+| Observation kinds required | `dns`   |
+| Profile checks (any of)    | `dns`   |
+
+**Evidence required.** Successful apex MX lookup listing a real exchanger and a successful TXT lookup at _mta-sts.<apex>.
+
+**Detection.** More than one TXT record at _mta-sts.<apex> begins with v=STSv1, or the single record has no valid id= (1–32 letters or digits). Senders then treat the domain as having no MTA-STS policy (RFC 8461 §3.1).
+
+**Resolution.** Exactly one well-formed v=STSv1 record (or none — EMAIL-001 then applies), or the domain no longer receives mail.
+
+**Sample advisory** (for `example.com`): _Fix the MTA-STS record for example.com_
+
+The MTA-STS DNS record must be a single TXT record "v=STSv1; id=<1–32 alphanumerics>". Until it is valid, senders apply no MTA-STS protection to inbound mail.
+
+Recommended actions:
+
+- Keep exactly one TXT record at _mta-sts.example.com starting with "v=STSv1;".
+- Give it an id= of 1–32 letters or digits, e.g. a date stamp such as 20261029T0000; change it whenever the policy file changes.
+- Verify the policy file at https://mta-sts.example.com/.well-known/mta-sts.txt is reachable over HTTPS.
+
+References:
+
+- <https://www.rfc-editor.org/rfc/rfc8461>
+
+### EMAIL-003 — No TLS reporting (TLS-RPT) for a mail domain
+
+| Field                      | Value         |
+| -------------------------- | ------------- |
+| Version                    | 1             |
+| Category                   | `email`       |
+| Default severity           | informational |
+| Default confidence         | high          |
+| Observation kinds required | `dns`         |
+| Profile checks (any of)    | `dns`         |
+
+**Evidence required.** Successful apex MX lookup listing a real exchanger and a successful TXT lookup at _smtp._tls.<apex>.
+
+**Detection.** The domain receives mail but has no usable TLS-RPT record: none beginning with v=TLSRPTv1, more than one, or a record without a valid rua= (mailto: or https: URIs).
+
+**Resolution.** Exactly one v=TLSRPTv1 record with a valid rua= is published, or the domain no longer receives mail.
+
+**Sample advisory** (for `example.com`): _Publish a TLS-RPT record for example.com_
+
+TLS-RPT gives the domain daily reports of TLS failures seen by sending mail servers. Without reports, MTA-STS/DANE misconfigurations and TLS downgrade attempts go unnoticed.
+
+Recommended actions:
+
+- Publish one TXT record at _smtp._tls.example.com: "v=TLSRPTv1; rua=mailto:<reporting address>".
+- Route the reports to a mailbox or a reporting service that someone reviews.
+
+References:
+
+- <https://www.rfc-editor.org/rfc/rfc8460>
+- <https://www.rfc-editor.org/rfc/rfc8461>
+
+### EMAIL-004 — No DKIM key found at common selectors
+
+| Field                      | Value         |
+| -------------------------- | ------------- |
+| Version                    | 1             |
+| Category                   | `email`       |
+| Default severity           | informational |
+| Default confidence         | low           |
+| Observation kinds required | `dns`         |
+| Profile checks (any of)    | `dns`         |
+
+**Evidence required.** Successful apex MX lookup listing a real exchanger, and successful TXT lookups for every DKIM selector the worker queried (<selector>._domainkey.<apex>, a fixed list of common selectors; CNAME-delegated selectors are followed by the resolver). Any failed selector lookup skips the rule.
+
+**Detection.** The domain has MX records but none of the queried common selectors publishes a DKIM key (a TXT record with a non-empty p=). DKIM selectors cannot be enumerated through DNS, so a domain using a custom or dated selector (e.g. Mimecast) is reported here although it signs mail: confidence is low.
+
+**Resolution.** A DKIM key is found at one of the queried selectors, or the domain no longer receives mail.
+
+**Sample advisory** (for `example.com`): _Confirm DKIM signing for example.com_
+
+DKIM signs outgoing mail so receivers can verify it was sent by an authorised system and not altered. Unsigned mail is more likely to be rejected or filtered, and DMARC cannot pass for forwarded mail.
+
+Recommended actions:
+
+- Ask the mail administrator which DKIM selectors are in use; if one exists, no action is needed (accept the finding).
+- Otherwise enable DKIM signing in each sending service (mail platform, marketing and ticketing tools) and publish the provided keys.
+- Use RSA keys of at least 2048 bits (or Ed25519 alongside RSA).
+
+References:
+
+- <https://www.rfc-editor.org/rfc/rfc6376>
+- <https://www.rfc-editor.org/rfc/rfc8301>
+- <https://www.ncsc.gov.uk/collection/email-security-and-anti-spoofing>
+
+### EMAIL-005 — Weak or revoked DKIM key
+
+| Field                      | Value   |
+| -------------------------- | ------- |
+| Version                    | 1       |
+| Category                   | `email` |
+| Default severity           | medium  |
+| Default confidence         | high    |
+| Observation kinds required | `dns`   |
+| Profile checks (any of)    | `dns`   |
+
+**Evidence required.** Successful TXT lookup at <selector>._domainkey.<apex> for one of the common selectors the worker queries.
+
+**Detection.** A published DKIM RSA key has a modulus shorter than 1024 bits (medium: such keys can be factored and RFC 8301 forbids verifying them), or the key record has an empty p= (informational: the key was revoked; harmless, reported as clean-up). One finding per selector.
+
+**Resolution.** The selector publishes an RSA key of at least 1024 bits or a non-RSA key, or no longer publishes a key record.
+
+**Sample advisory** (for `example.com`): _Replace the weak DKIM key for example.com_
+
+DKIM RSA keys shorter than 1024 bits are considered breakable and are not accepted by modern receivers. A factored key lets anyone sign mail that passes DKIM for the domain; meanwhile legitimate mail signed with it fails DKIM.
+
+Recommended actions:
+
+- Generate a new 2048-bit RSA key pair in the sending service, publish it under a new selector, and switch signing to it.
+- Then revoke the old key by publishing an empty p= at s1._domainkey.example.com, and later remove the record.
+
+References:
+
+- <https://www.rfc-editor.org/rfc/rfc6376>
+- <https://www.rfc-editor.org/rfc/rfc8301>
+
 ### EXP-001 — Newly exposed TCP port
 
 | Field                      | Value       |
@@ -630,6 +832,41 @@ References:
 
 - <https://owasp.org/www-project-web-security-testing-guide/latest/4-Information_Gathering/02-Fingerprint_Web_Server>
 - <https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html>
+
+### LOOK-001 — Lookalike domain registered
+
+| Field                      | Value       |
+| -------------------------- | ----------- |
+| Version                    | 1           |
+| Category                   | `asset`     |
+| Default severity           | medium      |
+| Default confidence         | medium      |
+| Observation kinds required | —           |
+| Profile checks (any of)    | `lookalike` |
+
+**Evidence required.** Lookalike observations of a brand-monitoring job (public-resolver NS/SOA, A, AAAA and MX lookups of server-generated candidates) and the job's candidate list with its completeness.
+
+**Detection.** A lookalike candidate of the domain exists in DNS (NS or SOA at the candidate; A/AAAA/MX for subdomain-split candidates). One finding per candidate (component = the candidate). Severity: medium with mail exchangers (MX, not a null MX), low with only web addresses (A/AAAA), informational when only delegated (NS/SOA).
+
+**Resolution.** A complete brand run (every candidate checked; the time budget was not exhausted) no longer finds the candidate registered. Candidates that failed to resolve in that run (SERVFAIL, timeout) and incomplete runs never resolve.
+
+**Sample advisory** (for `example.com`): _Review the lookalike domain sample_
+
+sample resembles example.com and is registered. Lookalike domains are used for phishing, invoice fraud and brand impersonation, but many are parked or harmless. Customers, suppliers and staff can mistake a lookalike for the real domain: e-mail from it can request payments or credentials, and a website on it can imitate yours. Mail-capable lookalikes are the most common setup for business e-mail compromise.
+
+Recommended actions:
+
+- Check who holds it: look up the registrar and registrant in RDAP/WHOIS and confirm it is not a registration made by your own organisation or a partner.
+- If it is yours, record it as a defensive registration (accept the risk, or add it to the domain inventory) so it is not reported again as a threat.
+- If it is unknown, watch it: changes to its MX or web records are worth an alert to your mail-security and SOC teams; consider blocking it on your mail gateway and web proxy.
+- If it is used for phishing or impersonation, report it to the registrar abuse contact (from RDAP) and the hosting provider, and consider a UDRP complaint for trademark abuse.
+- Consider registering the most convincing variants of your main domains defensively.
+
+References:
+
+- <https://attack.mitre.org/techniques/T1583/001/>
+- <https://www.icann.org/resources/pages/abuse-2014-01-29-en>
+- <https://www.cisa.gov/news-events/news/avoiding-social-engineering-and-phishing-attacks>
 
 ### REG-001 — Domain registration expiry within 30 days
 

@@ -1,13 +1,21 @@
 import type { DnsRecordType } from '@exdomainvault/shared';
+import {
+  TAKEOVER_FINGERPRINTS_SOURCE,
+  takeoverFingerprintByKey,
+  takeoverFingerprintForName,
+  type TakeoverFingerprint,
+} from '../takeover-fingerprints.ts';
 import type {
   Advisory,
   CheckedComponent,
   DnsRecordSetObservation,
   FindingCandidate,
+  HttpObservation,
   Rule,
   RuleOutcome,
   Severity,
 } from '../types.ts';
+import { parseUrl } from './http.ts';
 
 /*
  * DNS and e-mail authentication rules (design §8). Inputs are the worker's `dns` observations
@@ -116,8 +124,11 @@ const apexOf = (input: { context: { domain: { fqdn: string } } }) =>
 
 const none = (): RuleOutcome => ({ findings: [], checked: [] });
 
-/** True when the apex MX lookup succeeded and shows no mail exchanger (none or null MX `0 .`). */
-function mailState(records: readonly DnsRecordSetObservation[], apex: string) {
+/**
+ * `mail` when the successful apex MX lookup lists a real exchanger, `no_mail` when it shows none (or
+ * only a null MX `0 .`), `unknown` when there is no successful MX lookup.
+ */
+export function mailState(records: readonly DnsRecordSetObservation[], apex: string) {
   const mx = successfulRecord(records, apex, 'MX');
   if (!mx) return 'unknown' as const;
   const real = mx.values.filter((v) => {
@@ -280,6 +291,31 @@ export function takeoverProneService(target: string): string | null {
 
 const MAX_CHAIN = 8;
 
+/**
+ * The CNAME chain starting at `firstTarget`: followed through CNAME observations of the same job
+ * (bounded, loop-safe), then extended with the resolver's canonical name from the A/AAAA lookups
+ * (the chain's end, also recorded for NXDOMAIN answers).
+ */
+export function cnameChain(
+  records: readonly DnsRecordSetObservation[],
+  firstTarget: string,
+  a?: DnsRecordSetObservation,
+  aaaa?: DnsRecordSetObservation,
+): string[] {
+  const chain: string[] = [normaliseName(firstTarget)];
+  for (let i = 0; i < MAX_CHAIN; i += 1) {
+    const last = chain[chain.length - 1] ?? '';
+    const next = successfulRecord(records, last, 'CNAME')?.values[0];
+    if (next === undefined || chain.includes(normaliseName(next))) break;
+    chain.push(normaliseName(next));
+  }
+  const canonical = [a?.evidence.canonicalName, aaaa?.evidence.canonicalName].find(
+    (c): c is string => typeof c === 'string' && c.length > 0,
+  );
+  if (canonical && !chain.includes(normaliseName(canonical))) chain.push(normaliseName(canonical));
+  return chain;
+}
+
 export const dns002: Rule = {
   id: 'DNS-002',
   version: 1,
@@ -325,19 +361,7 @@ export const dns002: Rule = {
       const aaaa = successfulRecord(records, host, 'AAAA');
       if (!a || !aaaa) continue; // insufficient evidence: neither raise nor resolve
 
-      // Follow the chain through CNAME observations of the same job (bounded, loop-safe).
-      const chain: string[] = [normaliseName(firstTarget)];
-      for (let i = 0; i < MAX_CHAIN; i += 1) {
-        const last = chain[chain.length - 1] ?? '';
-        const next = successfulRecord(records, last, 'CNAME')?.values[0];
-        if (next === undefined || chain.includes(normaliseName(next))) break;
-        chain.push(normaliseName(next));
-      }
-      const canonical = [a.evidence.canonicalName, aaaa.evidence.canonicalName].find(
-        (c): c is string => typeof c === 'string' && c.length > 0,
-      );
-      if (canonical && !chain.includes(normaliseName(canonical)))
-        chain.push(normaliseName(canonical));
+      const chain = cnameChain(records, firstTarget, a, aaaa);
 
       const outside = chain.filter((t) => !isWithinDomain(t, apex));
       const hasAddress = a.values.length > 0 || aaaa.values.length > 0;
@@ -400,6 +424,202 @@ export const dns002: Rule = {
         'https://learn.microsoft.com/en-us/azure/security/fundamentals/subdomain-takeover',
         'https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/10-Test_for_Subdomain_Takeover',
         'https://github.com/EdOverflow/can-i-take-over-xyz',
+      ],
+    };
+  },
+};
+
+// --- DNS-008 Subdomain takeover risk confirmed by provider response ------------------------
+
+interface SignatureHit {
+  key: string;
+  signature: string;
+  url: string;
+  statusCode: number | null;
+  observedAt: string;
+}
+
+/**
+ * HTTP evidence for one host: whether any HTTP response was observed in this job, and the
+ * `evidence.takeoverSignature` matches the worker recorded (known provider keys only).
+ */
+function httpTakeoverEvidence(http: readonly HttpObservation[], host: string) {
+  let observed = false;
+  const hits: SignatureHit[] = [];
+  for (const o of http) {
+    if (parseUrl(o.url)?.host !== host) continue;
+    if ((o.resultStatus !== 'success' && o.resultStatus !== 'partial') || o.statusCode === null)
+      continue;
+    observed = true;
+    const sig = o.evidence['takeoverSignature'];
+    if (!sig || typeof sig !== 'object') continue;
+    const { provider, signature } = sig as Record<string, unknown>;
+    if (typeof provider !== 'string' || typeof signature !== 'string') continue;
+    if (!takeoverFingerprintByKey(provider)) continue;
+    hits.push({
+      key: provider,
+      signature: signature.slice(0, 200),
+      url: o.url,
+      statusCode: o.statusCode,
+      observedAt: o.observedAt,
+    });
+  }
+  hits.sort((x, y) => (x.url < y.url ? -1 : x.url > y.url ? 1 : 0));
+  return { observed, hits };
+}
+
+export const dns008: Rule = {
+  id: 'DNS-008',
+  version: 1,
+  category: 'dns',
+  title: 'Subdomain takeover risk confirmed by provider response',
+  requires: ['dns'],
+  requiresChecks: ['dns'],
+  defaultSeverity: 'high',
+  defaultConfidence: 'high',
+  evidenceRequirements:
+    'Successful CNAME lookup for the hostname. DNS evidence: successful A and AAAA lookups (the ' +
+    'resolver follows the chain; the worker records the chain end as canonicalName, also for NXDOMAIN). ' +
+    'HTTP evidence: an http_availability response for the hostname carrying evidence.takeoverSignature ' +
+    '(matched by the worker on the body it already reads; no extra request). Fingerprints: ' +
+    'packages/rules/src/takeover-fingerprints.ts, curated from can-i-take-over-xyz (Vulnerable / Edge case entries only).',
+  detection:
+    'Either (a) the CNAME chain leaves the monitored domain for a provider whose fingerprint says a ' +
+    'dangling NXDOMAIN name can be re-registered by anyone (Azure, Elastic Beanstalk), neither A nor AAAA ' +
+    'returns an address, and the answer was NXDOMAIN — confidence medium; or (b) the HTTP response for ' +
+    'the hostname matches that same provider\'s "unclaimed resource" signature while the CNAME chain points ' +
+    'at the provider — confidence high (medium when the provider is used without a CNAME, e.g. GitHub ' +
+    'Pages apex A records). Severity is always high. Nothing is claimed or registered. DNS-002 (the weaker, ' +
+    'unconfirmed signal) is still reported independently. Note: the scope validator refuses web checks ' +
+    'for CNAME chains that leave the domain, so path (b) with a CNAME only applies if that policy changes; ' +
+    'today the HTTP path applies to hosts without a CNAME.',
+  resolution:
+    'A complete successful DNS check (CNAME plus A/AAAA) no longer shows the NXDOMAIN evidence and, ' +
+    'where the provider is only confirmable over HTTP (or the host has no CNAME), a successful HTTP ' +
+    'response for the host in the same job shows no signature. Failed or incomplete checks never resolve.',
+  evaluate(input) {
+    const apex = apexOf(input);
+    const records = input.current.dns;
+    const findings: FindingCandidate[] = [];
+    const checked: CheckedComponent[] = [];
+    const hosts = new Set(
+      records
+        .filter((r) => r.recordType === 'CNAME' && r.resultStatus === 'success')
+        .map((r) => normaliseName(r.hostname)),
+    );
+    for (const o of input.current.http) {
+      const host = parseUrl(o.url)?.host;
+      if (host) hosts.add(host);
+    }
+
+    for (const host of [...hosts].sort()) {
+      if (!isWithinDomain(host, apex)) continue;
+      const cname = successfulRecord(records, host, 'CNAME');
+      if (!cname) continue; // without a successful CNAME lookup: neither raise nor resolve
+      const component = { hostname: host, component: 'takeover' };
+      const firstTarget = cname.values[0];
+      const a = successfulRecord(records, host, 'A');
+      const aaaa = successfulRecord(records, host, 'AAAA');
+      const http = httpTakeoverEvidence(input.current.http, host);
+
+      const chain = firstTarget === undefined ? [] : cnameChain(records, firstTarget, a, aaaa);
+      const providers = chain
+        .filter((t) => !isWithinDomain(t, apex))
+        .map(takeoverFingerprintForName)
+        .filter((f): f is TakeoverFingerprint => f !== undefined);
+      const provider = providers[0];
+
+      const noAddress = !!a && !!aaaa && a.values.length === 0 && aaaa.values.length === 0;
+      const nxdomain = a?.evidence.rcode === 'NXDOMAIN' || aaaa?.evidence.rcode === 'NXDOMAIN';
+      const dnsHit = !!provider && provider.nxdomain && noAddress && nxdomain;
+      const httpHit = http.hits.find((h) =>
+        firstTarget !== undefined
+          ? providers.some((p) => p.key === h.key)
+          : takeoverFingerprintByKey(h.key)?.matchWithoutCname === true,
+      );
+
+      if (!dnsHit && !httpHit) {
+        const dnsComplete = firstTarget === undefined || (!!a && !!aaaa);
+        const needsHttp = firstTarget === undefined || (provider?.http.length ?? 0) > 0;
+        if (dnsComplete && (!needsHttp || http.observed)) checked.push(component);
+        continue;
+      }
+
+      const fp = (
+        httpHit ? takeoverFingerprintByKey(httpHit.key) : provider
+      ) as TakeoverFingerprint;
+      const confidence = httpHit && firstTarget !== undefined ? 'high' : 'medium';
+      const reasons: string[] = [];
+      if (dnsHit) {
+        reasons.push(
+          `the alias chain (${chain.join(' → ')}) ends at a name on ${fp.provider} that does not exist ` +
+            '(NXDOMAIN); names on this service can be registered again by any customer',
+        );
+      }
+      if (httpHit) {
+        reasons.push(
+          `the web response for ${host} (HTTP ${httpHit.statusCode ?? '—'}) contains ${fp.provider}'s ` +
+            `"no such site" message ("${httpHit.signature}")`,
+        );
+      }
+      findings.push({
+        hostname: host,
+        component: 'takeover',
+        title: `Subdomain takeover risk on ${host} (${fp.provider})`,
+        description:
+          `${host} points at ${fp.provider}, and ${reasons.join('; and ')}. This matches the public ` +
+          `fingerprint for an unclaimed ${fp.provider} resource, so another party could likely claim it ` +
+          `and serve content under ${host}. No takeover was attempted and nothing was registered; the ` +
+          'finding is based on passive DNS data and the response to an ordinary page request.',
+        severity: 'high',
+        confidence,
+        exposure: 'web',
+        evidence: {
+          provider: fp.key,
+          providerName: fp.provider,
+          fingerprintStatus: fp.status,
+          evidenceTypes: [
+            ...(dnsHit ? ['dns_nxdomain'] : []),
+            ...(httpHit ? ['http_signature'] : []),
+          ],
+          cnameChain: chain,
+          a: a ? { values: a.values, rcode: a.evidence.rcode ?? null } : null,
+          aaaa: aaaa ? { values: aaaa.values, rcode: aaaa.evidence.rcode ?? null } : null,
+          httpSignature: httpHit ?? null,
+          fingerprintSource: TAKEOVER_FINGERPRINTS_SOURCE,
+          observedAt: cname.observedAt,
+        },
+      });
+    }
+    return { findings, checked };
+  },
+  advisory(finding): Advisory {
+    const name =
+      typeof finding.evidence.providerName === 'string' ? finding.evidence.providerName : null;
+    const fp =
+      typeof finding.evidence.provider === 'string'
+        ? takeoverFingerprintByKey(finding.evidence.provider)
+        : undefined;
+    return {
+      title: `Remove or re-claim the dangling record for ${finding.hostname}`,
+      summary:
+        `${finding.hostname} points at ${name ?? 'a third-party service'} where the referenced resource ` +
+        'appears to be unclaimed. This is the classic precondition for a subdomain takeover.',
+      businessImpact:
+        'Whoever claims the resource can serve arbitrary content (phishing, malware) under your ' +
+        'hostname, read cookies scoped to the parent domain, and obtain trusted certificates for it.',
+      recommendedActions: [
+        'Treat this as urgent: confirm with the owner whether the service is still in use.',
+        `If it is not, delete the DNS record for ${finding.hostname} now (and any records that point at it).`,
+        `If it is, re-create or re-claim the resource on ${name ?? 'the provider'} under your organisation's ` +
+          "account immediately, and use the provider's domain verification feature where available.",
+        'Check whether the hostname already serves unexpected content; if so, handle it as a security incident.',
+        'Add DNS cleanup to the decommissioning checklist for cloud and SaaS resources.',
+      ],
+      references: [
+        ...(fp?.reference ? [fp.reference] : []),
+        'https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/10-Test_for_Subdomain_Takeover',
+        TAKEOVER_FINGERPRINTS_SOURCE,
       ],
     };
   },
@@ -998,4 +1218,13 @@ export const dns006: Rule = {
   },
 };
 
-export const dnsRules: readonly Rule[] = [dns001, dns002, dns003, dns004, dns005, dns006, dns007];
+export const dnsRules: readonly Rule[] = [
+  dns001,
+  dns002,
+  dns003,
+  dns004,
+  dns005,
+  dns006,
+  dns007,
+  dns008,
+];

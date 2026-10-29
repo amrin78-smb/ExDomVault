@@ -120,6 +120,7 @@ describe('Reports page', () => {
   it('shows an export error from the API', async () => {
     stubApi('admin', {
       [REPORT_PATHS.summary]: ok(reportSummary()),
+      [REPORT_PATHS.monthly]: ok({ items: [] }),
       'GET /api/v1/reports/findings.csv': apiError(403, 'forbidden', 'Not allowed.'),
     });
     renderAt('/reports');

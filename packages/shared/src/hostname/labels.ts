@@ -8,10 +8,15 @@ export const LDH_LABEL_RE = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
 /** Service label such as `_dmarc` or `_tcp`: an underscore, then an LDH label. */
 const SERVICE_LABEL_RE = /^_(?!-)[a-z0-9-]{1,62}(?<!-)$/;
 
+/** Service labels that follow a selector label (`selector1._domainkey`, `default._bimi`). */
+const SELECTOR_SERVICE_LABELS = new Set(['_domainkey', '_bimi']);
+
 export interface HostnameSyntaxOptions {
   /**
    * Allow leading `_`-prefixed service labels (`_dmarc.example.com`, `_25._tcp.mx.example.com`).
-   * Only DNS lookups use such names; nothing ever connects to them.
+   * Only DNS lookups use such names; nothing ever connects to them. Also allows the selector form
+   * `<selector>._domainkey.<domain>` (DKIM) and `<selector>._bimi.<domain>` (BIMI): one LDH label
+   * followed by one of those two service labels.
    */
   allowServiceLabels?: boolean;
 }
@@ -23,6 +28,12 @@ export function isValidHostname(name: string, opts: HostnameSyntaxOptions = {}):
   if (labels.length < 2) return false;
   let i = 0;
   if (opts.allowServiceLabels) {
+    if (
+      SELECTOR_SERVICE_LABELS.has(labels[1] as string) &&
+      LDH_LABEL_RE.test(labels[0] as string)
+    ) {
+      i = 2;
+    }
     while (i < labels.length && SERVICE_LABEL_RE.test(labels[i] as string)) i++;
   }
   // At least two ordinary labels remain (a service label is never the domain itself).

@@ -14,7 +14,9 @@ import { DNS_RECORD_TYPES, scopeSnapshotSchema, type DnsRecordType } from '@exdo
 import { canonicalIp } from '@exdomainvault/shared/net';
 import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { errorFields, type Logger } from '../lib/logger.ts';
+import { lookalikeContext, loadLookalikeObservations } from './lookalikes.ts';
 import { domainAuthorisedForActive, type ScanJobRow } from './scans.ts';
+import { refreshDueDates } from './sla.ts';
 import { loadSoftwareIntel, upsertSoftwareInventory } from './software.ts';
 
 const {
@@ -193,6 +195,8 @@ async function evaluateInTx(
       })),
       administrativeServices: DEFAULT_ADMINISTRATIVE_SERVICES,
       ...(softwareIntel ? { softwareIntel } : {}),
+      // Brand jobs (Milestone 15): candidate list + completeness for LOOK-001.
+      ...(await lookalikeContext(tx, job.id, snapshot.data)),
     },
     current,
     previous: await previousObservations(tx, job, domainId, seenAt),
@@ -245,6 +249,8 @@ async function evaluateInTx(
     else if (!resolvedByFp.has(f.fingerprint)) resolvedByFp.set(f.fingerprint, f); // latest first
   }
 
+  // SLA (Milestone 14): findings created, reopened or whose severity changed get a fresh due date.
+  const slaChanged: string[] = [];
   for (const u of result.upserts) {
     const category = categoryOf.get(u.ruleId);
     if (!category) continue; // cannot happen: upserts come from `rules`
@@ -270,6 +276,7 @@ async function evaluateInTx(
         .update(findings)
         .set({ ...fields, lastSeenAt: seenAt, assetId: assetId ?? active.assetId })
         .where(eq(findings.id, active.id));
+      if (u.severity !== active.severity) slaChanged.push(active.id);
       await upsertAdvisory(tx, active.id, u, now);
       out.refreshed++;
       continue;
@@ -301,6 +308,7 @@ async function evaluateInTx(
         createdAt: seenAt,
       });
       await upsertAdvisory(tx, resolved.id, u, now);
+      slaChanged.push(resolved.id);
       out.reopened++;
       continue;
     }
@@ -330,8 +338,10 @@ async function evaluateInTx(
       createdAt: seenAt,
     });
     await upsertAdvisory(tx, row.id, u, now);
+    slaChanged.push(row.id);
     out.created++;
   }
+  await refreshDueDates(tx, slaChanged);
 
   for (const r of result.resolutions) {
     const active = activeByFp.get(r.fingerprint);
@@ -487,6 +497,8 @@ function toSet(rows: {
       hostname: r.hostname,
       source: r.source,
     })),
+    // Loaded separately for the current job only (LOOK-001 needs no previous state).
+    lookalike: [],
   };
 }
 
@@ -545,7 +557,10 @@ async function currentObservations(tx: Database, jobId: string): Promise<Observa
       .orderBy(asc(discoveryObservations.hostname), asc(discoveryObservations.resultId))
       .limit(cap),
   ]);
-  return toSet({ dns, registration, tls, http, ports, discovery });
+  return {
+    ...toSet({ dns, registration, tls, http, ports, discovery }),
+    lookalike: await loadLookalikeObservations(tx, jobId, cap),
+  };
 }
 
 /**

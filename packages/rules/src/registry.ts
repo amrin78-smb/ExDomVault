@@ -1,5 +1,7 @@
 import { assetRules } from './rules/asset.ts';
+import { brandRules } from './rules/brand.ts';
 import { dnsRules } from './rules/dns.ts';
+import { emailRules } from './rules/email.ts';
 import { exposureRules } from './rules/exposure.ts';
 import { httpRules } from './rules/http.ts';
 import { registrationRules } from './rules/registration.ts';
@@ -10,12 +12,14 @@ import type { Rule } from './types.ts';
 /** All rules, in evaluation order. Rule ids are unique; versions bump on any logic change. */
 export const RULES: readonly Rule[] = [
   ...dnsRules,
+  ...emailRules,
   ...registrationRules,
   ...tlsRules,
   ...httpRules,
   ...exposureRules,
   ...assetRules,
   ...softwareRules,
+  ...brandRules,
 ];
 
 export function ruleById(id: string): Rule | undefined {

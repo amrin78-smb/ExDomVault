@@ -2,6 +2,7 @@ import type { Worker } from '@exdomainvault/shared';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { RECENT_CHANGES_PATH, changesPage } from '../components/changes/test-data.ts';
 import { apiError, ok, renderAt, stubApi, type Handler } from '../testing/stub-api.tsx';
 import { DOMAIN_ID, domain, page } from './findings/test-data.ts';
 import {
@@ -27,6 +28,8 @@ const ALL: Record<string, Handler> = {
   [DASHBOARD_PATH(30)]: ok(dashboard()),
   [DASHBOARD_PATH(7)]: ok(dashboard({}, 7)),
   [SURFACE_PATH]: ok(attackSurface()),
+  // Milestone 14: the Recent changes card.
+  [RECENT_CHANGES_PATH]: ok(changesPage([])),
 };
 
 const card = (name: string) => screen.findByRole('region', { name });
@@ -339,6 +342,7 @@ describe('Overview: states', () => {
     const calls = stubApi('asset_owner', {
       [DASHBOARD_PATH(30)]: ok(ownerDashboard()),
       [SURFACE_PATH]: ok(attackSurface()),
+      [RECENT_CHANGES_PATH]: ok(changesPage([])),
     });
     renderAt('/');
     const domains = await stat('domains');

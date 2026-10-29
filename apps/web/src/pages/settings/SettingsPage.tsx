@@ -4,10 +4,12 @@ import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { ApprovedNetworksSection } from '../../components/settings/ApprovedNetworksSection.tsx';
 import { AuditLogSection } from '../../components/settings/AuditLogSection.tsx';
+import { DiscoverySettingsSection } from '../../components/settings/DiscoverySettingsSection.tsx';
 import { IntelFeedsSection } from '../../components/settings/IntelFeedsSection.tsx';
 import { ScanProfilesSection } from '../../components/settings/ScanProfilesSection.tsx';
 import { ScheduledScansSection } from '../../components/settings/ScheduledScansSection.tsx';
 import { SystemHealthSection } from '../../components/settings/SystemHealthSection.tsx';
+import { SlaPolicySection } from '../../components/settings/SlaPolicySection.tsx';
 import { UsersSection } from '../../components/settings/UsersSection.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
@@ -34,6 +36,10 @@ const TABS = [
   // Readable by anyone who sees software matches; the API may still restrict it (403 → denied).
   { key: 'intel', label: 'Intelligence feeds', permission: 'findings:read' },
   { key: 'health', label: 'System health', permission: 'settings:manage' },
+  // Milestone 14: everyone who reads findings sees the SLA policy; admins change it.
+  { key: 'sla', label: 'Remediation SLAs', permission: 'findings:read' },
+  // Milestone 15: organisation names for network-ownership discovery (admins).
+  { key: 'discovery', label: 'Discovery', permission: 'settings:manage' },
 ] as const satisfies readonly { key: string; label: string; permission: Permission | null }[];
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -108,6 +114,10 @@ function TabContent({ tab }: { tab: TabKey }) {
       return <IntelFeedsSection />;
     case 'health':
       return <SystemHealthSection />;
+    case 'sla':
+      return <SlaPolicySection />;
+    case 'discovery':
+      return <DiscoverySettingsSection />;
     case 'general':
       return <GeneralSection />;
   }

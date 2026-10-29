@@ -13,11 +13,14 @@ import type { Rule } from '@exdomainvault/rules';
 import { advisoryRoutes } from './routes/advisories.ts';
 import { assetRoutes } from './routes/assets.ts';
 import { auditLogRoutes } from './routes/audit-logs.ts';
+import { changeRoutes } from './routes/changes.ts';
 import { dashboardRoutes } from './routes/dashboard.ts';
+import { discoveredNetworkRoutes, discoverySettingsRoutes } from './routes/discovered-networks.ts';
 import { domainRoutes, type DomainRouteDeps } from './routes/domains.ts';
 import { exportRoutes, type ExportRouteDeps } from './routes/exports.ts';
 import { findingRoutes } from './routes/findings.ts';
 import { healthRoutes, type HealthDeps } from './routes/health.ts';
+import { domainLookalikeRoutes, lookalikeRoutes } from './routes/lookalikes.ts';
 import { internalWorkerRoutes } from './routes/internal-worker.ts';
 import {
   attackSurfaceRoutes,
@@ -107,6 +110,14 @@ export function createApp(deps: AppDeps = {}) {
   authed.route('/certificates', certificateRoutes({ now: deps.now }));
   authed.route('/vulnerabilities', vulnerabilityRoutes());
   authed.route('/attack-surface', attackSurfaceRoutes({ now: deps.now }));
+  // Milestone 14: change timeline.
+  authed.route('/changes', changeRoutes({ now: deps.now }));
+  // Milestone 15: lookalike-domain (brand) monitoring.
+  authed.route('/lookalikes', lookalikeRoutes({ now: deps.now }));
+  authed.route('/domains', domainLookalikeRoutes({ now: deps.now }));
+  // Milestone 15: wider discovery (network ownership, organisation names).
+  authed.route('/networks', discoveredNetworkRoutes());
+  authed.route('/settings/discovery', discoverySettingsRoutes({ now: deps.now }));
   v1.route('/', authed);
 
   app.route('/api/v1', v1);

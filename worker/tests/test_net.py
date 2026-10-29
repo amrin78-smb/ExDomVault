@@ -500,6 +500,8 @@ def test_http_get_final_response(server_factory, allow_test_loopback):
     assert hop.headers["set-cookie"] == "a=1, b=2"
     assert hop.headers["server"] == "testserver"  # control characters stripped
     assert hop.body_bytes == 5
+    assert hop.body == b"hello"
+    assert "hello" not in repr(hop)  # never surfaces through logs/reprs
     request = server.requests[0].decode()
     assert request.startswith("GET /path?q=1 HTTP/1.1\r\n")
     assert f"\r\nHost: www.example.com:{server.port}\r\n" in request
@@ -821,6 +823,9 @@ def test_body_is_bounded(server_factory, allow_test_loopback, limit, expected):
     )
     assert result.first.decision == "final"
     assert result.first.body_bytes == expected
+    # The bytes read are kept (in memory only) for takeover-signature matching, same bound.
+    assert len(result.first.body) == expected
+    assert set(result.first.body) <= {ord("b")}
 
 
 def test_no_response_times_out(server_factory, allow_test_loopback):

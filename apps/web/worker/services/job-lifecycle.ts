@@ -9,6 +9,7 @@ import {
 import { and, asc, eq, inArray, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit } from './audit.ts';
+import { networkJobContext } from './discovered-networks.ts';
 import { activeNetworkCidrs, intersectNetworks } from './networks.ts';
 import {
   EMPTY_OBSERVATION_COUNTS,
@@ -160,6 +161,15 @@ export async function claimJob(
         snapshot: { ...snapshot.data, approvedNetworks },
         targets: targets.map((t) => ({ id: t.id, hostname: t.targetHostname, ip: t.targetIp })),
       };
+      // Milestone 15: the passive `network` check gets the org names and the domain's current
+      // public addresses as of now (registry lookups only; never targets).
+      if (
+        job.jobType === 'discovery' &&
+        job.domainId &&
+        snapshot.data.profile.config.checks.includes('network')
+      ) {
+        claimed.network = await networkJobContext(tx as unknown as Database, job.domainId);
+      }
       return { kind: 'claimed' as const, job: claimed };
     });
     if (outcome.kind === 'claimed') return outcome.job;

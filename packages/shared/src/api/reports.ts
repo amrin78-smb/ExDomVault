@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { FINDING_STATUSES, ruleCategorySchema } from './findings.ts';
 import { criticalitySchema, severitySchema } from '../domain/severity.ts';
+import { gradeSchema } from '../domain/security-score.ts';
+import { gradeDistributionSchema } from './scores.ts';
+import { slaReportSchema } from './sla.ts';
 
 /**
  * Portfolio summary report (`GET /reports/summary`, `reports:read`; design §10, §14). Everything is
@@ -55,8 +58,17 @@ export const reportSummaryResponseSchema = z.object({
       domains: z.int(),
       openFindings: z.int(),
       highOrCritical: z.int(),
+      /** Open findings past their SLA due date. */
+      overdue: z.int(),
+      /** Mean latest security score of the group's scored domains; null when none is scored. */
+      averageScore: z.number().nullable(),
+      /** Grade of `averageScore`. */
+      grade: gradeSchema.nullable(),
+      grades: gradeDistributionSchema,
     }),
   ),
+  /** Remediation SLAs (findings visible to the user). */
+  sla: slaReportSchema,
   /** Registrations expiring within REPORT_EXPIRY_DAYS.registration (or already expired), soonest first, ≤ 50. */
   expiringRegistrations: z.array(
     z.object({

@@ -19,7 +19,8 @@ export type { Severity };
 export type RuleCategory =
   'dns' | 'email' | 'tls' | 'http' | 'exposure' | 'registration' | 'asset' | 'software';
 
-export type ObservationKind = 'dns' | 'registration' | 'tls' | 'http' | 'port' | 'discovery';
+export type ObservationKind =
+  'dns' | 'registration' | 'tls' | 'http' | 'port' | 'discovery' | 'lookalike';
 
 // --- Observations as rules see them (normalised from storage; all times ISO UTC) -------------
 
@@ -83,6 +84,23 @@ export interface DiscoveryObservation extends ObservationBase {
   source: string;
 }
 
+/**
+ * Milestone 15: a lookalike candidate of the domain that the brand check found registered (or
+ * could not resolve: `resultStatus` error/timeout, `registered` false). Unregistered candidates
+ * produce no observation; completeness comes from `EvaluationContext.lookalike`.
+ */
+export interface LookalikeObservation extends ObservationBase {
+  candidate: string;
+  technique: string;
+  registered: boolean;
+  records: {
+    A?: readonly string[];
+    AAAA?: readonly string[];
+    MX?: readonly string[];
+    NS?: readonly string[];
+  };
+}
+
 export interface ObservationSet {
   dns: DnsRecordSetObservation[];
   registration: RegistrationObservation[];
@@ -90,6 +108,7 @@ export interface ObservationSet {
   http: HttpObservation[];
   ports: PortObservation[];
   discovery: DiscoveryObservation[];
+  lookalike: LookalikeObservation[];
 }
 
 export const emptyObservationSet = (): ObservationSet => ({
@@ -99,6 +118,7 @@ export const emptyObservationSet = (): ObservationSet => ({
   http: [],
   ports: [],
   discovery: [],
+  lookalike: [],
 });
 
 // --- Context --------------------------------------------------------------------------------
@@ -170,6 +190,11 @@ export interface EvaluationContext {
   administrativeServices: readonly AdministrativeService[];
   /** Feed data for software rules (Milestone 11); optional so older callers/tests keep working. */
   softwareIntel?: SoftwareIntel;
+  /**
+   * Milestone 15 (brand jobs): the candidate names the job was asked to check, and whether the run
+   * checked all of them (the brand target succeeded). Only a complete run may resolve LOOK-001.
+   */
+  lookalike?: { complete: boolean; candidates: readonly string[] };
 }
 
 export interface EvaluationInput {

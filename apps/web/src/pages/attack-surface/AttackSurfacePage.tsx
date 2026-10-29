@@ -7,6 +7,7 @@ import { Globe2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { HOSTING_KIND_LABELS } from '../../components/assets/labels.ts';
+import { DiscoveredNetworksCards } from '../../components/attack-surface/DiscoveredNetworksCards.tsx';
 import { LazyWorldMap } from '../../components/map/LazyWorldMap.tsx';
 import { countryName, flagEmoji } from '../../components/map/country-names.ts';
 import { Card } from '../../components/ui/Card.tsx';
@@ -102,6 +103,9 @@ function AttackSurface({ data }: { data: AttackSurfaceResponse }) {
         <ExposedServicesCard services={data.exposedServices} />
         <CountriesCard countries={data.countries} />
       </div>
+
+      {/* Milestone 15: network ownership (RDAP), loaded on its own. */}
+      <DiscoveredNetworksCards />
     </div>
   );
 }

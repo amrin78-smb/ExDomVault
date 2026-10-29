@@ -847,7 +847,7 @@ def worker_for(valid_env, tmp_path, monkeypatch):
 def test_default_profiles_claim_discovery_jobs(worker_for):
     worker, api, _, _ = worker_for(None)
     worker.run_once()
-    assert api.endpoint_calls("claim")[0] == {"profiles": ["passive", "discovery"]}
+    assert api.endpoint_calls("claim")[0] == {"profiles": ["passive", "discovery", "brand"]}
 
 
 def test_discovery_job_end_to_end_batches_observations(worker_for):

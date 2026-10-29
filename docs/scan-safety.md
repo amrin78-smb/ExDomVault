@@ -28,11 +28,11 @@ Every check belongs to exactly one tier (`policy.tier_of`, `PASSIVE_TIER_CHECKS`
 `NETWORK_TIER_CHECKS`; mirrored server-side by `PASSIVE_CHECKS` / `WEB_CHECKS` / `NETWORK_CHECKS` in
 `packages/shared/src/api/scans.ts`). An unknown check is refused (`check_not_allowed`).
 
-| Tier    | Checks                                                     | May contact                                                                                                                            |
-| ------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| passive | `dns`, `rdap`, `discovery`                                 | Configured DNS resolvers, IANA RDAP bootstrap and the registry's RDAP server, `https://crt.sh/` (discovery only). Never a target host. |
-| web     | `tls_certificate`, `http_availability`, `http_headers`     | Any **public** address an in-scope hostname resolves to (browser-like: one handshake / one GET per hop).                               |
-| network | `tcp_ports`, `service_identification`, `tls_configuration` | Only public addresses **inside the job's admin-approved networks**.                                                                    |
+| Tier    | Checks                                                     | May contact                                                                                                                                                                                                           |
+| ------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| passive | `dns`, `rdap`, `discovery`, `network`                      | Configured DNS resolvers, IANA RDAP bootstrap and the registry's RDAP server, `https://crt.sh/` and `https://api.certspotter.com/` (discovery only), the five RIR RDAP servers (`network` only). Never a target host. |
+| web     | `tls_certificate`, `http_availability`, `http_headers`     | Any **public** address an in-scope hostname resolves to (browser-like: one handshake / one GET per hop).                                                                                                              |
+| network | `tcp_ports`, `service_identification`, `tls_configuration` | Only public addresses **inside the job's admin-approved networks**.                                                                                                                                                   |
 
 Outside any job, the worker also downloads the DB-IP "IP to Country Lite" file from the fixed URL
 `https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.csv.gz` (at most monthly; redirects never
@@ -356,6 +356,59 @@ hostnames; it is evidence, not authorisation.
   failures; permanent ones and truncated runs produce one `error`/`partial` observation for the domain
   so the run is known to be incomplete.
 
+## Wider discovery (Milestone 15)
+
+`worker/app/discovery.py` (Cert Spotter) and `worker/app/network_checks.py` (`network` check); protocol
+in [`worker-protocol.md`](worker-protocol.md#wider-discovery-milestone-15).
+
+- **Passive only.** `network` is in the passive tier (`PASSIVE_TIER_CHECKS`, `scope.PASSIVE_CHECKS`,
+  `PASSIVE_CHECKS` in `packages/shared`). It contacts only the IANA bootstrap host
+  (`data.iana.org`), the five RIR RDAP hosts (`rdap.apnic.net`, `rdap.arin.net`, `rdap.db.ripe.net`,
+  `rdap.lacnic.net`, `rdap.afrinic.net`; any other host, including in a redirect, is refused) and the
+  configured DNS resolvers (PTR, then A/AAAA/CNAME of names found). It never connects to the
+  addresses it looks up or to any target. Cert Spotter is one more fixed CT URL
+  (`https://api.certspotter.com/v1/issuances?...`). Tests replace every connecting primitive with
+  functions that fail the test (`tests/test_network_checks.py`, `tests/test_certspotter.py`).
+- **Rate limits.** RDAP: at least 1 s between requests to one registry (process-wide), at most 100
+  `/ip` queries per run, one bounded 429 retry. PTR: the job's `ratePerSecond` (5/s for the discovery
+  profile), at most 2048 per run, only IPv4 networks of ≤ 1024 addresses registered to the
+  organisation. Cert Spotter: ≥ 2 s between requests, ≤ 10 pages. Everything within `targetSeconds`.
+- **Ownership is not authorisation.** A network whose RDAP record names a configured organisation is
+  shown as "registered to your organisation"; it is **never** added to the approved networks. The
+  Attack Surface page offers administrators a link that pre-fills the existing approved-networks form
+  (CIDR and label only); the administrator must still write a reason and submit, and the normal limits
+  (public space, at most a /16 or /32, review date, audit) apply. PTR names become `pending` assets.
+- **Scope of reverse DNS.** Only names within the job's own domain (exact label boundary) are
+  reported; names of other domains are counted, not stored.
+- **Untrusted registry data.** RDAP text is display data: clipped, never used for scope; the server
+  re-validates addresses (public, inside the reported range) and re-computes the organisation match.
+
+## Lookalike domains (Milestone 15)
+
+`worker/app/lookalike_checks.py` (protocol in
+[`worker-protocol.md`](worker-protocol.md#lookalike-domains-milestone-15)). A lookalike is somebody
+else's name, so it is **never a target**:
+
+- **Passive only, DNS only.** The `lookalike` check is in the passive tier (`scope.PASSIVE_CHECKS`,
+  `PASSIVE_CHECKS` in `packages/shared`). It sends NS/SOA/A/AAAA/MX queries for the candidate names
+  to the worker's configured public resolvers and nothing else: no HTTP, no TLS, no port probe, no
+  RDAP/WHOIS, never a connection to a candidate's addresses or name servers (beyond the recursion the
+  resolver does). A profile that combines `lookalike` with `active: true` or any connecting check is
+  refused before anything runs (`invalid_profile`). Tests replace `socket.create_connection`,
+  `socket.socket.connect`, `ssl.SSLContext.wrap_socket` and the httpx transport with functions that
+  fail the test (`tests/test_lookalike_checks.py`).
+- **The server decides the names.** Candidates are generated on the server and frozen in the job's
+  scope snapshot; the worker resolves exactly that list (≤ 1500, validated: lowercase LDH, known
+  technique, never within the job's domain) and the server accepts observations only for listed
+  candidates, never for a name within any monitored domain.
+- **Opt-in per domain.** Only domains with `brand_monitoring` on (default off; administrator,
+  audited) get weekly brand jobs or manual checks.
+- **Limits.** Profile `brand`: 10 queries/s, 8 threads, 1800 s per run; NXDOMAIN costs one query per
+  candidate, registered candidates at most five.
+- **Failures never look like absence.** SERVFAIL/timeout on a candidate is reported as an `error`/
+  `timeout` observation (never "not registered"); a run that hits its time budget fails the target, so
+  LOOK-001 findings resolve only after a complete run that no longer finds the name.
+
 ## Home-network self-protection
 
 `worker/app/self_protection.py`, active only while `EXDV_ACTIVE_SCANNING_ENABLED=true`. The home host's
@@ -446,6 +499,42 @@ observation ingestion, job ownership/replay/fencing). Findings, all fixed:
 | F6  | Low      | Network approval overlap check was racy (read-then-insert).                                            | Transaction-scoped advisory lock.                                                                                             |
 | F7  | Low      | TLS evidence could not be distinguished as `tls_configuration` (network tier).                         | `tls.check` field; `tls_configuration` requires an approved network; stored in `evidence.check`.                              |
 
+## Subdomain-takeover evidence and e-mail records (Milestone 15)
+
+Rule DNS-008 ("Subdomain takeover risk confirmed by provider response") and the e-mail rules
+EMAIL-001…005 add **no new kind of traffic**:
+
+- **Nothing is ever claimed.** No bucket, app, site or custom domain is created, registered or
+  bound at any provider, and no POST or account action is made. A finding states that the public
+  fingerprint matches; it never "proves" a takeover by performing one.
+- **No extra requests for takeover evidence.** The worker matches provider "unclaimed resource"
+  signatures (`worker/app/takeover_fingerprints.json`, mirrored from
+  `packages/rules/src/takeover-fingerprints.ts`, curated from
+  [can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz)) against the body that the
+  existing `http_availability` GET already reads (`net.MAX_BODY_BYTES` = 64 KB). The body stays in
+  memory (`HttpHop.body`, excluded from `repr`); only `evidence.takeoverSignature = { provider,
+signature }` is uploaded. Only the requested host's own final response is matched (not a response
+  reached through an in-domain redirect to another host).
+- **Scope is unchanged.** The scope validator still refuses web checks whose CNAME chain leaves the
+  domain (`cname_out_of_scope`, requirement 9), so the worker never sends a request to the provider
+  behind a dangling CNAME. Consequently DNS-008 fires in practice from **passive DNS evidence**
+  (CNAME chain ending in NXDOMAIN at a provider whose names can be re-registered — Azure, Elastic
+  Beanstalk); the HTTP-signature path applies today only to approved hosts served by a provider
+  without a CNAME (GitHub Pages apex A records), and is ready for a future, separately approved
+  out-of-domain CNAME policy. Domain verification still does not authorise contacting
+  third-party hosting.
+- **DNS evidence.** For an aliased name, the A/AAAA observation's `rcode` is the chain's terminal
+  status and `evidence.canonicalName` its end — now also recorded for NXDOMAIN answers
+  (`dns_checks._nxdomain_canonical`).
+- **E-mail records are passive DNS only.** At the apex the `dns` check adds TXT lookups through the
+  configured public resolvers: `<selector>._domainkey.<apex>` for 17 common DKIM selectors (always),
+  and `_mta-sts.<apex>`, `_smtp._tls.<apex>`, `default._bimi.<apex>` only when the same run's apex MX
+  lists a real exchanger. **The MTA-STS policy file (`https://mta-sts.<apex>/.well-known/mta-sts.txt`)
+  is never fetched**; only the DNS record is checked. All lookups pass through `ctx.before_network_call()`
+  (profile rate limit, target deadline, stop signal) like every other DNS query.
+- Tests use fake resolvers and in-memory `HttpResult`s only (`tests/test_dns_checks.py`,
+  `tests/test_http_checks.py`, `test_signature_detection_makes_no_extra_requests`).
+
 ## What is not done / residual risks
 
 - **`tls_configuration` is not run.** It is accepted in the deep profile but only logged
@@ -453,7 +542,11 @@ observation ingestion, job ownership/replay/fencing). Findings, all fixed:
   recorded in `tls.protocolVersion`. The target's status does not reflect the skipped check.
 - **Out-of-scope CNAME targets are always refused.** Requirement 9's "unless separately approved" has
   no mechanism, so hostnames that CNAME to a CDN or SaaS name outside the domain get no web or network
-  checks (`cname_out_of_scope`).
+  checks (`cname_out_of_scope`). This also means the HTTP half of subdomain-takeover confirmation
+  (DNS-008) cannot run for dangling CNAMEs; DNS-008 relies on NXDOMAIN evidence for them.
+- **DKIM coverage is a guess list.** Selectors cannot be enumerated; dated or per-tenant selectors
+  (Mimecast `mimecast20190104`, Amazon SES tokens) are never found, which is why EMAIL-004 is
+  informational with low confidence.
 - **CNAME scope is domain-level, not target-level.** A CNAME chain may pass through any name under the
   job's domain, including names that are not approved assets; the connection still goes to the
   validated address of the approved target's hostname. (Redirects, by contrast, are limited to approved

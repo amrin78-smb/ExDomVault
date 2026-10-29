@@ -115,6 +115,9 @@ const domain: Domain = {
   verificationMethod: null,
   verificationExpiresAt: null,
   monitoringEnabled: true,
+  brandMonitoring: false,
+  score: null,
+  grade: null,
   createdAt: '2026-10-22T10:00:00.000Z',
   updatedAt: '2026-10-22T10:00:00.000Z',
 };

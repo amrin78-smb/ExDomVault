@@ -26,8 +26,20 @@ intersection with it (never widened) before any further check starts.
 Discovery: a transient provider failure (``DiscoveryUnavailable``) aborts the job and is reported
 as a retryable ``failures`` call (``discovery_provider_unavailable``) so the server retries with
 backoff; a permanent provider error fails the apex target with ``discovery_provider_error`` (one
-``error`` observation) and the job completes. A profile that combines ``discovery`` with an active
+``error`` observation) and the job completes. With several providers (crt.sh, Cert Spotter) one
+failing provider only makes the run ``partial``; the job fails retryably only when no provider
+produced data and one failure was transient. A profile that combines ``discovery`` with an active
 flag or a connecting check is refused (``invalid_profile``): discovery jobs never contact targets.
+
+Lookalike domains (Milestone 15, ``app.lookalike_checks``): the ``lookalike`` check of the passive
+``brand`` profile resolves the server-generated candidates in ``snapshot.lookalike`` at the apex
+target through public resolvers only (never connecting to them). A run that checked every candidate
+completes the target ``succeeded`` even without observations; a deadline hit fails it
+(``target_timeout``), so the server never treats an unchecked candidate as unregistered.
+
+Network ownership (Milestone 15, ``app.network_checks``): the ``network`` check runs after discovery
+at the apex target with its own ``targetSeconds`` budget, using ``job.network`` (organisation names
+and the domain's current addresses) from the claim response.
 
 Target status: ``succeeded`` when at least one observation is ``success``/``partial`` (with the
 first refusal/failure code, if any, as ``errorCode``); otherwise ``failed`` with the first
@@ -53,6 +65,8 @@ from app.geoip import GeoIp
 from app.health import HealthReporter
 from app.http_checks import check_http
 from app.logging_config import get_logger, log_event
+from app.lookalike_checks import parse_candidates, run_lookalikes
+from app.network_checks import NetworkContext, RdapIpClient, parse_network_context, run_network
 from app.policy import ScopePolicy
 from app.port_checks import PortScanSettings, check_tcp_ports
 from app.rdap_checks import RdapClient, check_rdap
@@ -107,6 +121,8 @@ class JobSpec:
     snapshot_hostnames: tuple[str, ...]
     tcp_ports: tuple[int, ...] = ()
     snapshot: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    #: ``job.network`` (Milestone 15): organisation names and the domain's current addresses.
+    network: NetworkContext = field(default_factory=NetworkContext, compare=False, repr=False)
 
     @property
     def active_checks(self) -> tuple[str, ...]:
@@ -177,6 +193,7 @@ def parse_job(raw: dict[str, Any]) -> JobSpec:
             snapshot_hostnames=tuple(str(_get(t, "hostname")) for t in snapshot_targets),
             tcp_ports=tcp_ports,
             snapshot=_get(raw, "snapshot"),
+            network=parse_network_context(raw.get("network")),
         )
     except (KeyError, ValueError, TypeError) as exc:
         raise InvalidJob("The claimed job is malformed.", job_id, attempt) from exc
@@ -244,8 +261,9 @@ class Worker:
         logger: logging.Logger | None = None,
         policy_factory: PolicyFactory = ScopePolicy.from_job,
         self_protection: SelfProtection | None = None,
-        discovery_provider: DiscoveryProvider | None = None,
+        discovery_provider: DiscoveryProvider | list[DiscoveryProvider] | None = None,
         geoip: GeoIp | None = None,
+        network_client: RdapIpClient | None = None,
     ) -> None:
         self._config = config
         self._api = api
@@ -262,6 +280,7 @@ class Worker:
             configured_deny=config.deny_networks
         )
         self._discovery = discovery_provider
+        self._network = network_client
         self._geoip = geoip
         self._completed = 0
         self._total = 0
@@ -350,7 +369,9 @@ class Worker:
                 "The profile lists a check this worker does not know.",
                 False,
             )
-        if "discovery" in spec.checks and (spec.active or spec.active_checks):
+        if ("discovery" in spec.checks or "lookalike" in spec.checks) and (
+            spec.active or spec.active_checks
+        ):
             return (
                 "invalid_profile",
                 "A discovery profile must be passive and list no connecting checks.",
@@ -595,6 +616,32 @@ class Worker:
                 raise CheckFailed("discovery_provider_error", "Provider returned unusable data.")
             discovery_ran.append(True)
 
+        def network(_policy: ScopePolicy | None) -> None:
+            if self._network is None:
+                raise CheckFailed("network_unavailable", "No RDAP network client configured.")
+            # Its own time budget (targetSeconds), after discovery used the target's.
+            network_ctx = CheckContext(
+                deadline=self._monotonic() + spec.target_seconds,
+                connect_seconds=spec.connect_seconds,
+                read_seconds=spec.read_seconds,
+                rate_limiter=run.limiter,
+                should_stop=control.should_stop,
+                monotonic=self._monotonic,
+            )
+            run_network(
+                self._network, resolver, target.id, hostname, spec.network, network_ctx, sink,
+                concurrency=spec.concurrency,
+            )  # fmt: skip
+            discovery_ran.append(True)
+
+        lookalike_ran: list[bool] = []
+
+        def lookalikes(_policy: ScopePolicy | None) -> None:
+            # Server-generated candidates from the snapshot; public resolvers only, never contacted.
+            candidates = parse_candidates(spec.snapshot, hostname)
+            run_lookalikes(resolver, target.id, candidates, ctx, sink, concurrency=spec.concurrency)
+            lookalike_ran.append(True)
+
         def guarded(
             names: tuple[str, ...],
             fn: Callable[[ScopePolicy | None], None],
@@ -646,6 +693,12 @@ class Worker:
             if "discovery" in checks and is_apex:
                 # Passive: one request to a fixed CT provider + public resolvers; never a target.
                 guarded(("discovery",), discover, connecting=False)
+            if "lookalike" in checks and is_apex:
+                # Passive (brand profile): lookalike names via public resolvers; never contacted.
+                guarded(("lookalike",), lookalikes, connecting=False)
+            if "network" in checks and is_apex:
+                # Passive: RIR RDAP servers + public resolvers (PTR); never the addresses.
+                guarded(("network",), network, connecting=False)
             if holder is not None:
                 # Web tier: any public address of the in-scope hostname.
                 if "tls_certificate" in checks:
@@ -697,6 +750,10 @@ class Worker:
                 jobId=spec.id, targetId=target.id, error=type(exc).__name__,
             )  # fmt: skip
             return TargetResult(target.id, "failed", "check_error", observations)
+        if lookalike_ran and not codes:
+            # Every candidate was checked: complete, even if none is registered (no observations)
+            # or a few failed to resolve (their `error` observations keep them unresolved).
+            return TargetResult(target.id, "succeeded", None, observations)
         if discovery_ran and not observations and not codes:
             # A complete provider run that found nothing is a successful check.
             return TargetResult(target.id, "succeeded", None, observations)

@@ -14,10 +14,27 @@ import {
   type FindingSummaryResponse,
   type RiskInputsDto,
   type RuleCatalogueEntry,
+  isOverdue,
 } from '@exdomainvault/shared';
-import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  not,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { ApiError } from '../lib/errors.ts';
+import { overdueAt } from './sla.ts';
 
 const { advisories, assets, domains, findingComments, findingStatusHistory, findings, users } =
   schema;
@@ -54,7 +71,12 @@ export function isManualResolution(rules: readonly Rule[], ruleId: string): bool
   return rules.find((r) => r.id === ruleId)?.manualResolution === true;
 }
 
-export function toFindingDto(row: FindingRow, refs: FindingRefs, rules: readonly Rule[]): Finding {
+export function toFindingDto(
+  row: FindingRow,
+  refs: FindingRefs,
+  rules: readonly Rule[],
+  now: Date = new Date(),
+): Finding {
   const accepted =
     row.status === 'accepted_risk' && row.acceptedRiskReason && row.acceptedRiskReviewAt
       ? {
@@ -83,6 +105,8 @@ export function toFindingDto(row: FindingRow, refs: FindingRefs, rules: readonly
     firstSeenAt: row.firstSeenAt.toISOString(),
     lastSeenAt: row.lastSeenAt.toISOString(),
     resolvedAt: iso(row.resolvedAt),
+    dueAt: iso(row.dueAt),
+    overdue: isOverdue(row, now),
     recurrenceCount: row.recurrenceCount,
     assignee: refs.assignee,
     acceptedRisk: accepted,
@@ -120,7 +144,7 @@ function findingQuery(db: Database) {
 
 type FindingJoinRow = Awaited<ReturnType<ReturnType<typeof findingQuery>['where']>>[number];
 
-function joinRowToDto(r: FindingJoinRow, rules: readonly Rule[]): Finding {
+function joinRowToDto(r: FindingJoinRow, rules: readonly Rule[], now?: Date): Finding {
   return toFindingDto(
     r.f,
     {
@@ -129,6 +153,7 @@ function joinRowToDto(r: FindingJoinRow, rules: readonly Rule[]): Finding {
       approver: r.approver?.id ? r.approver : null,
     },
     rules,
+    now,
   );
 }
 
@@ -185,6 +210,8 @@ export function orderFor(sort: FindingListQuery['sort']): SQL[] {
     case '-severity':
       // The severity enum is declared in ascending order, so DESC puts critical first.
       return [desc(findings.severity), desc(findings.riskScore), asc(findings.id)];
+    case 'dueAt':
+      return [sql`${findings.dueAt} asc nulls last`, desc(findings.riskScore), asc(findings.id)];
     case '-riskScore':
     default:
       return [desc(findings.riskScore), desc(findings.lastSeenAt), asc(findings.id)];
@@ -196,6 +223,7 @@ export function findingFilters(
   db: Database,
   user: Pick<CurrentUser, 'id' | 'role'>,
   q: Omit<FindingListQuery, 'page' | 'pageSize' | 'sort'>,
+  now: Date = new Date(),
 ): SQL | undefined {
   const filters: (SQL | undefined)[] = [
     visibleTo(db, user),
@@ -205,6 +233,8 @@ export function findingFilters(
     q.domainId ? eq(findings.domainId, q.domainId.toLowerCase()) : undefined,
     q.ruleId ? eq(findings.ruleId, q.ruleId.toUpperCase()) : undefined,
     assigneeFilter(q.assignee, user),
+    q.overdue === 'true' ? overdueAt(now) : q.overdue === 'false' ? not(overdueAt(now)) : undefined,
+    q.dueBefore ? lt(findings.dueAt, new Date(q.dueBefore)) : undefined,
   ];
   if (q.q) {
     const term = `%${escapeLike(q.q.toLowerCase())}%`;
@@ -218,8 +248,9 @@ export async function listFindings(
   user: Pick<CurrentUser, 'id' | 'role'>,
   q: FindingListQuery,
   rules: readonly Rule[],
+  now: Date = new Date(),
 ): Promise<FindingListResponse> {
-  const where = findingFilters(db, user, q);
+  const where = findingFilters(db, user, q, now);
   const [rows, [totalRow]] = await Promise.all([
     findingQuery(db)
       .where(where)
@@ -229,7 +260,7 @@ export async function listFindings(
     db.select({ total: count() }).from(findings).where(where),
   ]);
   return {
-    items: rows.map((r) => joinRowToDto(r, rules)),
+    items: rows.map((r) => joinRowToDto(r, rules, now)),
     page: q.page,
     pageSize: q.pageSize,
     total: totalRow?.total ?? 0,
@@ -273,6 +304,7 @@ export async function getFindingDetail(
   user: Pick<CurrentUser, 'id' | 'role'>,
   id: string,
   rules: readonly Rule[],
+  now: Date = new Date(),
 ): Promise<FindingDetailResponse> {
   const [row] = await findingQuery(db)
     .where(and(eq(findings.id, id), visibleTo(db, user)))
@@ -299,7 +331,7 @@ export async function getFindingDetail(
   const rule = rules.find((r) => r.id === row.f.ruleId);
 
   return {
-    finding: joinRowToDto(row, rules),
+    finding: joinRowToDto(row, rules, now),
     advisory: advisory ? toAdvisoryDto(advisory) : null,
     history: history.map(({ h, email }) => ({
       id: h.id,

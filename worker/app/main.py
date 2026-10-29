@@ -20,12 +20,13 @@ from typing import Any
 from app import __version__
 from app.client import Signer, WorkerApiClient
 from app.config import ConfigError, WorkerConfig, load_config
-from app.discovery import CrtShProvider
+from app.discovery import CertSpotterProvider, CrtShProvider
 from app.dns_checks import DnspythonResolver
 from app.geoip import GeoIp
 from app.health import HealthReporter, check_health
 from app.identity import load_private_key
 from app.logging_config import configure_logging, log_event
+from app.network_checks import RdapIpClient
 from app.queue import Worker
 from app.rdap_checks import RdapClient
 
@@ -55,8 +56,11 @@ def build_worker(config: WorkerConfig, shutdown: threading.Event) -> Worker:
         rdap_client=RdapClient(resolver=resolver_factory(5.0)),
         health=HealthReporter(config.health_file, config.worker_id),
         shutdown=shutdown,
-        # Passive discovery: fixed Certificate Transparency provider (crt.sh), never a target.
-        discovery_provider=CrtShProvider(),
+        # Passive discovery: fixed Certificate Transparency providers (crt.sh, Cert Spotter), never
+        # a target. One failing provider makes the run partial, not failed.
+        discovery_provider=[CrtShProvider(), CertSpotterProvider()],
+        # Passive network ownership: IANA bootstrap + the five RIR RDAP servers only.
+        network_client=RdapIpClient(),
         # Display-only country of A/AAAA answers (DB-IP Lite, downloaded to the state directory).
         geoip=GeoIp(config.geoip_dir, enabled=config.geoip_enabled),
     )

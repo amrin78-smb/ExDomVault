@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { networkJobContextSchema } from './discovered-networks.ts';
 import { MAX_OBSERVATIONS_PER_SUBMISSION, observationSchema } from './observations.ts';
 import { scanTargetStatusSchema, scopeSnapshotSchema } from './scans.ts';
 
@@ -118,6 +119,11 @@ export const claimedJobSchema = z.object({
   heartbeatSeconds: z.int(),
   snapshot: scopeSnapshotSchema,
   targets: z.array(z.object({ id: z.uuid(), hostname: z.string(), ip: z.string().nullable() })),
+  /**
+   * Milestone 15: inputs of the passive `network` check (discovery jobs whose profile lists it),
+   * computed at claim time. Data to look up in public registries, never scan targets.
+   */
+  network: networkJobContextSchema.optional(),
 });
 export type ClaimedJob = z.infer<typeof claimedJobSchema>;
 

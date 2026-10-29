@@ -19,6 +19,7 @@ import {
   type DiscoveryRequestResponse,
   type DomainDetailResponse,
   type DomainObservationsResponse,
+  type DomainScoreResponse,
   type VerifyDomainResponse,
 } from '@exdomainvault/shared';
 import type { Database } from '@exdomainvault/database';
@@ -31,6 +32,7 @@ import { domainObservations } from '../services/observations.ts';
 import { createScan, getScan, requestDiscovery } from '../services/scans.ts';
 import { assertDomainVisible, listAssets } from '../services/assets.ts';
 import { listSoftware } from '../services/software.ts';
+import { getDomainScore, latestScoreOf } from '../services/security-score.ts';
 import { confirmImport, previewImport } from '../services/domain-import.ts';
 import { ASSET_IMPORT_MAX_BODY_BYTES, importAssets } from '../services/asset-import.ts';
 import { ApiError } from '../lib/errors.ts';
@@ -68,7 +70,7 @@ async function detailOf(db: Database, id: string): Promise<DomainDetailResponse>
   const row = await getDomainRow(db, id);
   const challenge = await latestChallenge(db, id);
   return {
-    domain: toDomainDto(row),
+    domain: toDomainDto(row, await latestScoreOf(db, row.id)),
     verification: challenge ? toChallengeDto(challenge, row.fqdn) : null,
   };
 }
@@ -149,7 +151,7 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         const row = await getDomainRow(db, id);
         const challenge = await latestChallenge(db, id);
         const res: DomainDetailResponse = {
-          domain: toDomainDto(row),
+          domain: toDomainDto(row, await latestScoreOf(db, row.id)),
           verification: challenge ? toChallengeDto(challenge, row.fqdn) : null,
         };
         return c.json(res);
@@ -168,7 +170,7 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         const row = await updateDomain(db, id, patch, actorOf(c));
         const challenge = await latestChallenge(db, id);
         const res: DomainDetailResponse = {
-          domain: toDomainDto(row),
+          domain: toDomainDto(row, await latestScoreOf(db, row.id)),
           verification: challenge ? toChallengeDto(challenge, row.fqdn) : null,
         };
         return c.json(res);
@@ -261,6 +263,13 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         );
         return c.json(res);
       })
+      // Security score (Milestone 14): live breakdown + 90-day daily trend.
+      .get('/:id/score', requirePermission('domains:read'), async (c) => {
+        const id = uuidParam(c, 'id');
+        const db = await c.get('db')();
+        const res: DomainScoreResponse = await getDomainScore(db, id, now());
+        return c.json(res);
+      })
       .post('/:id/verify', requirePermission('domains:verify'), async (c) => {
         const id = uuidParam(c, 'id');
         const db = await c.get('db')();
@@ -272,7 +281,7 @@ export function domainRoutes(deps: DomainRouteDeps = {}) {
         const res: VerifyDomainResponse = {
           outcome: result.outcome,
           message: result.message,
-          domain: toDomainDto(result.domain),
+          domain: toDomainDto(result.domain, await latestScoreOf(db, result.domain.id)),
           verification: result.challenge
             ? toChallengeDto(result.challenge, result.domain.fqdn)
             : null,

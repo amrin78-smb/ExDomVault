@@ -35,7 +35,8 @@ import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 const SUBDOMAIN_SOURCE_LABELS: Record<(typeof ASSET_SOURCES)[number], string> = {
   certificate_transparency: 'CT logs',
   import: 'Import',
-  dns: 'DNS',
+  // Milestone 15: reverse DNS of IP ranges registered to the organisation.
+  dns: 'DNS (reverse lookup)',
   manual: 'Manual',
 };
 

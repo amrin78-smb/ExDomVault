@@ -8,9 +8,11 @@ import {
   Bug,
   FileText,
   Globe,
+  History,
   LayoutDashboard,
   Package,
   Radar,
+  ScanSearch,
   Server,
   Settings,
   type LucideIcon,
@@ -110,6 +112,20 @@ export const NAV_ITEMS: readonly NavItem[] = [
     description:
       'Where assets are hosted and located, what they run, and which services are exposed.',
     milestone: 'Milestone 13',
+  },
+  {
+    path: '/lookalikes',
+    label: 'Lookalike domains',
+    icon: ScanSearch,
+    description: 'Registered look-alikes of your domains (typos, homoglyphs, other TLDs).',
+    milestone: 'Milestone 15',
+  },
+  {
+    path: '/changes',
+    label: 'Changes',
+    icon: History,
+    description: 'What changed between successful scans, per host and domain.',
+    milestone: 'Milestone 14',
   },
   {
     path: '/reports',

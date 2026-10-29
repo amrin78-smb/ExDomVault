@@ -32,6 +32,9 @@ const domain = (overrides: Partial<Domain> = {}): Domain => ({
   verificationMethod: 'dns_txt',
   verificationExpiresAt: null,
   monitoringEnabled: true,
+  brandMonitoring: false,
+  score: null,
+  grade: null,
   createdAt: '2026-10-22T10:00:00.000Z',
   updatedAt: '2026-10-22T10:00:00.000Z',
   ...overrides,
@@ -338,6 +341,7 @@ describe('Domain page layout and scan tiers', () => {
     expect(names).toEqual([
       'Findings',
       'Software',
+      'Security score',
       'Assets',
       'Scans',
       'Ownership verification',
@@ -345,8 +349,10 @@ describe('Domain page layout and scan tiers', () => {
       'Registration',
       'Ports',
       'DNS records',
+      'E-mail security',
       'TLS certificates',
       'HTTP',
+      'Changes',
     ]);
   });
 
@@ -443,7 +449,7 @@ describe('Domain page: collapsible cards', () => {
       screen
         .getAllByRole('region')
         .flatMap((r) => [...r.querySelectorAll(':scope > div > h2 > button[aria-expanded]')]);
-    expect(headers()).toHaveLength(11);
+    expect(headers()).toHaveLength(14);
 
     await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
     for (const b of headers()) expect(b).toHaveAttribute('aria-expanded', 'true');

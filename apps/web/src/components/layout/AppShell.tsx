@@ -14,20 +14,28 @@ export function AppShell() {
   return (
     <SessionProvider>
       <OpsAlertsProvider>
-        <div className="flex min-h-screen bg-canvas">
+        {/* Printing (e.g. the monthly report) shows only the page content on white. */}
+        <div className="flex min-h-screen bg-canvas print:block print:bg-white">
           <a
             href="#main"
             className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-surface focus:px-3 focus:py-2"
           >
             Skip to content
           </a>
-          <Sidebar />
+          <div className="contents print:hidden">
+            <Sidebar />
+          </div>
           <div className="flex min-w-0 flex-1 flex-col">
-            <TopBar />
-            <SessionExpiredBanner />
+            <div className="contents print:hidden">
+              <TopBar />
+              <SessionExpiredBanner />
+            </div>
+            {/* Kept when printing: fixture data must never pass for real data. */}
             {fixtures && <DevDataBanner />}
-            <OpsAlertBanner />
-            <main id="main" className="flex-1 px-6 py-6 lg:px-8">
+            <div className="contents print:hidden">
+              <OpsAlertBanner />
+            </div>
+            <main id="main" className="flex-1 px-6 py-6 lg:px-8 print:p-0">
               <Outlet />
             </main>
           </div>

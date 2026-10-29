@@ -3,13 +3,17 @@ import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { DomainAssetsCard } from '../../components/assets/DomainAssetsCard.tsx';
+import { ChangesCard } from '../../components/changes/ChangesCard.tsx';
 import { DnsRecordsCard } from '../../components/domains/DnsRecordsCard.tsx';
 import { CriticalityLabel, VerificationBadge } from '../../components/domains/DomainBadges.tsx';
 import { DomainScansCard } from '../../components/domains/DomainScansCard.tsx';
 import { DomainSettingsCard } from '../../components/domains/DomainSettingsCard.tsx';
+import { EmailSecurityCard } from '../../components/domains/EmailSecurityCard.tsx';
 import { HttpCard } from '../../components/domains/HttpCard.tsx';
 import { PortsCard } from '../../components/domains/PortsCard.tsx';
 import { RegistrationCard } from '../../components/domains/RegistrationCard.tsx';
+import { SecurityScoreCard } from '../../components/domains/SecurityScoreCard.tsx';
+import { GradeBadge } from '../../components/ui/GradeBadge.tsx';
 import { TlsCard } from '../../components/domains/TlsCard.tsx';
 import { VerificationPanel } from '../../components/domains/VerificationPanel.tsx';
 import { DomainFindingsCard } from '../../components/findings/DomainFindingsCard.tsx';
@@ -72,6 +76,7 @@ export function DomainDetailPage() {
             method={domain.verificationMethod}
           />
           <CriticalityLabel criticality={domain.criticality} />
+          {domain.grade && <GradeBadge grade={domain.grade} score={domain.score} />}
           <span className="text-xs text-fg-subtle">Added {formatDate(domain.createdAt)}</span>
         </div>
         {domain.warnings.includes('mixed_script') && (
@@ -91,6 +96,7 @@ export function DomainDetailPage() {
         <div className="grid items-start gap-4 lg:grid-cols-2">
           <DomainFindingsCard domain={domain} />
           <DomainSoftwareCard domain={domain} />
+          <SecurityScoreCard domainId={domain.id} />
 
           <DomainAssetsCard domain={domain} />
           <DomainScansCard domain={domain} />
@@ -106,8 +112,10 @@ export function DomainDetailPage() {
           <PortsCard state={observations} />
 
           <DnsRecordsCard apex={domain.fqdn} state={observations} />
+          <EmailSecurityCard apex={domain.fqdn} state={observations} />
           <TlsCard state={observations} />
           <HttpCard state={observations} />
+          <ChangesCard domainId={domain.id} className="lg:col-span-2" />
         </div>,
       )}
     </>

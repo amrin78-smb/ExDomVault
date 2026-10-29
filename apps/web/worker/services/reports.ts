@@ -7,7 +7,12 @@ import {
   REPORT_TREND_DAYS,
   RULE_CATEGORIES,
   SEVERITIES,
+  SLA_COMPLIANCE_WINDOW_DAYS,
+  emptyGradeDistribution,
+  gradeFor,
   type CurrentUser,
+  type GradeDistribution,
+  type SlaReport,
   type Criticality,
   type FindingListQuery,
   type ReportSummaryResponse,
@@ -19,6 +24,8 @@ import { auditFilters, csvLine, UTF8_BOM } from '../lib/csv-export.ts';
 import { writeAudit } from './audit.ts';
 import type { Actor } from './domains.ts';
 import { findingFilters, orderFor } from './findings.ts';
+import { asGrade } from './security-score.ts';
+import { readSlaPolicy } from './sla.ts';
 
 const { domains, findings, users } = schema;
 
@@ -171,17 +178,28 @@ export async function reportSummary(
 
   const byOwner = owner
     ? []
-    : await rowsOf<{ owner: string | null; domains: number; open: number; high: number }>(
+    : await rowsOf<{
+        owner: string | null;
+        domains: number;
+        open: number;
+        high: number;
+        overdue: number;
+      }>(
         db,
         sql`select d.business_owner as owner, count(distinct d.id)::int as domains,
                    count(f.id)::int as open,
-                   (count(f.id) filter (where f.severity in ('high', 'critical')))::int as high
+                   (count(f.id) filter (where f.severity in ('high', 'critical')))::int as high,
+                   (count(f.id) filter (where f.status <> 'accepted_risk'
+                      and f.due_at < ${ts(now)}))::int as overdue
             from domains d
             left join findings f on f.domain_id = d.id and f.status <> 'resolved'
             group by d.business_owner
             order by open desc, high desc, d.business_owner nulls last
             limit ${OWNER_LIMIT}`,
       );
+
+  const ownerScores = owner ? new Map() : await scoresByBusinessOwner(db);
+  const sla = await slaSection(db, vis, now);
 
   const registrations = owner
     ? []
@@ -273,12 +291,23 @@ export async function reportSummary(
       riskTotal: r.risk,
       highestSeverity: r.highest,
     })),
-    byBusinessOwner: byOwner.map((r) => ({
-      businessOwner: r.owner,
-      domains: r.domains,
-      openFindings: r.open,
-      highOrCritical: r.high,
-    })),
+    byBusinessOwner: byOwner.map((r) => {
+      const scores = ownerScores.get(r.owner) ?? {
+        averageScore: null,
+        grades: emptyGradeDistribution(),
+      };
+      return {
+        businessOwner: r.owner,
+        domains: r.domains,
+        openFindings: r.open,
+        highOrCritical: r.high,
+        overdue: r.overdue,
+        averageScore: scores.averageScore,
+        grade: scores.averageScore === null ? null : gradeFor(Math.round(scores.averageScore)),
+        grades: scores.grades,
+      };
+    }),
+    sla,
     expiringRegistrations: registrations.map((r) => {
       const at = toDate(r.expires_at);
       return {
@@ -303,6 +332,99 @@ export async function reportSummary(
       domain: { id: r.domain_id, fqdn: r.fqdn },
       reviewAt: toDate(r.review_at).toISOString(),
     })),
+  };
+}
+
+/** Latest security score per domain, aggregated per business owner (null key: no owner). */
+async function scoresByBusinessOwner(
+  db: Database,
+): Promise<Map<string | null, { averageScore: number | null; grades: GradeDistribution }>> {
+  const rows = await rowsOf<{ owner: string | null; grade: string; n: number; total: number }>(
+    db,
+    sql`select d.business_owner as owner, s.grade, count(*)::int as n, sum(s.score)::int as total
+        from domains d
+        join lateral (
+          select x.score, x.grade from domain_score_snapshots x
+          where x.domain_id = d.id order by x.day desc limit 1
+        ) s on true
+        group by 1, 2`,
+  );
+  const acc = new Map<string | null, { n: number; total: number; grades: GradeDistribution }>();
+  for (const r of rows) {
+    const grade = asGrade(r.grade);
+    if (!grade) continue;
+    const a = acc.get(r.owner) ?? { n: 0, total: 0, grades: emptyGradeDistribution() };
+    a.n += Number(r.n);
+    a.total += Number(r.total);
+    a.grades[grade] += Number(r.n);
+    acc.set(r.owner, a);
+  }
+  return new Map(
+    [...acc].map(([owner, a]) => [
+      owner,
+      { averageScore: a.n > 0 ? round1(a.total / a.n) : null, grades: a.grades },
+    ]),
+  );
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * SLA section of the summary: overdue open findings by severity, and over the last
+ * SLA_COMPLIANCE_WINDOW_DAYS days the share of resolved findings (with a due date) resolved by it,
+ * and the mean days to resolve per severity. Same visibility as the other finding sections.
+ */
+async function slaSection(db: Database, vis: SQL, now: Date): Promise<SlaReport> {
+  const { policy } = await readSlaPolicy(db);
+  const overdueRows = await rowsOf<{ severity: Severity; n: number }>(
+    db,
+    sql`select f.severity, count(*)::int as n from findings f
+        where ${vis} and f.status not in ('resolved', 'accepted_risk')
+          and f.due_at is not null and f.due_at < ${ts(now)}
+        group by 1`,
+  );
+  const resolvedRows = await rowsOf<{
+    severity: Severity;
+    with_sla: number;
+    within: number;
+    days: number | null;
+  }>(
+    db,
+    sql`select f.severity,
+               (count(*) filter (where f.due_at is not null))::int as with_sla,
+               (count(*) filter (where f.due_at is not null and f.resolved_at <= f.due_at))::int as within,
+               avg(extract(epoch from (f.resolved_at - f.first_seen_at)))::float8 / 86400 as days
+        from findings f
+        where ${vis} and f.status = 'resolved'
+          and f.resolved_at >= ${ts(new Date(now.getTime() - SLA_COMPLIANCE_WINDOW_DAYS * DAY_MS))}
+        group by 1`,
+  );
+  const overdueBySeverity = zeros(SEVERITIES);
+  let overdue = 0;
+  for (const r of overdueRows) {
+    overdueBySeverity[r.severity] += Number(r.n);
+    overdue += Number(r.n);
+  }
+  const mean = Object.fromEntries(SEVERITIES.map((s) => [s, null])) as Record<
+    Severity,
+    number | null
+  >;
+  let withSla = 0;
+  let within = 0;
+  for (const r of resolvedRows) {
+    withSla += Number(r.with_sla);
+    within += Number(r.within);
+    mean[r.severity] = r.days === null ? null : Math.round(Number(r.days) * 100) / 100;
+  }
+  return {
+    policy,
+    overdue,
+    overdueBySeverity,
+    windowDays: SLA_COMPLIANCE_WINDOW_DAYS,
+    resolvedWithSla: withSla,
+    resolvedWithinSla: within,
+    compliancePercent: withSla > 0 ? round1((within / withSla) * 100) : null,
+    meanDaysToResolveBySeverity: mean,
   };
 }
 

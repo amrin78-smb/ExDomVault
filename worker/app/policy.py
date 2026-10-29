@@ -41,7 +41,7 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 Tier = Literal["passive", "web", "network"]
 
-PASSIVE_TIER_CHECKS: frozenset[str] = frozenset({"dns", "rdap", "discovery"})
+PASSIVE_TIER_CHECKS: frozenset[str] = frozenset({"dns", "rdap", "discovery", "network"})
 WEB_TIER_CHECKS: frozenset[str] = frozenset(
     {"tls_certificate", "http_availability", "http_headers"}
 )

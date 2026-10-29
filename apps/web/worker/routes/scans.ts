@@ -1,4 +1,5 @@
 import {
+  BRAND_PROFILE_KEY,
   DISCOVERY_PROFILE_KEY,
   scanJobListQuerySchema,
   type ScanJobDetailResponse,
@@ -18,8 +19,11 @@ export function scanProfileRoutes() {
   return new Hono<AppBindings>().get('/', requirePermission('scans:read'), async (c) => {
     const db = await c.get('db')();
     const res: ScanProfileListResponse = {
-      // Discovery is a job type of its own (POST /domains/:id/discovery), not a scan profile.
-      items: (await listProfiles(db)).filter((p) => p.key !== DISCOVERY_PROFILE_KEY),
+      // Discovery is a job type of its own (POST /domains/:id/discovery), not a scan profile;
+      // likewise brand monitoring (POST /domains/:id/lookalikes/check, Milestone 15).
+      items: (await listProfiles(db)).filter(
+        (p) => p.key !== DISCOVERY_PROFILE_KEY && p.key !== BRAND_PROFILE_KEY,
+      ),
       activeScanningEnabled: c.get('config').activeScanningEnabled,
     };
     return c.json(res);

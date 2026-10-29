@@ -28,8 +28,12 @@ Commands marked `sudo` are run by the owner. Nothing here is automated.
 - An ExDomainVault administrator account (to register the worker) and access to the Cloudflare
   dashboard (to create the Access service token).
 - Outbound HTTPS (TCP 443) to `crt.sh` for passive subdomain discovery (profile `discovery`,
-  Milestone 9). This is the only new destination; nothing else about the host, firewall or systemd
-  unit changes (crt.sh is a public address, so the unit's `IPAddressDeny=` list does not affect it).
+  Milestone 9). Milestone 15 adds, for the same profile: `api.certspotter.com` (second Certificate
+  Transparency source), `data.iana.org` (RDAP bootstrap) and the RIR RDAP servers `rdap.apnic.net`,
+  `rdap.arin.net`, `rdap.db.ripe.net`, `rdap.lacnic.net`, `rdap.afrinic.net` (network ownership),
+  plus more DNS queries (PTR) to the configured resolvers. Nothing else about the host, firewall or
+  systemd unit changes (all are public addresses, so the unit's `IPAddressDeny=` list does not affect
+  them). An egress allow-list must include all of them.
 - Nmap, only for the network-tier checks of the `standard`/`deep` profiles (`sudo apt install nmap`;
   this host has 7.94). It runs unprivileged as a TCP connect scan (no `CAP_NET_RAW`). Without it those
   checks fail with `nmap_unavailable`; passive and web checks are unaffected.
@@ -152,14 +156,15 @@ EXDV_ACCESS_CLIENT_ID=<Client ID from step 6>
 EXDV_ACCESS_CLIENT_SECRET=<Client Secret from step 6>
 EXDV_ENVIRONMENT=production
 EXDV_POLL_INTERVAL_SECONDS=30
-EXDV_PROFILES=passive,discovery
+EXDV_PROFILES=passive,discovery,brand
 EXDV_LOG_LEVEL=INFO
 EXDV_ACTIVE_SCANNING_ENABLED=false
 #EXDV_DENY_NETWORKS=
 ```
 
 `discovery` is passive (Certificate Transparency via crt.sh plus public DNS resolvers); drop it from
-`EXDV_PROFILES` to stop this worker from running discovery jobs. `EXDV_ACTIVE_SCANNING_ENABLED` stays `false` (the default) until you deliberately enable active scanning
+`EXDV_PROFILES` to stop this worker from running discovery jobs. `brand` (Milestone 15) is passive too:
+lookalike-domain names resolved through the public DNS resolvers only. `EXDV_ACTIVE_SCANNING_ENABLED` stays `false` (the default) until you deliberately enable active scanning
 (step 15). Leave `EXDV_DNS_RESOLVERS` unset to query the public resolvers 1.1.1.1 and 9.9.9.9 (and their IPv6
 addresses), so records are seen as the internet sees them. `system` uses the host's resolver
 (`127.0.0.53`, systemd-resolved), which answers DS/DNSKEY queries with SERVFAIL. Write
@@ -298,6 +303,14 @@ For the Milestone 9 upgrade (passive discovery), add `discovery` to the existing
 `EXDV_PROFILES=passive,discovery` (or `passive,discovery,quick,standard` with active scanning). An
 explicit `EXDV_PROFILES` without `discovery` means discovery jobs stay queued until another worker
 claims them. The upgrade also needs outbound HTTPS to `crt.sh`.
+
+The Milestone 15 upgrade (wider discovery) needs no configuration change: the `discovery` profile
+now also runs the passive `network` check and queries Cert Spotter. It needs outbound HTTPS to
+`api.certspotter.com`, `data.iana.org` and the five RIR RDAP servers listed in step 1.
+
+For the Milestone 15 upgrade (lookalike domains), add `brand` the same way, e.g.
+`EXDV_PROFILES=passive,discovery,brand,quick,standard,deep`; without it brand jobs stay queued. No new
+outbound access is needed (DNS to the configured resolvers only).
 
 **Application first.** When the new worker version goes with application changes that need a database
 migration (Milestone 6: `0003_approved_networks`), the migration and application deploy come first

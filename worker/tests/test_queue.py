@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from app import net, port_checks
 from app.client import Signer, WorkerApiClient
 from app.config import load_config
-from app.dns_checks import DnsAnswer
+from app.dns_checks import DKIM_SELECTORS, DnsAnswer, planned_queries
 from app.health import HealthReporter
 from app.queue import Worker
 from app.rdap_checks import BOOTSTRAP_URL, RdapClient
@@ -252,7 +252,7 @@ def test_passive_job_end_to_end(setup):
     assert endpoints[1] == "heartbeat"
     assert endpoints[-1] == "results"
     assert "failures" not in endpoints
-    assert api.endpoint_calls("claim")[0] == {"profiles": ["passive", "discovery"]}
+    assert api.endpoint_calls("claim")[0] == {"profiles": ["passive", "discovery", "brand"]}
     hb = api.endpoint_calls("heartbeat")[0]
     assert hb == {
         "jobId": JOB_ID,
@@ -280,7 +280,9 @@ def test_passive_job_end_to_end(setup):
         if o["targetId"] == APEX_ID and o["kind"] == "dns"
     }
     assert ("_dmarc.example.com", "TXT") in apex_dns
-    assert len(apex_dns) == 11
+    # The apex has a real MX, so the receiving-side mail names are queried too (Milestone 15).
+    assert apex_dns == set(planned_queries("example.com", True, receives_mail=True))
+    assert len(apex_dns) == 11 + len(DKIM_SELECTORS) + 3
     www = [o for o in observations if o["targetId"] == WWW_ID]
     assert {o["recordType"] for o in www} == {"A", "AAAA", "CNAME"}
     a = next(o for o in www if o["recordType"] == "A")

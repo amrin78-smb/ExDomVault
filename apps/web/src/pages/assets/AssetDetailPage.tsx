@@ -25,6 +25,7 @@ import {
   type AssetAction,
 } from '../../components/assets/labels.ts';
 import { Button } from '../../components/ui/Button.tsx';
+import { ChangesCard } from '../../components/changes/ChangesCard.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { ErrorAlert } from '../../components/ui/ErrorAlert.tsx';
 import { useShowAll } from '../../components/ui/ShowAllButton.tsx';
@@ -145,6 +146,8 @@ export function AssetDetailPage() {
         <IpAddressesCard ips={ips} />
 
         <DiscoveryCard discovery={discovery} />
+
+        <ChangesCard assetId={asset.id} className="lg:col-span-2" />
       </div>
     </>
   );

@@ -1,5 +1,6 @@
 import { DASHBOARD_RANGES, type DashboardRange, type Permission } from '@exdomainvault/shared';
 import { useSearchParams } from 'react-router';
+import { RecentChangesCard } from '../components/changes/RecentChangesCard.tsx';
 import { AssetTypesCard, SeverityCard, TrendCard } from '../components/dashboard/ChartCards.tsx';
 import {
   CertificateExpiryCard,
@@ -120,6 +121,12 @@ export function OverviewPage() {
         <RecentAssetsCard state={dash} onRetry={dashboard.retry} />
         <ExposedSoftwareCard state={dash} onRetry={dashboard.retry} />
       </div>
+
+      {canAssets && (
+        <div className="mt-6 grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <RecentChangesCard />
+        </div>
+      )}
     </>
   );
 }

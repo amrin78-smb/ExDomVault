@@ -5,6 +5,7 @@ import {
 } from '@exdomainvault/shared';
 import { Network, ShieldCheck } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router';
 import { api } from '../../lib/api.ts';
 import { addMonthsIso, formatDate, formatDateTime } from '../../lib/format.ts';
 import { useAsync } from '../../lib/use-async.ts';
@@ -71,8 +72,24 @@ function emptyForm(): CreateApprovedNetworkRequest {
   return { cidr: '', label: '', reason: '', reference: '', reviewBy: addMonthsIso(12) };
 }
 
+/**
+ * Milestone 15: "Propose as approved network" on the Attack Surface page links here with
+ * `?proposeCidr=&proposeLabel=` (a range RDAP registers to the organisation). Only the CIDR and
+ * label are pre-filled; the administrator still writes the reason and submits — nothing is approved
+ * automatically.
+ */
+function proposedForm(params: URLSearchParams): CreateApprovedNetworkRequest {
+  return {
+    ...emptyForm(),
+    cidr: (params.get('proposeCidr') ?? '').slice(0, 64),
+    label: (params.get('proposeLabel') ?? '').slice(0, 100),
+  };
+}
+
 function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
-  const [value, setValue] = useState<CreateApprovedNetworkRequest>(emptyForm);
+  const [params] = useSearchParams();
+  const proposed = params.has('proposeCidr');
+  const [value, setValue] = useState<CreateApprovedNetworkRequest>(() => proposedForm(params));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const set = (patch: Partial<CreateApprovedNetworkRequest>) =>
@@ -101,6 +118,12 @@ function CreateNetworkForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <form onSubmit={submit} aria-label="Approve a network" className="space-y-3">
+      {proposed && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+          Pre-filled from a network registered to your organisation (RDAP). Check that you own and
+          operate it, then give a reason — registration alone does not authorise scanning.
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block font-medium text-fg-2">
           Network (CIDR)

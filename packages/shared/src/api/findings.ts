@@ -87,6 +87,10 @@ export const findingSchema = z.object({
   firstSeenAt: isoDateTime,
   lastSeenAt: isoDateTime,
   resolvedAt: isoDateTime.nullable(),
+  /** Remediation due date from the SLA policy (null: the severity has no SLA). See api/sla.ts. */
+  dueAt: isoDateTime.nullable(),
+  /** Not resolved, not accepted risk, and `dueAt` has passed (computed when the response is built). */
+  overdue: z.boolean(),
   recurrenceCount: z.int(),
   assignee: findingUserRefSchema.nullable(),
   /** Present only while `status` is `accepted_risk`. */
@@ -156,6 +160,8 @@ export const FINDING_SORTS = [
   '-lastSeenAt',
   '-firstSeenAt',
   '-severity',
+  /** Soonest due first; findings without a due date last. */
+  'dueAt',
 ] as const;
 
 export const findingListQuerySchema = z.object({
@@ -170,6 +176,10 @@ export const findingListQuerySchema = z.object({
   /** `me`, `unassigned` or a user id. */
   assignee: z.union([z.literal('me'), z.literal('unassigned'), z.uuid()]).optional(),
   q: z.string().trim().max(253).optional(),
+  /** `true`: overdue findings only (see `overdue` on the finding); `false`: everything else. */
+  overdue: z.enum(['true', 'false']).optional(),
+  /** Findings with a due date strictly before this time. */
+  dueBefore: isoDateTime.optional(),
   sort: z.enum(FINDING_SORTS).default('-riskScore'),
 });
 export type FindingListQuery = z.infer<typeof findingListQuerySchema>;

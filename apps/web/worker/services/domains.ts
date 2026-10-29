@@ -1,10 +1,11 @@
 import { schema, type Database } from '@exdomainvault/database';
 import type { Domain, DomainListQuery, DomainListResponse } from '@exdomainvault/shared';
 import { normaliseDomain } from '@exdomainvault/shared/hostname';
-import { and, asc, count, desc, eq, ilike, inArray, ne, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { firstRow } from '../lib/db.ts';
 import { ApiError } from '../lib/errors.ts';
 import { writeAudit, writeAuditMany } from './audit.ts';
+import { asGrade, latestGradeSql, latestScoreSql } from './security-score.ts';
 
 const { domains } = schema;
 
@@ -18,7 +19,16 @@ export interface Actor {
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-export function toDomainDto(row: DomainRow): Domain {
+/** Latest security score snapshot of a domain (Milestone 14); null until it has been scored. */
+export interface DomainScoreRef {
+  score: number | null;
+  grade: string | null;
+}
+
+export function toDomainDto(
+  row: DomainRow,
+  score: DomainScoreRef = { score: null, grade: null },
+): Domain {
   // Stored names are canonical, so this only derives the display form and warnings.
   const n = normaliseDomain(row.fqdn);
   return {
@@ -37,6 +47,9 @@ export function toDomainDto(row: DomainRow): Domain {
     verificationMethod: row.verificationMethod,
     verificationExpiresAt: iso(row.verificationExpiresAt),
     monitoringEnabled: row.monitoringEnabled,
+    brandMonitoring: row.brandMonitoring,
+    score: score.score === null ? null : Number(score.score),
+    grade: asGrade(score.grade),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -62,7 +75,7 @@ const SORT_COLUMNS = {
 
 /** The WHERE clause of GET /domains (shared with the CSV export). */
 export function domainListWhere(
-  q: Pick<DomainListQuery, 'q' | 'verificationStatus' | 'criticality' | 'monitoring'>,
+  q: Pick<DomainListQuery, 'q' | 'verificationStatus' | 'criticality' | 'monitoring' | 'grade'>,
 ): SQL | undefined {
   const filters: SQL[] = [];
   if (q.q) {
@@ -74,12 +87,20 @@ export function domainListWhere(
   if (q.verificationStatus) filters.push(eq(domains.verificationStatus, q.verificationStatus));
   if (q.criticality) filters.push(eq(domains.criticality, q.criticality));
   if (q.monitoring) filters.push(eq(domains.monitoringEnabled, q.monitoring === 'true'));
+  if (q.grade === 'none') filters.push(sql`${latestGradeSql} is null`);
+  else if (q.grade) filters.push(sql`${latestGradeSql} = ${q.grade}`);
   return filters.length > 0 ? and(...filters) : undefined;
 }
 
 /** The ORDER BY of GET /domains (shared with the CSV export). */
 export function domainListOrder(sort: DomainListQuery['sort']): SQL[] {
   const descending = sort.startsWith('-');
+  if (sort === 'score' || sort === '-score') {
+    return [
+      sql`${latestScoreSql} ${descending ? sql`desc` : sql`asc`} nulls last`,
+      asc(domains.fqdn),
+    ];
+  }
   const column = SORT_COLUMNS[sort.replace(/^-/, '') as keyof typeof SORT_COLUMNS];
   return [descending ? desc(column) : asc(column), asc(domains.fqdn)];
 }
@@ -88,7 +109,7 @@ export async function listDomains(db: Database, q: DomainListQuery): Promise<Dom
   const where = domainListWhere(q);
   const [rows, [totalRow]] = await Promise.all([
     db
-      .select()
+      .select({ d: domains, score: latestScoreSql, grade: latestGradeSql })
       .from(domains)
       .where(where)
       .orderBy(...domainListOrder(q.sort))
@@ -98,7 +119,7 @@ export async function listDomains(db: Database, q: DomainListQuery): Promise<Dom
   ]);
 
   return {
-    items: rows.map(toDomainDto),
+    items: rows.map((r) => toDomainDto(r.d, { score: r.score, grade: r.grade })),
     page: q.page,
     pageSize: q.pageSize,
     total: totalRow?.total ?? 0,
@@ -169,6 +190,7 @@ export async function updateDomain(
     criticality?: Domain['criticality'];
     businessOwner?: string | null;
     monitoringEnabled?: boolean;
+    brandMonitoring?: boolean;
   },
   actor: Actor,
 ): Promise<DomainRow> {
@@ -190,6 +212,9 @@ export async function updateDomain(
       patch.monitoringEnabled !== undefined &&
       patch.monitoringEnabled !== current.monitoringEnabled;
     if (monitoringChanged) set.monitoringEnabled = patch.monitoringEnabled;
+    const brandChanged =
+      patch.brandMonitoring !== undefined && patch.brandMonitoring !== current.brandMonitoring;
+    if (brandChanged) set.brandMonitoring = patch.brandMonitoring;
 
     if (Object.keys(set).length === 0) return current;
 
@@ -210,6 +235,15 @@ export async function updateDomain(
     if (monitoringChanged) {
       await audit(
         patch.monitoringEnabled ? 'domain.monitoring_enabled' : 'domain.monitoring_disabled',
+        {},
+      );
+    }
+    if (brandChanged) {
+      // Milestone 15: lookalike-domain monitoring is an explicit, audited opt-in per domain.
+      await audit(
+        patch.brandMonitoring
+          ? 'domain.brand_monitoring_enabled'
+          : 'domain.brand_monitoring_disabled',
         {},
       );
     }

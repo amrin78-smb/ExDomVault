@@ -17,6 +17,8 @@ import { isValidHostname, isWithinDomain } from '@exdomainvault/shared/hostname'
 import { canonicalIp, cidrContains, isProhibitedAddress } from '@exdomainvault/shared/net';
 import { and, asc, desc, eq, inArray, max, sql } from 'drizzle-orm';
 import { ApiError } from '../lib/errors.ts';
+import { ingestNetworkObservations, validateNetworkObservation } from './discovered-networks.ts';
+import { ingestLookalikes, validateLookalikeObservation } from './lookalikes.ts';
 import { activeNetworkCidrs, intersectNetworks } from './networks.ts';
 import type { ScanJobRow } from './scans.ts';
 
@@ -56,6 +58,10 @@ export interface ObservationCounts {
   tls: number;
   http: number;
   port: number;
+  /** Milestone 15: lookalike candidates stored (optional so existing callers stay valid). */
+  lookalike?: number;
+  /** Milestone 15: network (RDAP ownership) observations stored. */
+  network?: number;
 }
 
 export const EMPTY_OBSERVATION_COUNTS: ObservationCounts = Object.freeze({
@@ -131,6 +137,16 @@ function validate(
       if (target.targetHostname !== snapshotDomainFqdn) {
         throw invalid(i, 'targetId', 'Registration observations are accepted for the apex only.');
       }
+      return;
+    }
+    if (o.kind === 'lookalike') {
+      // Brand monitoring: candidates from the job's own snapshot only (services/lookalikes.ts).
+      validateLookalikeObservation(snapshot, target, o, i);
+      return;
+    }
+    if (o.kind === 'network') {
+      // Network ownership: discovery jobs listing `network`, apex target, public addresses.
+      validateNetworkObservation(job, snapshot, target, o, i);
       return;
     }
     if (o.kind === 'discovery') {
@@ -370,6 +386,28 @@ export async function ingestObservations(
     );
   }
 
+  // Lookalike candidates (brand jobs): rejects names within any of our domains, then stores.
+  const lookalike = domainId
+    ? await ingestLookalikes(
+        tx,
+        domainId,
+        observations.flatMap((o, index) =>
+          o.kind === 'lookalike'
+            ? [{ index, o, row: { ...common(o, index), checker: 'lookalike' } }]
+            : [],
+        ),
+      )
+    : 0;
+
+  // Network ownership (discovery jobs): matchedOrg re-computed against the current setting.
+  const network = await ingestNetworkObservations(
+    tx,
+    domainId,
+    observations.flatMap((o, i) =>
+      o.kind === 'network' ? [{ o, row: { ...common(o, i), checker: 'network' } }] : [],
+    ),
+  );
+
   let reg = 0;
   if (domainId && registrationRows.length > 0) {
     // Read the newest applied registration observation before inserting this batch.
@@ -396,7 +434,7 @@ export async function ingestObservations(
       prior?.at ?? null,
     );
   }
-  return { discovery, dns, registration: reg, tls, http, port };
+  return { discovery, dns, registration: reg, tls, http, port, lookalike, network };
 }
 
 // --- Discovery and DNS → asset inventory ----------------------------------------------------------
@@ -428,13 +466,19 @@ async function ingestDiscovery(
 ): Promise<number> {
   if (items.length === 0) return 0;
   // Aggregate per hostname: one statement cannot touch the same row twice.
-  const candidates = new Map<string, { first: Date; last: Date; wildcard: boolean }>();
+  const candidates = new Map<
+    string,
+    { first: Date; last: Date; wildcard: boolean; source: DiscoveryObservation['source'] }
+  >();
   for (const { o, row } of items) {
     if (o.resultStatus !== 'success') continue;
     const at = row.observedAt;
     const c = candidates.get(o.hostname);
-    if (!c) candidates.set(o.hostname, { first: at, last: at, wildcard: o.wildcard });
-    else {
+    if (!c) {
+      candidates.set(o.hostname, { first: at, last: at, wildcard: o.wildcard, source: o.source });
+    } else {
+      // Certificate Transparency wins when both sources found the name in one batch.
+      if (o.source === 'certificate_transparency') c.source = o.source;
       if (at < c.first) c.first = at;
       if (at > c.last) c.last = at;
       c.wildcard = c.wildcard && o.wildcard;
@@ -449,7 +493,9 @@ async function ingestDiscovery(
           domainId,
           hostname,
           assetType: hostname === fqdn ? ('apex' as const) : ('subdomain' as const),
-          discoverySource: 'certificate_transparency' as const,
+          // Reverse DNS of the organisation's ranges is stored as `dns` (assets source enum).
+          discoverySource:
+            c.source === 'reverse_dns' ? ('dns' as const) : ('certificate_transparency' as const),
           firstSeenAt: c.first,
           lastSeenAt: c.last,
           wildcardOnly: c.wildcard,

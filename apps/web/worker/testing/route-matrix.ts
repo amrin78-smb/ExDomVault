@@ -35,6 +35,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   'POST /domains/monitoring': user(ADMIN),
   'GET /domains/:id': user(READERS),
   'GET /domains/:id/observations': user(READERS),
+  'GET /domains/:id/score': user(READERS),
   'PATCH /domains/:id': user(ADMIN),
   'POST /domains/:id/verification': user(ADMIN),
   'POST /domains/:id/authorise': user(ADMIN),
@@ -90,11 +91,22 @@ export const ROUTE_ACCESS: Record<string, Access> = {
 
   'GET /settings/scan-schedule': user(READERS),
   'PUT /settings/scan-schedule': user(ADMIN),
+  // Milestone 15: organisation names for network-ownership discovery.
+  'GET /settings/discovery': user(ADMIN),
+  'PUT /settings/discovery': user(ADMIN),
+  // Milestone 14: remediation SLA policy (readable by everyone who reads findings).
+  'GET /settings/sla': user(ALL),
+  'PUT /settings/sla': user(ADMIN),
 
   'GET /audit-logs': user(ADMIN),
 
   'GET /reports/summary': user(ALL),
   'GET /reports/findings.csv': user(ANALYSTS),
+  // Milestone 14: monthly executive reports are organisation-wide (asset owners refused in the
+  // handler despite reports:read); (re)generation is admin-only.
+  'GET /reports/monthly': user(READERS),
+  'POST /reports/monthly/generate': user(ADMIN),
+  'GET /reports/monthly/:period': user(READERS),
 
   // CSV exports: the list's permission and visibility (exports.test.ts).
   'GET /exports/domains.csv': user(READERS),
@@ -127,6 +139,13 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   'GET /certificates': user(ALL, 'asset owners see only their assets (object level)'),
   'GET /vulnerabilities': user(ALL, 'asset owners see only their assets (object level)'),
   'GET /attack-surface': user(ALL, 'asset owners see only their assets (object level)'),
+  // Milestone 15: discovered IP networks (RDAP ownership).
+  'GET /networks/discovered': user(ALL, 'asset owners see only networks with their assets'),
+  // Milestone 15: lookalike domains (organisation-wide brand data: no asset owners).
+  'GET /lookalikes': user(READERS),
+  'POST /domains/:id/lookalikes/check': user(ANALYSTS),
+  // Milestone 14: change timeline.
+  'GET /changes': user(ALL, 'asset owners see only their assets (object level)'),
 };
 
 // ------------------------------------------------------------------------------------------------

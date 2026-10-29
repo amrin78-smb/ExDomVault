@@ -178,8 +178,11 @@ IDNA/UTS #46 (WHATWG URL parser). Rejected, with a field error on `fqdn`:
 
 Query: `page` (default 1), `pageSize` (1–100, default 25), `q` (substring of the A-label; a Unicode
 term is converted first; `%`/`_` are literal), `verificationStatus`, `criticality`, `monitoring`
-(`true`/`false`), `sort` (`fqdn`, `-fqdn`, `createdAt`, `-createdAt`, `criticality`, `-criticality`;
-default `fqdn`). Response: `{ "items": Domain[], "page", "pageSize", "total" }`.
+(`true`/`false`), `grade` (`A`–`F`, or `none` = not scored yet), `sort` (`fqdn`, `-fqdn`, `createdAt`,
+`-createdAt`, `criticality`, `-criticality`, `score` (lowest first), `-score`; unscored domains last;
+default `fqdn`). Response: `{ "items": Domain[], "page", "pageSize", "total" }`. Each `Domain` carries
+`score` (0–100) and `grade` from its latest daily security-score snapshot, both `null` until the domain
+has been scored (Milestone 14, [`security-score.md`](security-score.md)).
 
 ### `POST /api/v1/domains` — `domains:write`
 
@@ -192,6 +195,17 @@ exists (enforced by the `domains_fqdn_key` unique index as well). Audited `domai
 
 `{ "domain": Domain, "verification": Challenge | null }` — the pending challenge, otherwise the most
 recent one. The challenge value is never returned here. Malformed or unknown ids → `404`.
+
+### `GET /api/v1/domains/:id/score` — `domains:read`
+
+Security score (Milestone 14, [`security-score.md`](security-score.md)). `domainScoreResponseSchema`
+(`packages/shared/src/api/scores.ts`): `{ domain, current, trend, trendDays: 90 }`. `current` is
+computed live from the domain's non-resolved findings: `{ version, score, grade, deductions[], inputs[] }`
+where each deduction is a rule category with `points` (after the cap), `uncapped`, `capped` and the
+per-severity/state items that produced it. `current` is `null` when the domain has no successfully
+completed (and evaluated) scan. `trend` is one point per UTC day with a stored snapshot within the last
+90 days, oldest first; today's point shows the live value. When the domain is scored and today's
+snapshot is missing, it is written by this request. Unknown id → `404`. Asset owners: `403`.
 
 ### `GET /api/v1/domains/:id/observations` — `domains:read`
 
@@ -220,9 +234,11 @@ The latest scan observations for the domain (contract `domainObservationsRespons
 
 ### `PATCH /api/v1/domains/:id` — `domains:write`
 
-Body: any of `criticality`, `businessOwner` (string or null; empty clears), `monitoringEnabled`; at
-least one. Monitoring can be turned on for any domain (it is passive). Audited `domain.updated` (with
-`{ changes: { field: { from, to } } }`) and `domain.monitoring_enabled` / `domain.monitoring_disabled`.
+Body: any of `criticality`, `businessOwner` (string or null; empty clears), `monitoringEnabled`,
+`brandMonitoring` (Milestone 15); at least one. Monitoring can be turned on for any domain (it is
+passive). Audited `domain.updated` (with `{ changes: { field: { from, to } } }`),
+`domain.monitoring_enabled` / `domain.monitoring_disabled` and `domain.brand_monitoring_enabled` /
+`domain.brand_monitoring_disabled`. The domain DTO carries `brandMonitoring` (default `false`).
 
 ### Verification (DNS TXT) — `domains:verify`
 
@@ -427,7 +443,7 @@ request that returns an already queued job (`created: false`) creates nothing an
 ### `POST /api/v1/domains/:id/discovery` — `scans:request`
 
 No body. Queues passive subdomain discovery for the domain: a job with `jobType: "discovery"`, profile
-`discovery` (checks `["discovery"]`, `active: false`) and exactly one target, the apex hostname with
+`discovery` (checks `["discovery", "network"]` since Milestone 15, `active: false`) and exactly one target, the apex hostname with
 `assetId: null`. Passive (the worker queries Certificate Transparency logs and public resolvers, never
 the domain's hosts), so domain verification is not required. Returns `discoveryRequestResponseSchema`:
 
@@ -672,9 +688,14 @@ visible to them); an invisible finding answers `404` exactly like a missing one.
 
 Query: `page`, `pageSize` (≤ 100), `status` (`active` = everything except resolved, default; `all`; or
 one status), `severity`, `category`, `domainId`, `ruleId`, `assignee` (`me`, `unassigned` or a user
-id), `q` (title/hostname), `sort` (`-riskScore` default, `riskScore`, `-lastSeenAt`, `-firstSeenAt`,
-`-severity`). Each finding carries `assignee`, `acceptedRisk` (`{ reason, approvedBy, reviewAt }`, only
-while `accepted_risk`) and `manualResolution` (its rule is a change-detection rule).
+id), `q` (title/hostname), `overdue` (`true`: overdue only; `false`: everything else), `dueBefore`
+(ISO time: due date strictly before it), `sort` (`-riskScore` default, `riskScore`, `-lastSeenAt`,
+`-firstSeenAt`, `-severity`, `dueAt` = soonest due first, no due date last). Each finding carries
+`assignee`, `acceptedRisk` (`{ reason, approvedBy, reviewAt }`, only while `accepted_risk`),
+`manualResolution` (its rule is a change-detection rule), `dueAt` (remediation due date from the SLA
+policy, `null` when the severity has no SLA) and `overdue` (not resolved, not accepted risk, `dueAt` in
+the past — computed when the response is built). The CSV report accepts the same `overdue`/`dueBefore`
+filters.
 
 ### `GET /api/v1/findings/summary` — `findings:read`
 
@@ -739,6 +760,29 @@ Advisories with a summary of their finding; `status` `active` (default) or `all`
 ### `GET /api/v1/rules` — `findings:read`
 
 The rule catalogue (id, version, category, severity, detection, resolution, evidence required).
+
+### Remediation SLAs (Milestone 14)
+
+Contract: `packages/shared/src/api/sla.ts`. The policy (`application_settings.sla_policy`, default
+`{ critical: 7, high: 30, medium: 90, low: 180, informational: null }`) gives the days to remediate per
+severity; `null` = no SLA. `findings.due_at` = SLA clock start + days, where the clock starts at
+`first_seen_at` or, if later, the last status-history entry that took the finding out of `resolved`
+(recurrence) or `accepted_risk` (lapsed or withdrawn acceptance) into a working status. It is set when a
+finding is created, reopened or its severity changes on re-evaluation, and when it leaves accepted risk;
+resolved findings keep their due date (used for SLA compliance). Accepted-risk findings are never
+overdue. The cron step `sla_due_dates_backfilled` gives a due date to findings without one whose
+severity has an SLA (idempotent; covers findings that predate Milestone 14).
+
+#### `GET /api/v1/settings/sla` — `findings:read`
+
+`{ policy, updatedAt, updatedBy }` (`updatedAt`/`updatedBy` null while the seeded default is in use).
+
+#### `PUT /api/v1/settings/sla` — `settings:manage`
+
+Body: the full policy, each severity an integer 1–3650 or `null`; unknown keys rejected. Saves it and
+recomputes `due_at` of every non-resolved finding in the same transaction (one set-based statement).
+Response `{ policy, updatedAt, updatedBy, recomputed }` (rows whose due date changed). Audited
+`settings.sla_updated` with `before`, `after` and `recomputed`.
 
 ### Accepted-risk expiry (cron)
 
@@ -966,22 +1010,24 @@ Contracts: `packages/shared/src/api/reports.ts`.
 `reportSummaryResponseSchema`, computed from stored data with a fixed number of aggregate statements
 (GROUP BY, `generate_series`, `DISTINCT ON`) regardless of portfolio size. All windows are UTC.
 
-| Section                 | Definition                                                                                                                                                                                                                               |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `coverage`              | Domain counts (all / `monitoring_enabled` / verified), asset counts (approved / pending), `lastScanAt` = newest `completed_at` of a succeeded scan or discovery job                                                                      |
-| `findings`              | `open` = non-resolved; `bySeverity`, `byCategory` over non-resolved; `byStatus` over all; `meanDaysToResolve` = mean (`resolved_at` − `first_seen_at`) of findings resolved in the last 90 days, 2 decimals, `null` if none              |
-| `trend`                 | 30 days ending today: `created` = findings whose `first_seen_at` falls on the day, `resolved` = findings whose `resolved_at` falls on the day (currently resolved findings only; a reopened finding's earlier resolution is not counted) |
-| `topDomains`            | Up to 10 domains by total `risk_score` of open findings (then open count, fqdn), with `highestSeverity`                                                                                                                                  |
-| `byBusinessOwner`       | Per `domains.business_owner` (null grouped): domain count, open findings, open high/critical; most open first; ≤ 100 rows                                                                                                                |
-| `expiringRegistrations` | Domains with `expires_at` ≤ now + 60 days (incl. expired), soonest first, ≤ 50; `daysLeft` = floor of days remaining (negative if expired)                                                                                               |
-| `expiringCertificates`  | The latest **successful** TLS observation per hostname within the last 90 days, if its `not_after` ≤ now + 30 days, soonest first, ≤ 50. The domain comes from the observation's asset, else its scan job                                |
-| `acceptedRisksDue`      | Accepted risks with a review date ≤ now + 30 days (incl. passed), soonest first, ≤ 50                                                                                                                                                    |
+| Section                 | Definition                                                                                                                                                                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coverage`              | Domain counts (all / `monitoring_enabled` / verified), asset counts (approved / pending), `lastScanAt` = newest `completed_at` of a succeeded scan or discovery job                                                                                                                                                             |
+| `findings`              | `open` = non-resolved; `bySeverity`, `byCategory` over non-resolved; `byStatus` over all; `meanDaysToResolve` = mean (`resolved_at` − `first_seen_at`) of findings resolved in the last 90 days, 2 decimals, `null` if none                                                                                                     |
+| `trend`                 | 30 days ending today: `created` = findings whose `first_seen_at` falls on the day, `resolved` = findings whose `resolved_at` falls on the day (currently resolved findings only; a reopened finding's earlier resolution is not counted)                                                                                        |
+| `topDomains`            | Up to 10 domains by total `risk_score` of open findings (then open count, fqdn), with `highestSeverity`                                                                                                                                                                                                                         |
+| `byBusinessOwner`       | Per `domains.business_owner` (null grouped): domain count, open findings, open high/critical, `overdue`; `averageScore` (mean latest score snapshot of the group's scored domains, 1 decimal, null if none), its `grade` and `grades` (count per grade); most open first; ≤ 100 rows                                            |
+| `sla`                   | `policy`; `overdue` / `overdueBySeverity` = open (not accepted-risk) findings past `due_at`; over the last 90 days (`windowDays`): `resolvedWithSla` (still-resolved findings with a due date), `resolvedWithinSla` (`resolved_at` ≤ `due_at`), `compliancePercent` (1 decimal, null if none) and `meanDaysToResolveBySeverity` |
+| `expiringRegistrations` | Domains with `expires_at` ≤ now + 60 days (incl. expired), soonest first, ≤ 50; `daysLeft` = floor of days remaining (negative if expired)                                                                                                                                                                                      |
+| `expiringCertificates`  | The latest **successful** TLS observation per hostname within the last 90 days, if its `not_after` ≤ now + 30 days, soonest first, ≤ 50. The domain comes from the observation's asset, else its scan job                                                                                                                       |
+| `acceptedRisksDue`      | Accepted risks with a review date ≤ now + 30 days (incl. passed), soonest first, ≤ 50                                                                                                                                                                                                                                           |
 
 **Asset owners** receive a summary of what they can see: the `findings`, `trend` and
 `acceptedRisksDue` sections cover only findings on assets they own; `coverage.approvedAssets` /
 `pendingAssets` count their own assets and `expiringCertificates` covers their own assets. Domain-level
 sections are zero or empty for them: `coverage.domains` / `monitoredDomains` / `verifiedDomains` = 0,
-`lastScanAt` = null, and `topDomains`, `byBusinessOwner`, `expiringRegistrations` = `[]`.
+`lastScanAt` = null, and `topDomains`, `byBusinessOwner`, `expiringRegistrations` = `[]`. The `sla`
+section covers the findings they can see.
 
 ### `GET /api/v1/reports/findings.csv` — `reports:generate`
 
@@ -1000,6 +1046,44 @@ Cell encoding: any text cell starting with `=`, `+`, `-`, `@`, tab or CR is pref
 quoting applies (cells containing `"`, `,`, CR or LF are quoted, `"` doubled).
 Each export is audited `report.exported` (`resourceType: report`, `resourceId: findings.csv`, metadata
 `report`, `format`, `filters`, `rows`, `truncated`) in the same transaction as the read.
+
+### Monthly executive reports (Milestone 14)
+
+Contract: `packages/shared/src/api/monthly-report.ts` (`monthlyReportSchema`). A report is a
+point-in-time snapshot of one UTC calendar month, computed by aggregate SQL when generated and stored
+unchanged in `monthly_reports.data` (one row per month). Contents: totals (domains, monitored, assets,
+approved, new assets in the month), findings opened (first seen in the month) / reopened (recurrence)
+/ resolved (status history) in the month by severity, open / accepted-risk / overdue **at month end**
+(each finding's last status-history entry before the month ended; severity, risk and due date are the
+current values), SLA compliance and mean days to resolve for findings resolved in the month, the 10
+highest-risk findings open at month end, the 10 domains with the most open risk (with their
+end-of-month grade), the security-score summary (each domain's last snapshot in the month: average,
+grade distribution, best/worst 5, change vs the previous month's average), certificates expiring within
+30 days of month end, and open SOFT-001 / SOFT-002 findings at month end.
+
+Generation: the cron step `monthly_report_generated` creates the previous month's report once, on or
+after the 1st (UTC), when it does not exist yet and at least one domain existed before the month ended
+(system audit `report.monthly_generated`, `trigger: schedule`). Concurrent runs keep the first (unique
+`period` index).
+
+Monthly reports are organisation-wide: **asset owners get `403`** on every monthly endpoint even though
+they hold `reports:read`.
+
+#### `GET /api/v1/reports/monthly` — `reports:read` (not asset owners)
+
+`{ items: [{ period: "YYYY-MM", generatedAt, openAtEndTotal, overdueAtEnd, averageScore }] }`, newest
+first.
+
+#### `GET /api/v1/reports/monthly/:period` — `reports:read` (not asset owners)
+
+`{ report }`. `period` must be `YYYY-MM` (`400` otherwise); a month without a report → `404`.
+
+#### `POST /api/v1/reports/monthly/generate` — `settings:manage`
+
+Body `{ "period"?: "YYYY-MM" }` (default: the previous month). Generates the report now, replacing an
+existing one. The current month may be generated (a partial month: `generatedAt` < `periodEnd`); a
+future month → `400`. `201 { report }`. Audited `report.monthly_generated` (`trigger: manual`,
+`regenerated`).
 
 ## Exports
 
@@ -1313,6 +1397,94 @@ only inventory rows and findings on assets they own.
   when any country is known, else null.
 - `exposedServices`: top 10 open TCP ports by distinct current addresses (ties by port), `service` =
   the most common reported service name.
+
+## Wider discovery (Milestone 15)
+
+Network ownership from RDAP (`network` observations of the weekly discovery job, see
+[`worker-protocol.md`](worker-protocol.md#wider-discovery-milestone-15)) and the organisation names
+that mark a network as the organisation's. Display/discovery only: nothing here grants scan scope.
+
+### `GET /api/v1/networks/discovered` — `assets:read`
+
+No query. `discoveredNetworksResponseSchema`:
+
+- `orgNames`: the current organisation names.
+- `matched`: networks whose latest successful observation matches an organisation name — matching is
+  re-evaluated against the **current** setting on every read (`orgNameMatches` over organisation,
+  network name and `evidence.entityNames`). One entry per network (key `registry:handle`, else the
+  address range, else the address), from its latest successful observation; `firstSeenAt` /
+  `lastSeenAt` over all its successful observations. `addresses` (≤ 50) / `assetCount` / `assets`
+  (≤ 10, `{ id, hostname }`): current addresses of **visible approved** assets inside the network.
+  `proposedCidr`: the first registered CIDR the approved-networks form accepts (public, at most /16
+  IPv4 or /32 IPv6), else null — the UI links to Settings with `?proposeCidr=&proposeLabel=` to
+  pre-fill the form; nothing is approved by this API.
+- `hosting`: the other networks grouped by organisation name (else network name, else `Unknown`),
+  `{ orgName, networks, assetCount }`, top 10 by assets.
+- `total`: networks listed (matched + other).
+
+Visibility: networks are listed only when they contain a current address of a visible approved asset;
+admins/analysts/viewers also see matched networks without one. Asset owners see only networks that
+contain one of their own assets (and only their assets in them). At most 2000 networks are considered.
+
+### `GET /api/v1/settings/discovery` — `settings:manage`
+
+`discoverySettingsResponseSchema`: `{ orgNames: string[], updatedAt: string | null }` (seeded
+`["Thai Union"]` by migration `0009`).
+
+### `PUT /api/v1/settings/discovery` — `settings:manage`
+
+Body `discoverySettingsSchema`: `{ orgNames: string[] }` — each trimmed, 2–100 characters, at most 20,
+no case-insensitive duplicates (unknown keys refused). Replaces the list; audited
+`settings.discovery_updated` with `before`/`after`. Returns the new settings. The next claim of a
+discovery job sends the new names to the worker; listing uses them immediately.
+
+### Claim payload and ingestion
+
+A claimed discovery job whose snapshot profile lists `network` carries `network: { orgNames,
+addresses }` (`claimedJobSchema`): the organisation names and the distinct current public addresses of
+the domain's approved assets (≤ 256), computed at claim time. `network` observations are stored in
+`network_observations` (validation and `matched_org` re-computation: see the worker protocol).
+Reverse-DNS candidates (`discovery` observations with `source: "reverse_dns"`) become `pending` assets
+with `source: "dns"`.
+
+## Lookalike domains (Milestone 15)
+
+Brand monitoring: weekly passive checks of lookalike names (typos, homoglyphs, other TLDs) of domains
+with `brandMonitoring` on, through public resolvers only (see
+[`worker-protocol.md`](worker-protocol.md#lookalike-domains-milestone-15)). Rule LOOK-001 raises one
+finding per registered lookalike (category `asset`, hostname = the domain, component = the lookalike).
+
+### `POST /api/v1/domains/:id/lookalikes/check` — `scans:request`
+
+No body. Queues a `brand` job now (job type `scan`, profile `brand`, one target: the apex, the
+candidate list generated and frozen into the snapshot) and returns `201 { scanJobId, created: true }`,
+or `200 { scanJobId, created: false }` with the job already queued or running. `404` unknown domain;
+`409 conflict` when brand monitoring is off for the domain or the `brand` profile is disabled or
+misconfigured; `429` per-user scan quota. Audited `scan.requested` (`profile: "brand"`,
+`lookalikeCandidates`). `POST /domains/:id/scans` refuses the `brand` profile (400), and
+`GET /scan-profiles` does not list it.
+
+**Scheduling (cron step `brand_jobs_scheduled`).** For every domain with `brand_monitoring = true` and
+no brand job queued/running or created in the last 7 days: staggered (a domain without any brand job
+waits for its hash slot in the week), at most 20 per run, priority 260, audited `scan.scheduled`.
+
+### `GET /api/v1/lookalikes` — `domains:read`
+
+Query: `page`, `pageSize` (≤ 100, default 50), `domainId`, `registered` (`true` = currently registered,
+`false` = no longer registered; omitted = both), `technique` (one of `LOOKALIKE_TECHNIQUES`), `q`
+(substring of the lookalike name, ≤ 253). Response `lookalikeListResponseSchema`:
+
+- `items[]`: one per (domain, lookalike) ever seen registered — `domain`, `candidate`, `technique`,
+  `state` (`registered` | `gone`: the domain's latest complete brand run finished after it was last seen
+  registered and did not fail to resolve it), `records { A, AAAA, MX, NS }` from the latest registered
+  sighting, `hasMail` (MX other than a null MX), `firstSeenAt`, `lastSeenAt`, `lastCheckedAt` (latest
+  complete run), `finding { id, status, severity } | null` (LOOK-001). Sorted: registered first,
+  mail-capable first, newest first.
+- `summary` (within `domainId` if given, ignoring the other filters): `domainsMonitored`,
+  `candidatesChecked` (candidates of each domain's latest complete run), `registered`, `withMail`,
+  `newThisWeek` (first seen in the last 7 days), `lastCheckedAt`.
+
+Asset owners get `403` (brand data is organisation-wide, not about an asset).
 
 ## Internal worker API — signed requests
 

@@ -25,7 +25,7 @@ DEFAULT_HEALTH_FILE = "/var/lib/exdomainvault-worker/health.json"
 DEFAULT_DNS_RESOLVERS = "1.1.1.1,9.9.9.9,2606:4700:4700::1111,2620:fe::fe"
 DEFAULT_NMAP_PATH = "/usr/bin/nmap"
 #: Both passive: DNS/RDAP monitoring and Certificate Transparency discovery.
-DEFAULT_PROFILES = "passive,discovery"
+DEFAULT_PROFILES = "passive,discovery,brand"
 
 _WORKER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -51,7 +51,7 @@ class WorkerConfig:
     environment: Environment
     poll_interval_seconds: int
     log_level: LogLevel
-    profiles: tuple[str, ...] = ("passive", "discovery")
+    profiles: tuple[str, ...] = ("passive", "discovery", "brand")
     dns_resolvers: tuple[str, ...] = ()
     health_file: str = DEFAULT_HEALTH_FILE
     access_client_id: str | None = None

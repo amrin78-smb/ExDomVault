@@ -13,10 +13,13 @@ export const JOB_TYPE_LABELS: Record<ScanJob['jobType'], string> = {
 
 /**
  * Profiles that may be requested through the scan picker. Discovery has its own endpoint and job
- * type, so it is never offered here even if the server lists it.
+ * type, and brand monitoring (lookalike checks) its own endpoint, so neither is ever offered here
+ * even if the server lists it.
  */
 export const isScanPickerProfile = (p: ScanProfile) =>
-  p.key !== DISCOVERY_PROFILE_KEY && !p.config.checks.includes('discovery');
+  p.key !== DISCOVERY_PROFILE_KEY &&
+  !p.config.checks.includes('discovery') &&
+  !p.config.checks.includes('lookalike');
 
 /** Why a profile cannot be used for this domain right now, or null if it can. */
 export function unavailableReason(

@@ -1,9 +1,20 @@
 import { notifySessionExpired } from './session-expiry.ts';
 import {
+  discoveredNetworksResponseSchema,
+  type DiscoveredNetworksResponse,
+  discoverySettingsResponseSchema,
+  type DiscoverySettings,
+  type DiscoverySettingsResponse,
+  lookalikeCheckResponseSchema,
+  type LookalikeCheckResponse,
+  lookalikeListResponseSchema,
+  type LookalikeListResponse,
   attackSurfaceResponseSchema,
   type AttackSurfaceResponse,
   certificatesResponseSchema,
   type CertificatesResponse,
+  changesResponseSchema,
+  type ChangesResponse,
   dashboardResponseSchema,
   type DashboardResponse,
   portsResponseSchema,
@@ -125,6 +136,20 @@ import {
   type OpsHealthResponse,
 } from '@exdomainvault/shared';
 import { z } from 'zod';
+// Milestone 14: remediation SLAs, security score, monthly reports.
+import {
+  domainScoreResponseSchema,
+  monthlyReportListResponseSchema,
+  monthlyReportResponseSchema,
+  slaPolicyResponseSchema,
+  slaPolicyUpdateResponseSchema,
+  type DomainScoreResponse,
+  type MonthlyReportListResponse,
+  type MonthlyReportResponse,
+  type SlaPolicy,
+  type SlaPolicyResponse,
+  type SlaPolicyUpdateResponse,
+} from '@exdomainvault/shared';
 
 export class ApiClientError extends Error {
   override name = 'ApiClientError';
@@ -425,6 +450,9 @@ export const api = {
      */
     importAssets: (id: string, body: AssetImportRequest): Promise<AssetImportResponse> =>
       sendJson('POST', `${domainPath(id)}/assets/import`, assetImportResponseSchema, body),
+    /** Security score: live breakdown and 90-day daily trend (`domains:read`). */
+    score: (id: string, init?: RequestInit): Promise<DomainScoreResponse> =>
+      getJson(`${domainPath(id)}/score`, domainScoreResponseSchema, init),
   },
 
   /** Hostname inventory. Discovered names stay `pending` until an administrator approves them. */
@@ -476,6 +504,20 @@ export const api = {
         getJson('/api/v1/settings/scan-schedule', scanScheduleResponseSchema, init),
       update: (body: ScanSchedule): Promise<ScanScheduleResponse> =>
         sendJson('PUT', '/api/v1/settings/scan-schedule', scanScheduleResponseSchema, body),
+    },
+    /** Remediation SLAs (`findings:read` to view, `settings:manage` to change). */
+    sla: {
+      get: (init?: RequestInit): Promise<SlaPolicyResponse> =>
+        getJson('/api/v1/settings/sla', slaPolicyResponseSchema, init),
+      update: (body: SlaPolicy): Promise<SlaPolicyUpdateResponse> =>
+        sendJson('PUT', '/api/v1/settings/sla', slaPolicyUpdateResponseSchema, body),
+    },
+    /** Milestone 15: organisation names for network-ownership discovery (`settings:manage`). */
+    discovery: {
+      get: (init?: RequestInit): Promise<DiscoverySettingsResponse> =>
+        getJson('/api/v1/settings/discovery', discoverySettingsResponseSchema, init),
+      update: (body: DiscoverySettings): Promise<DiscoverySettingsResponse> =>
+        sendJson('PUT', '/api/v1/settings/discovery', discoverySettingsResponseSchema, body),
     },
   },
 
@@ -559,6 +601,25 @@ export const api = {
     /** Downloads the findings CSV for the given Findings-page filters (`reports:generate`). */
     findingsCsv: (params: QueryParams): Promise<CsvDownload> =>
       downloadCsv('/api/v1/reports/findings.csv', params, 'findings'),
+    /** Monthly executive reports (organisation-wide: not for asset owners). */
+    monthly: {
+      list: (init?: RequestInit): Promise<MonthlyReportListResponse> =>
+        getJson('/api/v1/reports/monthly', monthlyReportListResponseSchema, init),
+      get: (period: string, init?: RequestInit): Promise<MonthlyReportResponse> =>
+        getJson(
+          `/api/v1/reports/monthly/${encodeURIComponent(period)}`,
+          monthlyReportResponseSchema,
+          init,
+        ),
+      /** (Re)generates a month (administrators); default: the previous month. */
+      generate: (period?: string): Promise<MonthlyReportResponse> =>
+        sendJson(
+          'POST',
+          '/api/v1/reports/monthly/generate',
+          monthlyReportResponseSchema,
+          period ? { period } : {},
+        ),
+    },
   },
 
   /**
@@ -618,6 +679,26 @@ export const api = {
       getJson(`/api/v1/vulnerabilities${toQuery(params)}`, vulnerabilitiesResponseSchema, init),
     attackSurface: (init?: RequestInit): Promise<AttackSurfaceResponse> =>
       getJson('/api/v1/attack-surface', attackSurfaceResponseSchema, init),
+    /** Milestone 15: IP networks (RDAP) hosting the assets, matched to the organisation. */
+    discoveredNetworks: (init?: RequestInit): Promise<DiscoveredNetworksResponse> =>
+      getJson('/api/v1/networks/discovered', discoveredNetworksResponseSchema, init),
+  },
+
+  /** Change timeline (Milestone 14): `kind` may list several kinds comma-separated. */
+  changes: (params: QueryParams, init?: RequestInit): Promise<ChangesResponse> =>
+    getJson(`/api/v1/changes${toQuery(params)}`, changesResponseSchema, init),
+
+  /** Lookalike domains (Milestone 15, brand monitoring). */
+  lookalikes: {
+    list: (params: QueryParams, init?: RequestInit): Promise<LookalikeListResponse> =>
+      getJson(`/api/v1/lookalikes${toQuery(params)}`, lookalikeListResponseSchema, init),
+    /** Queues a lookalike check now (passive); `created: false` = one was already queued. */
+    check: (domainId: string): Promise<LookalikeCheckResponse> =>
+      sendJson(
+        'POST',
+        `/api/v1/domains/${encodeURIComponent(domainId)}/lookalikes/check`,
+        lookalikeCheckResponseSchema,
+      ),
   },
 
   ops: {

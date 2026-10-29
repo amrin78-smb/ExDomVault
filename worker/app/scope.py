@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-PASSIVE_CHECKS: frozenset[str] = frozenset({"dns", "rdap", "discovery"})
+PASSIVE_CHECKS: frozenset[str] = frozenset({"dns", "rdap", "discovery", "network", "lookalike"})
 NETWORK_CHECKS: frozenset[str] = frozenset(
     {
         "tls_certificate",

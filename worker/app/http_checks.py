@@ -18,6 +18,11 @@ that reached an address becomes one ``http`` observation (``docs/worker-protocol
   ``securityHeaders`` (the six headers, value or null), ``server`` and ``xPoweredBy`` taken from the
   last response, values truncated to 512 printable ASCII characters. Cookies and bodies are never
   read into observations.
+- ``takeoverSignature`` (Milestone 15, rule DNS-008): ``{provider, signature}`` when the final
+  response for the requested host matches a provider's "unclaimed resource" signature from
+  ``takeover_fingerprints.json`` (mirror of ``packages/rules/src/takeover-fingerprints.ts``).
+  Matched in memory on the body ``net.http_get`` already reads (≤ 64 KB); no extra request is
+  made, and only the provider key and the matched signature text are recorded — never the body.
 
 If no attempt reached an address (e.g. resolution refused), no observation is emitted and the
 refusal is raised for the queue to record as the target's error code.
@@ -29,7 +34,10 @@ import json
 import re
 import time
 from collections.abc import Callable
+from functools import cache
+from importlib import resources
 from typing import Any
+from urllib.parse import urlsplit
 
 from app import net
 from app.checks import CHECKER_VERSION, CheckContext, CheckFailed, CheckStopped, utc_now_iso
@@ -64,6 +72,47 @@ def hsts_enabled(value: str | None) -> bool:
         return False
     match = _MAX_AGE.search(value)
     return bool(match and int(match.group(1)) > 0)
+
+
+@cache
+def takeover_signatures() -> tuple[tuple[str, tuple[int, ...], tuple[str, ...]], ...]:
+    """``(provider key, statuses, body substrings)`` per signature, from the packaged JSON mirror.
+    Malformed entries are skipped (fail quiet: no signature, never a false match)."""
+    path = resources.files("app").joinpath("takeover_fingerprints.json")
+    raw = json.loads(path.read_text("utf-8"))
+    out: list[tuple[str, tuple[int, ...], tuple[str, ...]]] = []
+    for provider in raw.get("providers", []):
+        key = provider.get("key")
+        if not isinstance(key, str) or not re.fullmatch(r"[a-z0-9_]{1,40}", key):
+            continue
+        for sig in provider.get("signatures", []):
+            statuses = tuple(int(x) for x in sig.get("statuses", []) if isinstance(x, int))
+            needles = tuple(x for x in sig.get("bodyContains", []) if isinstance(x, str) and x)
+            if needles:
+                out.append((key, statuses, needles))
+    return tuple(out)
+
+
+def match_takeover_signature(status: int | None, body: bytes) -> dict[str, str] | None:
+    """The first signature whose status set (empty = any) contains ``status`` and whose every
+    substring occurs in the body (bounded to :data:`net.MAX_BODY_BYTES`); None otherwise."""
+    if status is None or not body:
+        return None
+    text = body[: net.MAX_BODY_BYTES].decode("utf-8", errors="replace")
+    for key, statuses, needles in takeover_signatures():
+        if statuses and status not in statuses:
+            continue
+        if all(needle in text for needle in needles):
+            return {"provider": key, "signature": _clean(" + ".join(needles), 200)}
+    return None
+
+
+def _host(url: str) -> str | None:
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return None
+    return host.lower().rstrip(".") if host else None
 
 
 def _responded(hop: net.HttpHop) -> bool:
@@ -111,6 +160,15 @@ def build_http_observation(
         }
         for key, name in (("server", "server"), ("xPoweredBy", "x-powered-by")):
             evidence[key] = _clean(headers[name], MAX_HEADER_VALUE) if name in headers else None
+    if (
+        last_response is not None
+        and last_response.decision == "final"
+        and _host(last_response.url) == _host(result.first.url)
+    ):
+        # Only the requested host's own final response can confirm its takeover risk.
+        signature = match_takeover_signature(last_response.status, last_response.body)
+        if signature is not None:
+            evidence["takeoverSignature"] = signature
     if len(json.dumps(evidence)) > MAX_EVIDENCE_BYTES:  # defensive: keep within the 16 KB cap
         evidence["hops"] = evidence["hops"][:2]
         evidence["truncated"] = True

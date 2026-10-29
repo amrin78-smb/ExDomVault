@@ -30,6 +30,7 @@ export const SORT_LABELS: Record<string, string> = {
   '-severity': 'Most severe first',
   '-lastSeenAt': 'Most recently seen',
   '-firstSeenAt': 'Newest first',
+  dueAt: 'Due soonest',
 };
 
 const REASON_LABELS: Record<string, string> = {

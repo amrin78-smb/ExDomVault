@@ -4,6 +4,7 @@ import { DOMAIN_ID, FINDING_ID, NO_CATEGORIES } from '../findings/test-data.ts';
 
 export const REPORT_PATHS = {
   summary: 'GET /api/v1/reports/summary',
+  monthly: 'GET /api/v1/reports/monthly',
   csv: (query = '') => `/api/v1/reports/findings.csv${query}`,
 } as const;
 
@@ -64,8 +65,26 @@ export const reportSummary = (
     },
   ],
   byBusinessOwner: [
-    { businessOwner: 'Retail', domains: 120, openFindings: 30, highOrCritical: 6 },
-    { businessOwner: null, domains: 19, openFindings: 5, highOrCritical: 1 },
+    {
+      businessOwner: 'Retail',
+      domains: 120,
+      openFindings: 30,
+      highOrCritical: 6,
+      overdue: 3,
+      averageScore: 82.4,
+      grade: 'B',
+      grades: { A: 40, B: 50, C: 20, D: 6, F: 4 },
+    },
+    {
+      businessOwner: null,
+      domains: 19,
+      openFindings: 5,
+      highOrCritical: 1,
+      overdue: 0,
+      averageScore: null,
+      grade: null,
+      grades: { A: 0, B: 0, C: 0, D: 0, F: 0 },
+    },
   ],
   expiringRegistrations: [
     {
@@ -88,6 +107,22 @@ export const reportSummary = (
       issuer: 'Example CA',
     },
   ],
+  sla: {
+    policy: { critical: 7, high: 30, medium: 90, low: 180, informational: null },
+    overdue: 3,
+    overdueBySeverity: { critical: 1, high: 2, medium: 0, low: 0, informational: 0 },
+    windowDays: 90,
+    resolvedWithSla: 20,
+    resolvedWithinSla: 17,
+    compliancePercent: 85,
+    meanDaysToResolveBySeverity: {
+      critical: 4.5,
+      high: 21.25,
+      medium: null,
+      low: null,
+      informational: null,
+    },
+  },
   acceptedRisksDue: [
     {
       findingId: FINDING_ID,

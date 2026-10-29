@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { criticalitySchema } from '../domain/severity.ts';
+import { gradeSchema } from '../domain/security-score.ts';
 import { paginatedSchema } from './pagination.ts';
 
 export const DOMAIN_VERIFICATION_STATUSES = [
@@ -64,6 +65,14 @@ export const domainSchema = z.object({
   verificationExpiresAt: isoDateTime.nullable(),
   /** Passive monitoring (public DNS, certificates, CT logs, registration data). Allowed for any domain. */
   monitoringEnabled: z.boolean(),
+  /**
+   * Milestone 15: weekly lookalike-domain (brand) monitoring. Passive: public resolvers only, the
+   * lookalike names are never contacted. Off by default.
+   */
+  brandMonitoring: z.boolean().default(false),
+  /** Latest security score snapshot (0–100) and grade; null until the domain has been scanned. */
+  score: z.int().min(0).max(100).nullable().default(null),
+  grade: gradeSchema.nullable().default(null),
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
 });
@@ -76,6 +85,9 @@ export const DOMAIN_SORTS = [
   '-createdAt',
   'criticality',
   '-criticality',
+  /** Latest security score, lowest first (unscored domains last). */
+  'score',
+  '-score',
 ] as const;
 
 /** Query string for GET /domains. */
@@ -86,6 +98,8 @@ export const domainListQuerySchema = z.object({
   verificationStatus: domainVerificationStatusSchema.optional(),
   criticality: criticalitySchema.optional(),
   monitoring: z.enum(['true', 'false']).optional(),
+  /** Latest security grade; `none` = not scored yet. */
+  grade: z.union([gradeSchema, z.literal('none')]).optional(),
   sort: z.enum(DOMAIN_SORTS).default('fqdn'),
 });
 export type DomainListQuery = z.infer<typeof domainListQuerySchema>;
@@ -105,6 +119,8 @@ export const updateDomainRequestSchema = z
     criticality: criticalitySchema.optional(),
     businessOwner: businessOwnerSchema.nullable().optional(),
     monitoringEnabled: z.boolean().optional(),
+    /** Milestone 15: brand monitoring (lookalike domains); `domains:write`, audited. */
+    brandMonitoring: z.boolean().optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'Provide at least one field to change.',

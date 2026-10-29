@@ -87,6 +87,9 @@ const BODY_ROUTES: Record<string, () => Record<string, unknown>> = {
   }),
   'PATCH /users/:id': () => ({ role: 'viewer' }),
   'PUT /settings/scan-schedule': () => ({ enabled: false, profile: 'quick', intervalDays: 1 }),
+  'PUT /settings/discovery': () => ({ orgNames: ['Thai Union'] }),
+  'PUT /settings/sla': () => ({ critical: 7, high: 30, medium: 90, low: 180, informational: 365 }),
+  'POST /reports/monthly/generate': () => ({ period: '2026-01' }),
 };
 
 /** Routes with a larger body cap than parseJsonBody's 300 KB default (bytes). */
@@ -98,6 +101,7 @@ const LARGE_BODY_ROUTES: Record<string, number> = {
 const NO_BODY_ROUTES = new Set([
   'POST /domains/:id/verification',
   'POST /domains/:id/discovery',
+  'POST /domains/:id/lookalikes/check',
   'POST /domains/:id/verify',
   'POST /scans/:id/cancel',
   'POST /workers/:id/credentials/:credentialId/revoke',
@@ -148,6 +152,26 @@ const QUERY_ROUTES: Record<string, string[]> = {
   'GET /ports': [...PAGE_PROBES, 'state=bogus', 'port=0', 'port=65536', 'domainId=x', 'sort=evil'],
   'GET /certificates': [...PAGE_PROBES, 'status=bogus', 'domainId=x', `q=${'a'.repeat(101)}`],
   'GET /vulnerabilities': [...PAGE_PROBES, 'kev=yes', 'sort=evil', `q=${'a'.repeat(101)}`],
+  // Milestone 14.
+  'GET /changes': [
+    ...PAGE_PROBES,
+    'kind=bogus',
+    'kind=dns,bogus',
+    'importance=critical',
+    'domainId=x',
+    'assetId=1',
+    'since=yesterday',
+    'until=2026-13-01T00:00:00Z',
+    'since=2026-10-02T00:00:00Z&until=2026-10-01T00:00:00Z',
+  ],
+  // Milestone 15.
+  'GET /lookalikes': [
+    ...PAGE_PROBES,
+    'domainId=x',
+    'registered=yes',
+    'technique=bogus',
+    `q=${'a'.repeat(300)}`,
+  ],
   // Exports ignore paging parameters; their filters are validated like the list's.
   'GET /exports/domains.csv': [`q=${'a'.repeat(300)}`, 'sort=evil', 'monitoring=yes'],
   'GET /exports/assets.csv': ['domainId=not-a-uuid', 'thirdParty=1', 'source=evil'],

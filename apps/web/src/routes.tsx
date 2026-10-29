@@ -13,6 +13,8 @@ const IMPLEMENTED = new Set([
   '/subdomains',
   '/assets',
   '/attack-surface',
+  '/lookalikes',
+  '/changes',
   '/ports',
   '/certificates',
   '/software',
@@ -93,6 +95,18 @@ export const routes: RouteObject[] = [
           })),
       },
       {
+        path: 'lookalikes',
+        lazy: () =>
+          import('./pages/lookalikes/LookalikesPage.tsx').then((m) => ({
+            Component: m.LookalikesPage,
+          })),
+      },
+      {
+        path: 'changes',
+        lazy: () =>
+          import('./pages/changes/ChangesPage.tsx').then((m) => ({ Component: m.ChangesPage })),
+      },
+      {
         path: 'ports',
         lazy: () => import('./pages/ports/PortsPage.tsx').then((m) => ({ Component: m.PortsPage })),
       },
@@ -147,6 +161,13 @@ export const routes: RouteObject[] = [
         path: 'reports',
         lazy: () =>
           import('./pages/reports/ReportsPage.tsx').then((m) => ({ Component: m.ReportsPage })),
+      },
+      {
+        path: 'reports/monthly/:period',
+        lazy: () =>
+          import('./pages/reports/MonthlyReportPage.tsx').then((m) => ({
+            Component: m.MonthlyReportPage,
+          })),
       },
       {
         path: 'settings',

@@ -6,6 +6,7 @@ import {
 } from '@exdomainvault/shared';
 import { useState, type FormEvent } from 'react';
 import { api } from '../../lib/api.ts';
+import { BrandMonitoringSection } from '../lookalikes/BrandMonitoringSection.tsx';
 import { usePermission } from '../../lib/session.ts';
 import { Button } from '../ui/Button.tsx';
 import { Card } from '../ui/Card.tsx';
@@ -66,6 +67,7 @@ export function DomainSettingsCard({
         CRITICALITY_LABELS[domain.criticality],
         domain.businessOwner ? `owner: ${domain.businessOwner}` : 'no owner set',
         `monitoring ${domain.monitoringEnabled ? 'on' : 'off'}`,
+        ...(domain.brandMonitoring ? ['brand monitoring on'] : []),
       ].join(' · ')}
     >
       {canWrite ? (
@@ -168,6 +170,7 @@ export function DomainSettingsCard({
           </div>
         )}
       </div>
+      <BrandMonitoringSection domain={domain} onSaved={onSaved} />
       {error && (
         <div className="mt-4">
           <ErrorAlert error={error} />

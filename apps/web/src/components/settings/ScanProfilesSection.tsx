@@ -17,6 +17,8 @@ const CHECK_LABELS: Record<ScanCheck, string> = {
   service_identification: 'Service identification',
   tls_configuration: 'TLS configuration',
   discovery: 'Subdomain discovery',
+  lookalike: 'Lookalike domains (public resolvers only)',
+  network: 'Network ownership (RDAP, reverse DNS)',
 };
 
 const formatMs = (ms: number) => (ms >= 1000 ? `${ms / 1000} s` : `${ms} ms`);

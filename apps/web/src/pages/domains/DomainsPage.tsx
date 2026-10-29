@@ -7,6 +7,7 @@ import {
   CRITICALITY_LABELS,
   DOMAIN_VERIFICATION_STATUSES,
   DOMAIN_VERIFICATION_STATUS_LABELS,
+  GRADES,
 } from '@exdomainvault/shared';
 import { AlertTriangle, Globe, Plus, Radio, Search, Upload } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
@@ -23,13 +24,14 @@ import { LoadError } from '../../components/ui/LoadError.tsx';
 import { StaleDataNotice } from '../../components/ui/StaleDataNotice.tsx';
 import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { PageHeader } from '../../components/ui/PageHeader.tsx';
+import { GradeBadge } from '../../components/ui/GradeBadge.tsx';
 import { api } from '../../lib/api.ts';
 import { addMonthsIso, formatDate } from '../../lib/format.ts';
 import { usePermission } from '../../lib/session.ts';
 import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
 const PAGE_SIZES = ['25', '50', '100'] as const;
-const FILTER_KEYS = ['q', 'verificationStatus', 'criticality', 'monitoring'] as const;
+const FILTER_KEYS = ['q', 'verificationStatus', 'criticality', 'monitoring', 'grade'] as const;
 
 const selectClass =
   'rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm text-fg-2 shadow-sm';
@@ -54,6 +56,7 @@ export function DomainsPage() {
     verificationStatus: params.get('verificationStatus') ?? undefined,
     criticality: params.get('criticality') ?? undefined,
     monitoring: params.get('monitoring') ?? undefined,
+    grade: params.get('grade') ?? undefined,
     sort: params.get('sort') ?? undefined,
   };
   const { state, stale, refreshing, retry } = useRefreshableAsync(
@@ -250,6 +253,22 @@ export function DomainsPage() {
             </select>
           </label>
           <label className="text-xs text-fg-muted">
+            <span className="mb-1 block">Security grade</span>
+            <select
+              className={selectClass}
+              value={params.get('grade') ?? ''}
+              onChange={(e) => setParam('grade', e.target.value)}
+            >
+              <option value="">All</option>
+              {GRADES.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+              <option value="none">Not scored yet</option>
+            </select>
+          </label>
+          <label className="text-xs text-fg-muted">
             <span className="mb-1 block">Sort</span>
             <select
               className={selectClass}
@@ -260,6 +279,8 @@ export function DomainsPage() {
               <option value="-createdAt">Newest first</option>
               <option value="createdAt">Oldest first</option>
               <option value="-criticality">Most critical first</option>
+              <option value="score">Lowest security score first</option>
+              <option value="-score">Highest security score first</option>
             </select>
           </label>
           <label className="text-xs text-fg-muted">
@@ -335,6 +356,9 @@ export function DomainsPage() {
                       Domain
                     </th>
                     <th scope="col" className="py-2 pr-4">
+                      Grade
+                    </th>
+                    <th scope="col" className="py-2 pr-4">
                       Verification
                     </th>
                     <th scope="col" className="py-2 pr-4">
@@ -380,6 +404,9 @@ export function DomainsPage() {
                             aria-label="Mixed-script name: possible homograph"
                           />
                         )}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <GradeBadge grade={d.grade} score={d.score} />
                       </td>
                       <td className="py-2.5 pr-4">
                         <VerificationBadge

@@ -12,6 +12,9 @@ import { CriticalityLabel } from '../../components/domains/DomainBadges.tsx';
 import { FindingStatusBadge } from '../../components/findings/FindingStatusBadge.tsx';
 import { ExportCsvButton } from '../../components/reports/ExportCsvButton.tsx';
 import { TrendChart } from '../../components/reports/TrendChart.tsx';
+import { MonthlyReportsCard } from '../../components/reports/MonthlyReportsCard.tsx';
+import { SlaCard } from '../../components/reports/SlaCard.tsx';
+import { GradeBadge } from '../../components/ui/GradeBadge.tsx';
 import { Button } from '../../components/ui/Button.tsx';
 import { Card } from '../../components/ui/Card.tsx';
 import { useCollapseAll } from '../../components/ui/CollapseAllControls.tsx';
@@ -257,6 +260,10 @@ function ReportBody({ data, canDomains }: { data: Summary; canDomains: boolean }
         </div>
       </div>
 
+      <SlaCard sla={data.sla} />
+
+      {canDomains && <MonthlyReportsCard />}
+
       <Card
         title={`Findings created and resolved, last ${data.trendDays} days`}
         collapsible="reports.trend"
@@ -412,15 +419,30 @@ function ByOwner({ rows }: { rows: Summary['byBusinessOwner'] }) {
     return <EmptyState title="No domains yet" />;
   }
   return (
-    <Table headers={['Business owner', 'Domains#', 'Open findings#', 'High or critical#']}>
+    <Table
+      headers={[
+        'Business owner',
+        'Grade',
+        'Avg score#',
+        'Domains#',
+        'Open findings#',
+        'High or critical#',
+        'Overdue#',
+      ]}
+    >
       {rows.map((r) => (
         <tr key={r.businessOwner ?? '\u0000none'}>
           <td className={cell}>
             {r.businessOwner ?? <span className="italic text-fg-subtle">No business owner</span>}
           </td>
+          <td className={cell}>
+            <GradeBadge grade={r.grade} score={r.averageScore} />
+          </td>
+          <td className={num}>{r.averageScore === null ? '—' : r.averageScore.toFixed(1)}</td>
           <td className={num}>{r.domains}</td>
           <td className={num}>{r.openFindings}</td>
-          <td className="py-2 text-right tabular-nums">{r.highOrCritical}</td>
+          <td className={num}>{r.highOrCritical}</td>
+          <td className="py-2 text-right tabular-nums">{r.overdue}</td>
         </tr>
       ))}
     </Table>
