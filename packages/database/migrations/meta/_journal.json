@@ -64,6 +64,13 @@
       "when": 1792991553841,
       "tag": "0008_inventory_geo",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793250416715,
+      "tag": "0009_remediation_coverage",
+      "breakpoints": true
     }
   ]
 }

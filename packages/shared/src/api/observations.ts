@@ -107,7 +107,12 @@ export const registrationObservationSchema = z.strictObject({
 export type RegistrationObservation = z.infer<typeof registrationObservationSchema>;
 
 /** Passive discovery sources (provider abstraction; the first is Certificate Transparency). */
-export const DISCOVERY_SOURCES = ['certificate_transparency'] as const;
+/**
+ * `certificate_transparency` (crt.sh, Cert Spotter — provider in evidence) and, from Milestone 15,
+ * `reverse_dns`: PTR names of addresses in IP networks registered to the organisation (stored as
+ * assets with source `dns`).
+ */
+export const DISCOVERY_SOURCES = ['certificate_transparency', 'reverse_dns'] as const;
 export const discoverySourceSchema = z.enum(DISCOVERY_SOURCES);
 export type DiscoverySourceKey = z.infer<typeof discoverySourceSchema>;
 
@@ -190,6 +195,67 @@ export const portObservationSchema = z.strictObject({
 });
 export type PortObservation = z.infer<typeof portObservationSchema>;
 
+/** How a lookalike candidate was generated (`generateLookalikes`). */
+export const LOOKALIKE_TECHNIQUES = [
+  'omission',
+  'repetition',
+  'transposition',
+  'replacement',
+  'insertion',
+  'homoglyph',
+  'hyphenation',
+  'bitsquatting',
+  'vowel_swap',
+  'tld_swap',
+  'subdomain_dot',
+] as const;
+export const lookalikeTechniqueSchema = z.enum(LOOKALIKE_TECHNIQUES);
+export type LookalikeTechnique = z.infer<typeof lookalikeTechniqueSchema>;
+
+const recordList = z.array(z.string().max(512)).max(20);
+
+/**
+ * Milestone 15 (brand monitoring): one lookalike candidate of the job's domain, resolved through
+ * public resolvers only. `registered` = the name exists in DNS (NS/SOA at its registrable domain, or
+ * any A/AAAA/MX answer). The candidate is someone else's name: it is never connected to or scanned.
+ */
+export const lookalikeObservationSchema = z.strictObject({
+  kind: z.literal('lookalike'),
+  ...observationBase,
+  candidate: hostnameSchema,
+  technique: lookalikeTechniqueSchema,
+  registered: z.boolean(),
+  records: z
+    .strictObject({ A: recordList, AAAA: recordList, MX: recordList, NS: recordList })
+    .partial()
+    .default({}),
+});
+export type LookalikeObservation = z.infer<typeof lookalikeObservationSchema>;
+
+/**
+ * Milestone 15 (wider discovery): RDAP network registration of an address one of the domain's
+ * assets resolves to. `matchedOrg` = registrant/organisation name matches a configured organisation
+ * name (server setting sent in the job; the server re-checks). Display/discovery only.
+ */
+export const networkObservationSchema = z.strictObject({
+  kind: z.literal('network'),
+  ...observationBase,
+  ipAddress: ipAddressSchema,
+  startAddress: ipAddressSchema.nullable(),
+  endAddress: ipAddressSchema.nullable(),
+  cidrs: z.array(z.string().max(64)).max(32),
+  registry: z.enum(['apnic', 'arin', 'ripe', 'lacnic', 'afrinic']).nullable(),
+  handle: z.string().max(200).nullable(),
+  networkName: z.string().max(200).nullable(),
+  orgName: z.string().max(300).nullable(),
+  country: z
+    .string()
+    .regex(/^[A-Z]{2}$/)
+    .nullable(),
+  matchedOrg: z.boolean(),
+});
+export type NetworkObservation = z.infer<typeof networkObservationSchema>;
+
 export const observationSchema = z.discriminatedUnion('kind', [
   discoveryObservationSchema,
   dnsObservationSchema,
@@ -197,6 +263,8 @@ export const observationSchema = z.discriminatedUnion('kind', [
   tlsObservationSchema,
   httpObservationSchema,
   portObservationSchema,
+  lookalikeObservationSchema,
+  networkObservationSchema,
 ]);
 export type Observation = z.infer<typeof observationSchema>;
 

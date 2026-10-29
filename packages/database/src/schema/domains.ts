@@ -33,6 +33,8 @@ export const domains = pgTable(
     /** When an administrator attestation lapses and must be reviewed (null for DNS proof). */
     verificationExpiresAt: ts('verification_expires_at'),
     monitoringEnabled: boolean('monitoring_enabled').notNull().default(false),
+    /** Milestone 15: weekly lookalike-domain monitoring of this domain's name (brand protection). */
+    brandMonitoring: boolean('brand_monitoring').notNull().default(false),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

@@ -135,3 +135,52 @@ export const discoveryObservations = observationTable('discovery_observations', 
   /** The name was seen only as a wildcard (`*.name`), stripped to `name`. */
   wildcard: boolean('wildcard').notNull().default(false),
 });
+
+/**
+ * Milestone 15: lookalike-domain checks (brand protection). One row per candidate per run: whether
+ * the lookalike name is registered (has NS/SOA/A/MX through public resolvers), its records, and how
+ * it was generated. Candidates are NOT our assets and are never scanned.
+ */
+export const lookalikeObservations = observationTable(
+  'lookalike_observations',
+  {
+    domainId: uuid('domain_id')
+      .notNull()
+      .references(() => domains.id, { onDelete: 'cascade' }),
+    candidate: text('candidate').notNull(),
+    technique: text('technique').notNull(),
+    registered: boolean('registered').notNull(),
+    /** `{ A: [...], AAAA: [...], MX: [...], NS: [...] }`, presentation format, sorted. */
+    records: jsonb('records').$type<Record<string, string[]>>().notNull().default({}),
+  },
+  (t) => [
+    index('lookalike_observations_domain_candidate_time_idx').on(
+      t.domainId,
+      t.candidate,
+      t.observedAt.desc(),
+    ),
+  ],
+);
+
+/**
+ * Milestone 15: IP network ownership from RDAP (APNIC/ARIN/RIPE/LACNIC/AFRINIC) for addresses our
+ * assets resolve to. `matched_org` = the registrant matches a configured organisation name
+ * (`application_settings.discovery_org_names`). Display/discovery only: never grants scan scope.
+ */
+export const networkObservations = observationTable(
+  'network_observations',
+  {
+    domainId: uuid('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    ipAddress: inet('ip_address').notNull(),
+    startAddress: inet('start_address'),
+    endAddress: inet('end_address'),
+    cidrs: text('cidrs').array().notNull().default([]),
+    registry: text('registry'),
+    handle: text('handle'),
+    networkName: text('network_name'),
+    orgName: text('org_name'),
+    country: text('country'),
+    matchedOrg: boolean('matched_org').notNull().default(false),
+  },
+  (t) => [index('network_observations_ip_time_idx').on(t.ipAddress, t.observedAt.desc())],
+);

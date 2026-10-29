@@ -16,6 +16,10 @@ export const SCAN_CHECKS = [
   'service_identification',
   'tls_configuration',
   'discovery',
+  /** Milestone 15: lookalike-domain checks (brand profile). Public resolvers only. */
+  'lookalike',
+  /** Milestone 15: RDAP network ownership of current addresses (+ reverse DNS of owned ranges). */
+  'network',
 ] as const;
 export const scanCheckSchema = z.enum(SCAN_CHECKS);
 export type ScanCheck = z.infer<typeof scanCheckSchema>;
@@ -24,7 +28,13 @@ export type ScanCheck = z.infer<typeof scanCheckSchema>;
  * Checks that only query public infrastructure (resolvers, RDAP, Certificate Transparency logs) and
  * never contact the target. `discovery` finds candidate hostnames; it never adds scan targets.
  */
-export const PASSIVE_CHECKS: readonly ScanCheck[] = ['dns', 'rdap', 'discovery'];
+export const PASSIVE_CHECKS: readonly ScanCheck[] = [
+  'dns',
+  'rdap',
+  'discovery',
+  'lookalike',
+  'network',
+];
 
 /**
  * Browser-like checks (one TLS handshake, one HTTP request per hop, as any visitor makes). Allowed to

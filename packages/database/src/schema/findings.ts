@@ -52,6 +52,8 @@ export const findings = pgTable(
     evidence: jsonb('evidence').$type<Record<string, unknown>>().notNull(),
     firstSeenAt: ts('first_seen_at').notNull(),
     lastSeenAt: ts('last_seen_at').notNull(),
+    /** Milestone 14: remediation due date from the SLA policy (null = no SLA for the severity). */
+    dueAt: ts('due_at'),
     resolvedAt: ts('resolved_at'),
     recurrenceCount: integer('recurrence_count').notNull().default(0),
     assignedTo: uuid('assigned_to').references(() => users.id, { onDelete: 'set null' }),

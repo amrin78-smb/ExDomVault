@@ -76,6 +76,7 @@ describe('migrations', () => {
       'audit_logs',
       'discovery_observations',
       'dns_observations',
+      'domain_score_snapshots',
       'domain_verifications',
       'domains',
       'finding_comments',
@@ -83,6 +84,9 @@ describe('migrations', () => {
       'findings',
       'http_observations',
       'intel_feeds',
+      'lookalike_observations',
+      'monthly_reports',
+      'network_observations',
       'notification_preferences',
       'port_observations',
       'registration_observations',
@@ -265,6 +269,7 @@ describe('constraints', () => {
   it('seeds the server-defined scan profiles', async () => {
     const rows = await t.db.select().from(scanProfiles).orderBy(scanProfiles.key);
     expect(rows.map((r) => [r.key, (r.config as { active: boolean }).active])).toEqual([
+      ['brand', false],
       ['deep', true],
       ['discovery', false],
       ['passive', false],
