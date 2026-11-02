@@ -182,7 +182,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [ ] Create the Cloudflare Monitor on `worker_outage_started` and test it once (docs/operations.md).
 - [ ] Delete the `BOOTSTRAP_ADMIN_EMAILS` Worker secret.
 - [x] ~~Restore drill~~ — passed 2026-10-26 (`scripts/local-db/restore-drill.sh`; all tables match live, 1 s).
-- [ ] **2 Nov 2026:** decide on deleting the Neon project `ExDomVault` (frozen at the 26 Oct cutover) and the old Hyperdrive config `exdomainvault-db` (`c43bce859dcd405c9aaca22897818529`) after a week on the local database; check `~/backups/exdomainvault/backup.log` first.
+- [x] ~~**2 Nov 2026:** delete the Neon project and old Hyperdrive config~~ — done 2026-11-02 (owner-approved; Neon idle since the 26 Oct cutover, 7 nightly backups OK).
 - [ ] Bump certifi to 2026.10.19 on/after 2026-11-03 (CI fails then otherwise).
 - [ ] Rotate the Access service-token secret shown in a screenshot on 2026-10-23.
 
@@ -218,6 +218,10 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 
 _Per milestone: files changed, checks run (with real results), limitations, next step._
 
+### Vulnerability drill-down and Neon retirement — 2026-11-02
+
+**Built:** Vulnerabilities "Affected" links to `/software?cve=…` (new `cve` filter on GET /software, same matching as /vulnerabilities). Deployed `de024363-f452-4d6a-9cf7-f4536b83890f`. Health check before retiring Neon: nightly backups all OK (4.2 → 12 MB), ~700 jobs/day with 4 failures in 7 days, October monthly report generated, services up 9 days. Deleted the Neon project `ExDomVault` and Hyperdrive config `exdomainvault-db` (owner-approved).
+
 ### Milestones 14–15 — 2026-10-29
 
 **Built (5 agents after committed contracts — migration 0009, observation/check contracts):** SLAs (`findings.due_at`, settings, overdue filters, reports SLA section, due badges), monthly executive reports (cron + print view), security score (daily snapshots, grade column/filter, score card, business-owner grades), change timeline (`GET /changes`, Changes page, asset/domain/overview cards), lookalike monitoring (brand profile, LOOK-001, Lookalike domains page, brand switch), DNS-008 takeover confirmation, EMAIL-001…005 + e-mail security card, wider discovery (`network` check via RDAP, reverse DNS, Cert Spotter, discovered-networks cards, Settings → Discovery).
@@ -240,7 +244,7 @@ _Per milestone: files changed, checks run (with real results), limitations, next
 
 **Done:** cloudflared 2026.10.3 + tunnel service; roles/db via `scripts/local-db/setup-host.sh`; migrations 0000–0008 on PostgreSQL 16; data copied (`scripts/local-db/copy-from-neon.sh`, all tables matched) with the worker stopped; Hyperdrive `exdomainvault-local`; deployed `a88f7b82-dfdf-4378-9129-189ebb0d9e0a`; daily backups (`scripts/local-db/backup.sh`, first dump 3.5 MB). Verified: live requests and cron all `ok` against the local DB, worker heartbeats and jobs recorded locally.
 
-**Limitations:** single machine (no HA); TLS certificate not verified on the loopback hop; Neon `production` now a stale fallback.
+**Limitations:** single machine (no HA); TLS certificate not verified on the loopback hop. Neon project and its Hyperdrive config deleted 2026-11-02.
 
 ### Inventory CSV exports and code splitting — 2026-10-26
 

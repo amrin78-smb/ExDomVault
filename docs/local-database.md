@@ -1,8 +1,7 @@
 # Self-hosted database (since 2026-10-26)
 
 Owner decision: production data moved from Neon (Free plan compute ran out mid-month because the
-database never idles) to PostgreSQL on the scan host. Neon `production` is kept untouched as a
-fallback snapshot as of the cutover; nothing writes to it any more.
+database never idles) to PostgreSQL on the scan host. The Neon project was deleted on 2026-11-02.
 
 ## Path
 
@@ -46,11 +45,11 @@ use it. Refresh it from the newest backup with
 `pg_restore -h 127.0.0.1 -U exdomainvault_owner -d exdomainvault_dev --no-owner --no-acl --clean --if-exists <file>.dump`.
 The old Neon settings are saved in `~/.config/exdomainvault/neon-env.local.bak`.
 
-## Rollback to Neon
+## Neon (retired)
 
-Data written after the cutover exists only locally. To go back: copy local → Neon (reverse of the
-copy script), set the Hyperdrive id in `apps/web/wrangler.jsonc` back to
-`c43bce859dcd405c9aaca22897818529`, `npm run build` and `npx wrangler deploy`.
+The former Neon project `ExDomVault` (`flat-sound-26073660`) and its Hyperdrive config
+`exdomainvault-db` were deleted on 2026-11-02 after a week of healthy operation on the local
+database (owner-approved). Recovery now relies on the local backups above.
 
 Note: `wrangler deploy` uses the built `dist/` config, so always `npm run build` after editing
 `wrangler.jsonc`.
