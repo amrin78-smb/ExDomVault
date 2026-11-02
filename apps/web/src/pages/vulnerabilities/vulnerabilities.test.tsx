@@ -101,6 +101,9 @@ describe('Vulnerabilities page', () => {
     );
     expect(apache.getByText('3 hosts')).toBeInTheDocument();
     expect(
+      apache.getByRole('link', { name: 'Show the 3 hosts possibly affected by CVE-2021-41773' }),
+    ).toHaveAttribute('href', '/software?cve=CVE-2021-41773');
+    expect(
       apache.getByRole('link', { name: '2 open findings for CVE-2021-41773' }),
     ).toHaveAttribute('href', '/findings?ruleId=SOFT-002&q=CVE-2021-41773');
     expect(apache.getByText('Nov 3, 2021')).toBeInTheDocument();

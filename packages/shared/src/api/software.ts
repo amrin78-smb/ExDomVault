@@ -58,6 +58,16 @@ export const softwareListQuerySchema = z.object({
   product: z.string().max(40).optional(),
   /** `eol` = end-of-life versions only; `kev` = possibly affected by a known-exploited CVE. */
   status: z.enum(['eol', 'kev', 'all']).default('all'),
+  /**
+   * Only locations whose reported version is possibly affected by this KEV CVE (same matching as
+   * GET /vulnerabilities, so the list matches its "affected hosts").
+   */
+  cve: z
+    .string()
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .pipe(z.string().regex(/^CVE-\d{4}-\d{4,7}$/))
+    .optional(),
   q: z.string().trim().max(253).optional(),
 });
 export type SoftwareListQuery = z.infer<typeof softwareListQuerySchema>;

@@ -309,6 +309,11 @@ describe('GET /software', () => {
     ]);
     const kev = await list('analyst', '?status=kev');
     expect(kev.items.map((i) => `${i.product} ${i.version}`)).toEqual(['php 7.4.3']);
+    const byCve = await list('analyst', '?cve=cve-2019-11043');
+    expect(byCve.items.map((i) => `${i.product} ${i.version}`)).toEqual(['php 7.4.3']);
+    expect((await list('analyst', '?cve=CVE-2000-0001')).total).toBe(0);
+    expect((await list('analyst', '?cve=CVE-2019-11043&status=eol')).total).toBe(1);
+    expect((await userCall(h, t, 'viewer', 'GET', '/software?cve=not-a-cve')).status).toBe(400);
     expect((await list('analyst', '?product=php')).total).toBe(2);
     expect((await list('analyst', `?domainId=${w.other.domainId}`)).total).toBe(1);
     expect((await list('analyst', '?q=shop')).total).toBe(1);

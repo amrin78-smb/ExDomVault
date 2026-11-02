@@ -189,12 +189,18 @@ function VulnerabilitiesTable({ items }: { items: VulnerabilityItem[] }) {
               </ul>
             </td>
             <td className={`${tdClass} whitespace-nowrap text-right text-xs text-fg-2`}>
-              <div className="font-semibold tabular-nums text-fg">
-                {`${v.affectedHosts} ${v.affectedHosts === 1 ? 'host' : 'hosts'}`}
-              </div>
-              <div className="tabular-nums text-fg-subtle">
-                {`${v.affectedDomains} ${v.affectedDomains === 1 ? 'domain' : 'domains'}`}
-              </div>
+              <Link
+                to={`/software?cve=${encodeURIComponent(v.cve)}`}
+                className="group inline-block rounded-md px-1 py-0.5 hover:bg-surface-2"
+                aria-label={`Show the ${v.affectedHosts} ${v.affectedHosts === 1 ? 'host' : 'hosts'} possibly affected by ${v.cve}`}
+              >
+                <div className="font-semibold tabular-nums text-highlight group-hover:underline">
+                  {`${v.affectedHosts} ${v.affectedHosts === 1 ? 'host' : 'hosts'}`}
+                </div>
+                <div className="tabular-nums text-fg-subtle">
+                  {`${v.affectedDomains} ${v.affectedDomains === 1 ? 'domain' : 'domains'}`}
+                </div>
+              </Link>
             </td>
             <td className={`${tdClass} text-right`}>
               {v.openFindings > 0 ? (

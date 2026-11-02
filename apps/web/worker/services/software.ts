@@ -2,6 +2,7 @@ import { schema, type Database } from '@exdomainvault/database';
 import {
   eolStatus,
   matchAdvisories,
+  preciseEnough,
   type ObservationSet,
   type SoftwareIntel,
   type SoftwareSighting,
@@ -346,7 +347,7 @@ export async function listSoftware(
   const order = SOFTWARE_ORDER;
   const offset = (query.page - 1) * query.pageSize;
 
-  if (query.status === 'all') {
+  if (query.status === 'all' && !query.cve) {
     const where = and(...conditions);
     const [rows, [total]] = await Promise.all([
       db
@@ -376,7 +377,9 @@ export async function listSoftware(
     };
   }
 
-  conditions.push(...statusCandidateConditions(db, query.status));
+  conditions.push(
+    ...statusCandidateConditions(db, query.cve || query.status === 'all' ? 'kev' : query.status),
+  );
   const candidates = await db
     .select(softwareRowSelect)
     .from(softwareInventory)
@@ -391,7 +394,13 @@ export async function listSoftware(
   );
   const matching = candidates
     .map((r) => ({ r, s: status(r.row.product, r.row.version) }))
-    .filter(({ s }) => matchesStatus(query.status as 'eol' | 'kev', s));
+    .filter(
+      ({ r, s }) =>
+        (query.status === 'all' || matchesStatus(query.status, s)) &&
+        (!query.cve ||
+          (preciseEnough(r.row.version ?? '') &&
+            s.knownExploited.some((k) => k.cveId === query.cve))),
+    );
   return {
     items: matching.slice(offset, offset + query.pageSize).map(({ r, s }) => toSoftwareItem(r, s)),
     page: query.page,

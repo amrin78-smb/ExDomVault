@@ -128,6 +128,21 @@ describe('Software page', () => {
     expect(router.state.location.search).toBe('?product=php&q=legacy');
   });
 
+  it('lists the locations possibly affected by one CVE and lets the filter be cleared', async () => {
+    const calls = stubSoftware({
+      [SOFTWARE_PATHS.list('?cve=CVE-2019-11043')]: ok(softwarePage([eolPhp()])),
+    });
+    const router = renderAt('/software?cve=CVE-2019-11043');
+    expect(await screen.findByText('Possibly affected by CVE-2019-11043')).toBeInTheDocument();
+    expect(calls.map((c) => c.path)).toContain('/api/v1/software?cve=CVE-2019-11043');
+    expect(screen.getByRole('link', { name: 'Back to vulnerabilities' })).toHaveAttribute(
+      'href',
+      '/vulnerabilities',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Clear CVE filter' }));
+    expect(router.state.location.search).toBe('');
+  });
+
   it('reads a domain filter from the URL and lets it be cleared', async () => {
     stubSoftware({
       [SOFTWARE_PATHS.list(`?domainId=${DOMAIN_ID}`)]: ok(softwarePage([softwareItem()])),

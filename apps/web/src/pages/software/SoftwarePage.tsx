@@ -19,7 +19,7 @@ import { api } from '../../lib/api.ts';
 import { useAsync } from '../../lib/use-async.ts';
 import { useRefreshableAsync } from '../../lib/use-refreshable-async.ts';
 
-const FILTER_KEYS = ['domainId', 'product', 'status', 'q'] as const;
+const FILTER_KEYS = ['domainId', 'product', 'status', 'cve', 'q'] as const;
 const QUERY_KEYS = ['page', 'pageSize', ...FILTER_KEYS] as const;
 
 const STATUS_LABELS = {
@@ -148,6 +148,24 @@ export function SoftwarePage() {
             </label>
           </div>
 
+          {params.get('cve') && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-surface-3 py-0.5 pl-2.5 pr-1 text-xs text-fg-2">
+                Possibly affected by {params.get('cve')}
+                <button
+                  type="button"
+                  onClick={() => setParam('cve', '')}
+                  aria-label="Clear CVE filter"
+                  className="rounded-full p-0.5 hover:bg-line"
+                >
+                  <X className="size-3" aria-hidden />
+                </button>
+              </span>
+              <Link to="/vulnerabilities" className="text-xs text-highlight hover:underline">
+                Back to vulnerabilities
+              </Link>
+            </div>
+          )}
           {domainId && (
             <div className="mb-4 flex flex-wrap gap-2">
               <span className="inline-flex items-center gap-1 rounded-full bg-surface-3 py-0.5 pl-2.5 pr-1 text-xs text-fg-2">
