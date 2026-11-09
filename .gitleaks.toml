@@ -9,3 +9,9 @@ description = "Cloudflare Access AUD tag: a public identifier (also visible in e
 condition = "AND"
 paths = ['''^apps/web/(wrangler\.jsonc|worker-configuration\.d\.ts)$''']
 regexes = ['''^e777f0cfe2a4f69ed8221bbbfd3fb02b0bf297b4cfc1d0247df9d5f080683b41$''']
+
+[[allowlists]]
+description = "Fake NVD key planted by the secrets scanner self-test (sequential hex, never a real key); still in history at a01ecfa, the source now assembles it at runtime"
+condition = "AND"
+paths = ['''^apps/web/worker/secrets\.hardening\.test\.ts$''']
+regexes = ['''0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b''']

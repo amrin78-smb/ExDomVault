@@ -24,6 +24,7 @@ Updated by Claude at the end of every milestone. Newest entries at the top of ea
 
 ## Decisions log
 
+- 2026-11-09 — **CI security fixes:** certifi 2026.10.19 and dnspython 2.9.0 adopted (both > 14 days old); expired pip-audit exception removed. gitleaks flagged the deliberately fake NVD key planted by `secrets.hardening.test.ts` (in history since a01ecfa): narrow allowlist (exact value + exact path) and the test now assembles it at runtime.
 - 2026-10-29 — **Milestones 14–15 scope (owner):** SLAs + in-app monthly report (no email), change timeline, security score, lookalike domains (thaiunion.com first, per-domain brand switch), takeover confirmation, deeper email security, wider discovery (org name "Thai Union"). Not done by owner choice: notifications, integrations, screenshots, active detection checks, DNS name guessing.
 - 2026-10-29 — **SLA clock** starts at first seen, restarts on recurrence or leaving accepted risk (never on acknowledged→open); policy change recomputes all non-resolved findings; accepted risk never overdue; cron backfills missing due dates.
 - 2026-10-29 — **Security score:** 100 minus per-open-finding weights (critical 25, high 10, medium 4, low 1), overdue ×1.5, accepted risk ×0.25, 40-point cap per rule category; A ≥90 … F <60; only domains with a completed scan are graded (docs/security-score.md).
@@ -183,7 +184,7 @@ _Things only the owner can do (Cloudflare account, Neon project, Access app, sec
 - [ ] Delete the `BOOTSTRAP_ADMIN_EMAILS` Worker secret.
 - [x] ~~Restore drill~~ — passed 2026-10-26 (`scripts/local-db/restore-drill.sh`; all tables match live, 1 s).
 - [x] ~~**2 Nov 2026:** delete the Neon project and old Hyperdrive config~~ — done 2026-11-02 (owner-approved; Neon idle since the 26 Oct cutover, 7 nightly backups OK).
-- [ ] Bump certifi to 2026.10.19 on/after 2026-11-03 (CI fails then otherwise).
+- [x] ~~Bump certifi to 2026.10.19~~ — done 2026-11-09 (late: CI security scan failed from 3 Nov), together with dnspython 2.9.0 (CVE-2026-114605, crafted DNS name decompression CPU use). Reinstall the worker on the host to apply.
 - [ ] Rotate the Access service-token secret shown in a screenshot on 2026-10-23.
 
 ## Future enhancements (owner requests)

@@ -182,7 +182,7 @@ describe('repository secret scan', () => {
       `${'npg'}_AbCdEf123456XyZ`,
       `-----${B} OPENSSH ${PK}-----\n${'b3BlbnNzaC1rZXktdjEAAAAA'.repeat(4)}`,
       `${'cfat'}_0123456789abcdefABCDEF0123`,
-      `NVD_API_KEY=0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b`,
+      `NVD_API_KEY=${['0f1e2d3c', '4b5a', '6978', '8a9b', '0c1d2e3f4a5b'].join('-')}`,
       `EXDV_WORKER_PRIVATE_KEY=${'A'.repeat(43)}=`,
     ];
     for (const sample of planted) {
