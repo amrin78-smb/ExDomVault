@@ -7,9 +7,9 @@ cryptography==50.0.2
 idna==3.20
 # Transitive dependencies (pinned for reproducible installs):
 anyio==4.15.1
-certifi==2026.10.19
+certifi==2026.10.23
 cffi==2.1.1
 h11==0.16.0
 httpcore==1.0.9
-pycparser==3.0
+pycparser==3.12
 typing_extensions==4.16.0
